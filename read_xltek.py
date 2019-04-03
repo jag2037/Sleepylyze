@@ -6,43 +6,38 @@ import numpy as np
 import scipy.io as io
 
 
-def check_chans(chans, expected_chans):
-		print(chans, ' of ', expected_chans, ' expected channels found')
-		if chans != expected_chans:	# this may not be a proper check
-			print('WARNING: Not all expected channels for this headbox were detected. Proceeding with detected channels')
-
-
-def read_xltek(fname=None, savemat=False):
-	"""
-	Load a .txt file exported from XLTEK and return arrays 
-
+def get_info(fname, fpath=None):
+	""" Read in the header block and extract useful info
+	
 	Parameters
 	----------
-	datapath: string (default None)
-		path to the xltek .txt raw data file
-	savemat: BOOL
-		option to save output as a matlab file (default False)
-	
+	fname: string
+		name of xltek .txt file
+	fpath: string
+		path to .txt file
+
 	Returns
-	--------
-	time:
-	data:
-	s_freq:
-	channels:
-
-
-	TO DO: Have option to export as arrays for matlab file, default to pandas dataframe
-	"""
-	
-	if fname is None:
-		fname = input("Path to file not found. Filepath? ")
-
+	-------
+	in_num: string
+	s_freq: int
+		sampling frequency
+	chans: int
+		number of channels expected
+	hbsn: int
+		headbox serial number
+	start_time: string
+		file start time
+	 """
 	# extract IN
 	in_num = fname.split("_")[0]
 	print("Patient identifier:", in_num)
-
+	# set path to file
+	if fpath is not None:
+		filepath = fpath + fname
+	else:
+		filepath = fname
 	# extract sampling freq, # of channels, headbox sn
-	with open(fname, 'r') as f:	# pull out the header w/ first recording
+	with open(filepath, 'r') as f:	# pull out the header w/ first recording
 		header = []
 		for i in range(1,17):
 			header.append(f.readline())	# use readline (NOT READLINES) here to save memory for large files
@@ -50,45 +45,77 @@ def read_xltek(fname=None, savemat=False):
 	chans = int(header[8].split()[2]) # extract number of channels as integer
 	hbsn = int(header[10].split()[3]) # extract headbox serial number
 	start_time = header[15].split()[1] # extract start time
-			
-	# can use either the number of channels or the hbsn to determine columns to extract
 
-	# to define channels, probably want to make a new function that gets called to not clutter this fn
-	#channels = np.array(['FC5']*chans, dtype=object).reshape(chans,1) # for now create an repeated list
+	return in_num, s_freq, chans, hbsn, start_time
 
-	# define channels for different headboxes
+
+
+def check_chans(chans, expected_chans):
+		print(chans, ' of ', expected_chans, ' expected channels found')
+		if chans != expected_chans:	# this may not be a proper check
+			print('WARNING: Not all expected channels for this headbox were detected. Proceeding with detected channels')
+
+
+def define_chans(chans, hbsn):
+	""" Define the channel list for the detected headbox
+
+	Parameters
+	----------
+	chans: int
+		number of channels, specified by .txt file header
+	hbsn: int
+		headbox serial number from .txt file header
+
+	Returns
+	-------
+	channels: list
+		channel names (after removal of set chans)
+	"""
 	if hbsn == 125:
 		hbid = "MOBEE 32"
 		print('Headbox:', hbid)
 		expected_chans = 35
 		check_chans(chans, expected_chans)
-		#print(chans, ' of ', expected_chans, ' expected channels found')
-		#if chans != expected_chans:	# this may not be a proper check
-		#	print('WARNING: Not all expected channels for this headbox were detected. Proceeding with detected channels')
-		channels_all = np.array(['REF','FP1','F7','T3','A1','T5','O1','F3','C3','P3','FPZorEKG','FZ','CZ',
+		
+		channels_all = ['REF','FP1','F7','T3','A1','T5','O1','F3','C3','P3','FPZorEKG','FZ','CZ',
 			'PZ','FP2','F8','T4','A2','T6','O2','F4','C4','P4','AF7','AF8','FC5','FC6','FC1','FC2',
-			'CP5','CP6','CP1','CP2','OSAT','PR'], dtype=object).reshape(chans,1)
+			'CP5','CP6','CP1','CP2','OSAT','PR']
 		channels = channels_all[:-2]
 		channels_rmvd = channels_all[-2:]
-		print('Removed the following channels: \n', np.array_str(channels_rmvd))
+		print('Removed the following channels: \n', channels_rmvd)
 	elif hbsn == 65535:
 		hbid = "FS128"
 		print('Headbox:', hbid)
 		expected_chans = 128
 		check_chans(chans, expected_chans) 
-		channels_all = np.array(['Fp1','F3','FC1','C3','CP1','P3','O1','AF7','F7','FC5','T3','CP5',
+		channels_all = ['Fp1','F3','FC1','C3','CP1','P3','O1','AF7','F7','FC5','T3','CP5',
 			'T5','PO7','FPz','Fz','Cz','CPz','Pz','POz','Oz','FP2','F4','FC2','C4','CP2','P4','O2',
-			'AF8','F8','FC6','T4','CP6','T6','PO8','F1','F2','EOG_L','EOG_R','EKG'], 
-			dtype=object).reshape(40,1) # probably want this as a list for downstream processign
+			'AF8','F8','FC6','T4','CP6','T6','PO8','F1','F2','EOG_L','EOG_R','EKG']
 		# remove any chans here?
 		channels = channels_all
 
-		
-	# read in only the data from the file, only the channels of interest
+		return channels
+
+def load_eeg(filepath, channels):
+	""" load the eeg data and append microseconds to time column
+	
+	Parameters
+	----------
+	filepath: str
+		full path to file (fpath+fname)
+	channels: list
+		list of channel names
+	
+	Returns
+	-------
+	data: pandas.DataFrame
+		raw eeg data w/ proper channel names & time indices
+	"""
+	# set the last column of data to import
 	end_col = len(channels) + 3 # this works for MOBEE32, check for other headboxes
 
 	print('Importing EEG data...')
-	data_full = pd.read_csv(fname, delim_whitespace=True, header=None, skiprows=15, 
+	data_full = pd.read_csv(filepath, delim_whitespace=True, header=None, skiprows=15, 
 		usecols=range(0,end_col)) #.transpose() # read in the data and transpose the matrix --> maybe transpose later instead
 		
 	# Determine microsecond values & append to datetime
@@ -115,17 +142,53 @@ def read_xltek(fname=None, savemat=False):
 		h, m, s, us = [int(t) for t in data_full[1][i].split(':')]
 		dtime.append(datetime.datetime(yr, mo, d, h, m, s, us))
 		#start_time = datetime.datetime(yr, mo, d, h, m, s, us) # replace the start_time variable 
-	
-	# transpose the dataframe & convert to np arrays for .mat saving
-	data_t = data_full.transpose()
-	time = pd.DataFrame.to_numpy(data_t.loc[1])
-	data = pd.DataFrame.to_numpy(data_t.loc[3:])
-	print('Data successfully imported')
 
-	# make empty hypnogram file (for visbrain.Sleep package)
-	#print('Creating empty hypnogram...')
-	#hypno = np.zeros(data.shape[1])
-	#print('Hypnogram successfully created')
+	# make a new dataframe with the proper index & column names
+	data = data_full.loc[:,3:]
+	data.columns = channels
+	data.index = dtime
+	
+	print('Data successfully imported')
+	return data
+
+def read_xltek(fname, fpath=None):
+	"""
+	Load a .txt file exported from XLTEK and return a pandas dataframe
+
+	Parameters
+	----------
+	fname: str
+		xltek .txt raw data file
+	fpath: str (default None)
+		path to .txt file
+	
+	Returns
+	--------
+	s_freq: int
+		sampling frequency
+	data: pd.DataFrame
+		raw eeg data w/ proper channel names & time indices
+
+
+	TO DO: Have option to export as arrays for matlab file, default to pandas dataframe
+	"""
+	get_info(fname, fpath)
+	define_chans(chans, hbsn)
+	load_eeg(filepath, channels)
+
+	return s_freq, data
+
+	
+
+
+def df_to_matlab():
+	""" Export df as a .mat file """
+	## INCOMPLETE
+
+		# this is for matlab saving as arrays
+	# data_t = data_full.transpose()
+	#time = pd.DataFrame.to_numpy(data_t.loc[1])
+	#data = pd.DataFrame.to_numpy(data_t.loc[3:])
 
 	# save as .mat file (vars needed: data, channels, sf, hypno)
 	# this returns TIME, not DATETIME
