@@ -27,10 +27,6 @@ def get_info(fname, fpath=None):
 		headbox serial number
 	start_time: string
 		file start time
-
-	TO DO
-	-----
-	- throw error if file not found in current directory
 	 """
 	# extract IN
 	in_num = fname.split("_")[0]
@@ -74,10 +70,6 @@ def define_chans(chans, hbsn):
 	-------
 	channels: list
 		channel names (after removal of set chans)
-
-	TO DO
-	-----
-	- add option to format as np.array for .mat saving (ex. channels = np.array(['FC5']*chans, dtype=object).reshape(chans,1) # for a repeated list)
 	"""
 	if hbsn == 125:
 		hbid = "MOBEE 32"
@@ -119,7 +111,6 @@ def load_eeg(filepath, channels):
 	data: pandas.DataFrame
 		raw eeg data w/ proper channel names & time indices
 	"""
-
 	# set the last column of data to import
 	end_col = len(channels) + 3 # this works for MOBEE32, check for other headboxes
 
@@ -158,7 +149,6 @@ def load_eeg(filepath, channels):
 	data.index = dtime
 	
 	print('Data successfully imported')
-
 	return data
 
 def read_xltek(fname, fpath=None):
