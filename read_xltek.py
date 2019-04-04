@@ -56,7 +56,7 @@ def check_chans(chans, expected_chans):
 			print('WARNING: Not all expected channels for this headbox were detected. Proceeding with detected channels')
 
 
-def define_chans(chans, hbsn):
+def get_chans(chans, hbsn):
 	""" Define the channel list for the detected headbox
 
 	Parameters
@@ -173,7 +173,7 @@ def read_xltek(fname, fpath=None):
 	TO DO: Have option to export as arrays for matlab file, default to pandas dataframe
 	"""
 	get_info(fname, fpath)
-	define_chans(chans, hbsn)
+	get_chans(chans, hbsn)
 	load_eeg(filepath, channels)
 
 	return s_freq, data
