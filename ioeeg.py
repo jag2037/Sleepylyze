@@ -1,12 +1,13 @@
 """ import this class by using the __init__.py file 'from .ioeeg import Dataset' """
 
 import datetime
-import pandas as pd 
+import math 
 import numpy as np 
+import pandas as pd
 import scipy.io as io
 
 class Dataset:
-    """ General class containing EEG recordings --> docstring unfinished.
+    """ General class containing EEG recordings
     
     Parameters
     ----------
@@ -155,3 +156,107 @@ class Dataset:
 
         self.data = data
         print('Data successfully imported')
+
+
+
+class Rpeaks(Dataset):
+    """ Class containing R-peak detections 
+    
+    Attributes
+    ----------
+    to be completed....
+    
+    Notes
+    ------
+    To be completed:
+        - Add additional pertinent HRV stats (pnn20, etc)
+    """
+    def __init__(self, fname, fpath):
+        super().__init__(fname, fpath)
+        self.set_Rthres()
+        self.detect_rpeaks()
+        self.calc_RR()
+        self.calc_RRdiff()
+        self.RRstats()
+    
+    def set_Rthres(self, mw_size=0.2, upshift=1.05):
+        """ set R peak detection threshold based on moving average + %signal upshift """
+        s_freq = self.s_freq
+        data = self.data
+        
+        mw = int(mw_size*s_freq) # moving window size in number of samples (must be an integer)
+        mavg = data.EKG.rolling(mw).mean() # calculate rolling average on column "EKG"
+    
+        # replace edge nans with overall average
+        ekg_avg = np.mean(data['EKG'])
+        mov_avg = [ekg_avg if math.isnan(x) else x for x in mavg]
+    
+        det_thres = [x*upshift for x in mov_avg] # set detection threshold as +5% of moving average
+    
+        # make a new dataframe with just the EKG & detection threshold
+        df = pd.DataFrame(data['EKG'])
+        df['det_thres'] = det_thres
+    
+        self.ekg = df
+    
+    def detect_rpeaks(self):
+        """ detect R peaks from raw signal """
+        window = []
+        peaklist = []
+        listpos = 0 # use a counter to move over the different data columns
+        for datapoint in self.ekg.EKG:
+            m_avg = self.ekg.det_thres[listpos] # get the moving average at a given position
+            if (datapoint <= m_avg) and (len(window) < 1): # If signal has not crossed m_avg -> do nothing
+                listpos += 1
+            elif (datapoint > m_avg): # If signal crosses moving average, mark ROI
+                window.append(datapoint)
+                listpos += 1
+            else: #If signal drops below moving average -> find local maxima within window
+                peak = max(window)
+                beatposition = listpos - len(window) + (window.index(max(window))) #Notate the position of the point on the X-axis
+                peaklist.append(beatposition) #Add detected peak to list
+                window = [] #Clear marked ROI
+                listpos += 1
+            
+            self.r_times = [self.ekg.index[x] for x in peaklist] # get peak times           
+            self.r_vals = [self.ekg.EKG[x] for x in peaklist] # get peak values
+            
+    
+    def calc_RR(self):
+        """ Calculate the intervals between successive R-R peaks """
+        r_times = self.r_times
+        rr = []
+        for i in range(len(r_times)-1):
+            rr.append(r_times[i+1]-r_times[i]) # gives you a timedelta object
+        rr_us = np.array([x.microseconds for x in rr]) # convert timedelta to microseconds
+        self.rr_int = rr_us/1e6 # convert to seconds
+    
+    def calc_RRdiff(self):
+        """ Calculate the difference between successive R-R intervals, as the difference squared """
+        rr_int = self.rr_int
+        rr_diff = []
+        rr_diffsq = []
+        for i in range(len(rr_int)-1):
+            diff = abs(rr_int[i+1]-rr_int[i])
+            rr_diff.append(diff)
+            rr_diffsq.append(diff**2)
+        
+        self.rr_int_diff = rr_diff 
+        self.rr_int_diffsq = rr_diffsq
+    
+    def RRstats(self):
+        """ Calculate commonly used HRV statistics """   
+        # heartrate
+        self.heartrate = np.mean(self.rr_int)*60
+    
+        # inter-beat interval & SD
+        self.ibi = np.mean(self.rr_int)
+        self.sdnn = np.std(self.rr_int)
+    
+        # SD & RMS of differences between successive RR intervals
+        self.sdsd = np.std(self.rr_int_diff)
+        self.rmssd = np.sqrt(self.rr_int_diffsq)
+    
+        # nn20 & nn50
+    
+        # pnn20 & pnn50
