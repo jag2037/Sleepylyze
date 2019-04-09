@@ -161,6 +161,7 @@ class Dataset:
     #### EKG ANALYSIS FUNCTIONS ####
     def set_Rthres(self, mw_size=0.2, upshift=1.05):
         """ set R peak detection threshold based on moving average + %signal upshift """
+        print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
         s_freq = self.s_freq
         data = self.data
         
@@ -176,6 +177,7 @@ class Dataset:
 
     def detect_Rpeaks(self):
         """ detect R peaks from raw signal """
+        print('Detecting R peaks...')
         data = self.data
         
         window = []
@@ -197,6 +199,7 @@ class Dataset:
             
             self.r_times = [data.index[x] for x in peaklist] # get peak times           
             self.r_vals = [data.EKG[x] for x in peaklist] # get peak values
+        print('R peak detection complete')
 
     def calc_RR(self):
         """ Calculate the intervals between successive R-R peaks """
@@ -224,10 +227,12 @@ class Dataset:
         """ Calculate commonly used HRV statistics """   
         # heartrate in bpm
         self.heartrate = np.mean(self.rr_int)*60
+        print('Average heartrate = {}bpm'.format(int(self.heartrate)))
 
         # inter-beat interval & SD
         self.ibi = np.mean(self.rr_int)
         self.sdnn = np.std(self.rr_int)
+        print('Average IBI (sec) = {0:.2f} SD = {0:.2f}'.format(self.ibi, self.sdnn))
 
         # SD & RMS of differences between successive RR intervals
         self.sdsd = np.std(self.rr_int_diff)
@@ -236,6 +241,7 @@ class Dataset:
         # nn20 & nn50
 
         # pnn20 & pnn50
+        print('Call dataset.__dict__ for additional statistics')
 
     def ekgstats(self):
         self.set_Rthres()
