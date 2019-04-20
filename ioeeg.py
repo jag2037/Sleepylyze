@@ -56,6 +56,7 @@ class Dataset:
         self.load_eeg()
 
     
+    # io methods #
     def get_info(self):
         """ Read in the header block and extract useful info """
         # extract IN
@@ -108,6 +109,7 @@ class Dataset:
         self.hbsn = hbsn
         self.hbid = hbid
         self.channels = channels
+        self.eeg_channels = [e for e in self.data.columns if e not in ('EOG_L', 'EOG_R', 'EKG')]
     
     def load_eeg(self):
         """ docstring here """
@@ -158,7 +160,9 @@ class Dataset:
         print('Data successfully imported')
 
 
-    #### EKG ANALYSIS FUNCTIONS ####
+    # EKG Analysis Methods #
+    # --> want to preface self.mw params, etc. with ekg so not confused with spindle params
+    # --> want to create a new df for threshold (don't add to existing)
     def set_Rthres(self, mw_size=0.2, upshift=1.05):
         """ set R peak detection threshold based on moving average + %signal upshift """
         print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
