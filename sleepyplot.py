@@ -79,3 +79,95 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     plt.xlabel('Time')
 
     return fig
+
+
+
+def plotEEG_singlechan(d, chan, raw=True, filtered=True, rms=True, thresholds=True, spindles=False, spindle_rejects=False):
+    """ plot concurent raw and filtered single channel EEG 
+    4-24-18: DOES NOT WORK WITH SPINDLES. Add third panel w/ spindle detections
+    
+    Parameters
+    ----------
+    d: instance of ioeeg Dataset class
+    chan: list of str
+        channel to plot. Only takes one value
+    raw: bool, optional, default: True
+        Option to plot raw EEG
+    filtered: bool, optional, default: False
+        Option to plot filtered EEG
+    spindles: bool, optional, default: False
+        Option to plot spindle detections
+    spindle_rejects: bool, optional, default: False
+        Option to plot rejected spindle detections
+        
+    Returns
+    -------
+    matplotlib.pyplot figure instance
+    """
+    data = []
+    title = []
+    
+    # import data
+    if raw == True:
+        raw = d.data
+        data.append(raw)
+        title.append('Raw')
+    if filtered == True:    
+        filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
+        data.append(filtd)
+        title.append('Filtered')
+
+    # flatten events list by channel for plotting
+    if spindles == True:
+        sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
+    if spindle_rejects == True:
+        sp_rej_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects[i])) for i in d.spindle_rejects.keys()]   
+
+    # plot data    
+    fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=(18,6), squeeze=False)
+    fig.subplots_adjust(hspace=.1, top=.9, bottom=.1, left=.05, right=.95)
+    
+    for dat, ax, t in zip(data, axs.flatten(), title):
+        for i, c in enumerate(chan):
+            # normalize each channel to [0, 1] --> don't normalize for single channels
+            #dat_ser = pd.Series(dat[(c, t)], index=dat.index)
+            #norm_dat = (dat_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i # subtract i for plotting offset
+            #ax.plot(norm_dat, linewidth=.5, color='C0')
+            ax.plot(dat[(c, t)], linewidth=.5, color='C0', label=None)
+            
+            # plot spindles
+            if spindles == True:
+                sp_events_TS = [pd.Timestamp(x) for x in sp_eventsflat[i]]
+                #spins = pd.Series(index=norm_dat.index)
+                spins = pd.Series(index=dat.index)
+                #spins[sp_events_TS] = norm_dat[sp_events_TS]
+                spins[sp_events_TS] = dat[sp_events_TS]
+                ax.plot(spins, color='orange', alpha=0.5)
+            if spindle_rejects == True:
+                sp_rejs_TS = [pd.Timestamp(x) for x in sp_rej_eventsflat[i]]
+                #spin_rejects = pd.Series(index=norm_dat.index)
+                spin_rejects = pd.Series(index=dat.index)
+                #spin_rejects[sp_rejs_TS] = norm_dat[sp_rejs_TS]
+                spin_rejects[sp_rejs_TS] = dat[sp_rejs_TS]
+                ax.plot(spin_rejects, color='red', alpha=0.5)
+            if t == 'Filtered' and rms == True:
+                ax.plot(d.spRMS[c], label='RMS')
+                ax.plot(d.spRMSmavg[c], label='RMS moving average')
+            if t == 'Filtered' and thresholds == True:
+                ax.axhline(d.spThresholds[c].loc['Low Threshold'], linestyle='dashed', color='grey', label = 'Mean RMS + 1 SD')
+                ax.axhline(d.spThresholds[c].loc['High Threshold'], linestyle='dashed', color='grey', label = 'Mean RMS + 1.5 SD')
+            ax.legend(loc='lower left')
+        
+        #ax.set_title(t)
+        ax.set_yticks(list(np.arange(0.5, -(len(chan)-1), -1)))
+        ax.set_yticklabels(chan)
+        ax.margins(x=0) # remove white space margins between data and y axis
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+    
+    # set overall parameters
+    #plot_title = d.in_num + ' ' + c
+    fig.suptitle(d.in_num)
+    plt.xlabel('Time')
+    
+    return fig
