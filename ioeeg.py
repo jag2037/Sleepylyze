@@ -154,7 +154,7 @@ class Dataset:
 
         # make a new dataframe with the proper index & column names
         data = data_full.loc[:,3:]
-        data.columns = channels
+        data.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('Raw'), len(channels))],names=['Channel','datatype'])
         data.index = dtime
 
         self.data = data
@@ -281,7 +281,7 @@ class Dataset:
     # step 2: filter channels
     def filt_EEG_singlechan(self, i):
         """ Apply Butterworth bandpass to signal by channel """
-        filt_chan = sosfiltfilt(self.sos, self.data[i].to_numpy())
+        filt_chan = sosfiltfilt(self.sos, self.data[i].to_numpy(), axis=0)
         self.spfiltEEG[i] = filt_chan
     
     # steps 3-4: calculate RMS & smooth   
@@ -368,13 +368,13 @@ class Dataset:
     def spMultiIndex(self):
         """ combine dataframes into a multiIndex dataframe"""
         # reset column levels
-        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.eeg_channels, np.repeat(('Filtered EEG'), len(self.eeg_channels))],names=['Channel','datatype'])
+        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.eeg_channels, np.repeat(('Filtered'), len(self.eeg_channels))],names=['Channel','datatype'])
         self.spRMS.columns = pd.MultiIndex.from_arrays([self.eeg_channels, np.repeat(('RMS'), len(self.eeg_channels))],names=['Channel','datatype'])
         self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.eeg_channels, np.repeat(('RMSmavg'), len(self.eeg_channels))],names=['Channel','datatype'])
 
         # list df vars for index specs
         dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
-        calcs = ['Filtered EEG', 'RMS', 'RMSmavg']
+        calcs = ['Filtered', 'RMS', 'RMSmavg']
         lvl0 = np.repeat(self.eeg_channels, len(calcs))
         lvl1 = calcs*len(self.eeg_channels)    
     
