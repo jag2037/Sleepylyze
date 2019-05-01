@@ -158,6 +158,39 @@ class Dataset:
         print('Data successfully imported')
 
 
+    def load_hyp(self, scorefile, date):
+        """ Loads hypnogram .txt file and aligns with Dataset
+        
+        Parameters
+        ----------
+        scorefile: .txt file
+            plain text file with 30-second epoch sleep scores, formatted [hh:mm:ss score]
+        date: str
+            start date of sleep scoring, formatted 'MM-DD-YYYY'
+        
+        NOTES
+        -----
+        To Do: Require .txt file to include start date?
+        """
+        # read the first 8 characters to get the starting time
+        with open(scorefile, 'r') as f:
+                start_sec = f.read(8)
+                
+        # read in sleep scores & resample to EEG/EKG frequency
+        scores = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
+        scores = pd.DataFrame(np.repeat(scores.values, self.s_freq*30,axis=0), columns=scores.columns)
+        
+        # reindex to match EEG/EKG data
+        ind_freq = str(int(1/self.s_freq*1000000))+'us'
+        ind_start = date + ' ' + start_sec + '.000'
+        ind = pd.date_range(start = ind_start, periods=len(scores), freq=ind_freq)
+        scores.index = ind
+        scores = pd.Series(scores['Score'])
+        
+        # add hypnogram column to dataframe (tested against join, concat, merge; this is fastest) 
+        self.data[('Hyp', 'Score')] = scores
+
+
     # EKG Analysis Methods #
     # --> want to preface self.mw params, etc. with ekg so not confused with spindle params
     # --> want to create a new df for threshold (don't add to existing)
