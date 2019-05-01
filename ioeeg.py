@@ -9,6 +9,9 @@ from scipy.signal import buttord, butter, sosfiltfilt, sosfreqz
 
 class Dataset:
     """ General class containing EEG recordings
+
+    NOTE: This assumes a continuous record. If record breaks are present they WILL NOT
+    be detected and timestamps will be inaccurate
     
     Parameters
     ----------
@@ -67,12 +70,22 @@ class Dataset:
         # extract sampling freq, # of channels, headbox sn
         with open(self.filepath, 'r') as f: # pull out the header w/ first recording
             header = []
-            for i in range(1,17):
+            for i in range(1, 267): # this assumes s_freq<=250
                 header.append(f.readline()) # use readline (NOT READLINES) here to save memory for large files
         self.s_freq = int(float(header[7].split()[3])) # extract sampling frequency
         self.chans = int(header[8].split()[2]) # extract number of channels as integer
         self.hbsn = int(header[10].split()[3]) # extract headbox serial number
-        self.start_time = header[15].split()[1] # extract start time
+        self.start_date = (header[15].split()[0]).replace('/', '-')
+        self.start_time = header[15].split()[1] # extract start time in hh:mm:ss
+        
+        # Get starting time in usec for index
+        firstsec = []
+        for i in range(15, len(header)):
+            firstsec.append(header[i].split()[1])
+        firstsec = pd.Series(firstsec)
+        # Find the timestamp cut between seconds 1 & 2, convert to usec
+        first_read = self.s_freq - (firstsec.eq(self.start_time).sum())
+        self.start_us = 1/self.s_freq*first_read
          
     def get_chans(self):
         """ Define the channel list for the detected headbox """
@@ -85,7 +98,7 @@ class Dataset:
                 print('WARNING: Not all expected channels for this headbox were detected. Proceeding with detected channels')
         
         if hbsn == 125:
-            hbid = "MOBEE 32"
+            hbid = "MOBEE 32" # EKG only used for one pt (IN343C??)
             print('Headbox:', hbid)
             expected_chans = 35
             check_chans(chans, expected_chans)
@@ -95,6 +108,16 @@ class Dataset:
             channels = channels_all[:-2]
             channels_rmvd = channels_all[-2:]
             print('Removed the following channels: \n', channels_rmvd)
+
+        elif hbsn == 65535 and self.chans == 40: # for IN346B. need to adjust this for other EMU40s
+            hbid = "EMU40 DB+18"
+            print('Headbox:', hbid)
+            expected_chans = 40 
+            check_chans(chans, expected_chans) # this check does nothing here
+            channels_all = ['Fp1','F7','T3','T5','O1','F3','C3','P3','EMGref','Fz','Cz','Fp2','F8','T4',
+                'T6','O2','F4','C4','P4','EMG','FPz','Pz','AF7','AF8','FC5','FC6','FC1','FC2','CP5','CP6',
+                'CP1','CP2','PO7','PO8','F1','F2','CPz','POz','Oz','EKG']
+            channels = channels_all # remove EMGs?
             
         elif hbsn == 65535:
             hbid = "FS128"
@@ -114,48 +137,22 @@ class Dataset:
     
     def load_eeg(self):
         """ docstring here """
-        # set vars (since this code was already written as standalone)
-        s_freq = self.s_freq
-        start_time = self.start_time
-        filepath = self.filepath
-        channels = self.channels
-        
         # set the last column of data to import
-        end_col = len(channels) + 3 # works for MOBEE32, check for other headboxes
+        end_col = len(self.channels) + 3 # works for MOBEE32, check for other headboxes
         
+        # read in only the data
         print('Importing EEG data...')
-        data_full = pd.read_csv(filepath, delim_whitespace=True, header=None, skiprows=15, 
-        usecols=range(0,end_col)) #.transpose() # read in the data and transpose the matrix --> maybe transpose later instead
-
-        # Determine microsecond values & append to datetime
-        step_size = int(1000000/s_freq)
-        readings = range(1, s_freq+1) # add one bc range is non-inclusive
-        usecs = range(0, 1000000, step_size)
-        usec_dict = dict(zip(readings, usecs))
-
-        first_us = s_freq - (data_full[1].eq(start_time).sum())
-        reps, rem = divmod((len(data_full) - first_us), s_freq) # get the number of full repeates and the remainder
-        last_us = s_freq - rem
-        # make the list of usecs as strings
-        usec_col = list(map(str,((list(usecs[first_us:]) + list(np.tile(usecs, reps)) + list(usecs[:last_us])))))
-
-        new_time = [] # make the new column
-        for i in range(0, len(data_full)): # fill it with values
-            new_time.append(data_full[1][i] + ':' + usec_col[i])
-        data_full[1] = new_time # replace the old column
-
-        # combine date & time columns to a datetime object
-        dtime = []
-        for i, (d, t) in enumerate(zip(data_full[0], data_full[1])):
-            mo, d, yr = [int(d) for d in data_full[0][i].split('/')]
-            h, m, s, us = [int(t) for t in data_full[1][i].split(':')]
-            dtime.append(datetime.datetime(yr, mo, d, h, m, s, us))
-            #start_time = datetime.datetime(yr, mo, d, h, m, s, us) # replace the start_time variable 
+        data = pd.read_csv(self.filepath, delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
+                               dtype = np.float64)
+        
+        # create DateTimeIndex
+        ind_freq = str(int(1/self.s_freq*1000000))+'us'
+        ind_start = self.start_date + ' ' + self.start_time + str(self.start_us)[1:]
+        ind = pd.date_range(start = ind_start, periods=len(data), freq=ind_freq)
 
         # make a new dataframe with the proper index & column names
-        data = data_full.loc[:,3:]
-        data.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('Raw'), len(channels))],names=['Channel','datatype'])
-        data.index = dtime
+        data.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Raw'), len(self.channels))],names=['Channel','datatype'])
+        data.index = ind
 
         self.data = data
         print('Data successfully imported')
