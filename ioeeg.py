@@ -142,8 +142,9 @@ class Dataset:
         
         # read in only the data
         print('Importing EEG data...')
+        # setting dtype to float will speed up load, but crashes if there is anything wrong with the record
         data = pd.read_csv(self.filepath, delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
-                               dtype = np.float64)
+                               dtype = object)
         
         # create DateTimeIndex
         ind_freq = str(int(1/self.s_freq*1000000))+'us'
@@ -165,6 +166,7 @@ class Dataset:
         ----------
         scorefile: .txt file
             plain text file with 30-second epoch sleep scores, formatted [hh:mm:ss score]
+            NOTE: Time must be in 24h time & scores in integer format
         date: str
             start date of sleep scoring, formatted 'MM-DD-YYYY'
         
