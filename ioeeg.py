@@ -166,7 +166,7 @@ class Dataset:
         ----------
         scorefile: .txt file
             plain text file with 30-second epoch sleep scores, formatted [hh:mm:ss score]
-            NOTE: Time must be in 24h time & scores in integer format
+            NOTE: Time must be in 24h time & scores in consistent format (int or float)
         date: str
             start date of sleep scoring, formatted 'MM-DD-YYYY'
         
@@ -190,7 +190,18 @@ class Dataset:
         scores = pd.Series(scores['Score'])
         
         # add hypnogram column to dataframe (tested against join, concat, merge; this is fastest) 
-        self.data[('Hyp', 'Score')] = scores
+        self.data[('Hyp', 'Stage')] = scores
+
+        # get cycle blocks for each stage (detect non-consecutive indices & assign cycles)
+        stages = {'awake': 0.0, 'rem': 1.0, 's1': 2.0, 's2': 3.0, 'ads': 4.0, 'sws': 5.0, 'rbrk': 6.0}
+        ms = pd.Timedelta(1/self.s_freq*1000, 'ms')
+        self.sleepstages = stages
+
+        for stage, val in stages.items():
+            df = self.data.loc[self.data[('Hyp', 'Stage')] == val]
+            breaks = df.index.to_series().diff() != ms
+            cycles = breaks.cumsum()
+            self.data.loc[cycles.index, ('Hyp', 'Cycle')] = cycles
 
 
     # EKG Analysis Methods #
