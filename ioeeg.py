@@ -144,7 +144,7 @@ class Dataset:
         print('Importing EEG data...')
         # setting dtype to float will speed up load, but crashes if there is anything wrong with the record
         data = pd.read_csv(self.filepath, delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
-                               dtype = object)
+                               dtype = float, na_values = ['AMPSAT', 'SHORT'])
         
         # create DateTimeIndex
         ind_freq = str(int(1/self.s_freq*1000000))+'us'
@@ -160,7 +160,8 @@ class Dataset:
 
 
     def load_hyp(self, scorefile, date):
-        """ Loads hypnogram .txt file and aligns with Dataset
+        """ Loads hypnogram .txt file and produces DateTimeIndex by sleep stage and 
+        stage cycle for cutting
         
         Parameters
         ----------
@@ -169,39 +170,78 @@ class Dataset:
             NOTE: Time must be in 24h time & scores in consistent format (int or float)
         date: str
             start date of sleep scoring, formatted 'MM-DD-YYYY'
+
+        Returns:
+        --------
+        self.stage_cuts: dict
+            Nested dict of sleep stages with DateTimeIndex by cycle (consecutive 
+            block w/in each stage) 
+            Ex. {'awake': {1: DateTimeIndex[(...)], 2: DateTimeIndex[(...)]}}
         
         NOTES
         -----
         To Do: Require .txt file to include start date?
         """
-        # read the first 8 characters to get the starting time
+                # read the first 8 characters to get the starting time
         with open(scorefile, 'r') as f:
                 start_sec = f.read(8)
                 
         # read in sleep scores & resample to EEG/EKG frequency
+        print('Importing sleep scores...')
         scores = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
         scores = pd.DataFrame(np.repeat(scores.values, self.s_freq*30,axis=0), columns=scores.columns)
         
         # reindex to match EEG/EKG data
+        ## --> add warning here if index start date isn't found in EEG data
         ind_freq = str(int(1/self.s_freq*1000000))+'us'
         ind_start = date + ' ' + start_sec + '.000'
         ind = pd.date_range(start = ind_start, periods=len(scores), freq=ind_freq)
         scores.index = ind
-        scores = pd.Series(scores['Score'])
+
+        # check that scorefile and data overlap
+        print('Veryifying timestamp overlap (>5s runtime most likely means no overlap) ...')
+        for i in ind:
+            if i in self.data.index:
+                overlap = i
+                self.hyp = pd.Series(scores['Score'])
+                print(('Scorefile and Data timestamp match detected at {}.').format(i))
+                break
+        try:
+            overlap
+        except:
+            raise Exception(('Scorefile times do not overlap with data times. Check "Date" parameter and sleep scoring./n Scorefile start:{}  Data start:{}').format(ind[0], self.data.index[0]))
         
         # add hypnogram column to dataframe (tested against join, concat, merge; this is fastest) 
-        self.data[('Hyp', 'Stage')] = scores
+        #self.data[('Hyp', 'Stage')] = scores
 
         # get cycle blocks for each stage (detect non-consecutive indices & assign cycles)
         stages = {'awake': 0.0, 'rem': 1.0, 's1': 2.0, 's2': 3.0, 'ads': 4.0, 'sws': 5.0, 'rbrk': 6.0}
         ms = pd.Timedelta(1/self.s_freq*1000, 'ms')
         self.sleepstages = stages
 
+        print('Cutting sleep stages & cycles...')
+        stage_cuts = {}
         for stage, val in stages.items():
-            df = self.data.loc[self.data[('Hyp', 'Stage')] == val]
-            breaks = df.index.to_series().diff() != ms
-            cycles = breaks.cumsum()
-            self.data.loc[cycles.index, ('Hyp', 'Cycle')] = cycles
+            stage_dat = self.hyp[self.hyp == val]
+            # if the sleep stage is present
+            if len(stage_dat) != 0:
+                # detect non-consecutive indices to determine cycle breaks
+                breaks = stage_dat.index.to_series().diff() != ms
+                # assign cycle # for each consecutive block
+                cycles = breaks.cumsum()
+                
+                # get index values for each cycle block, add entry to cyc dict
+                cyc = {}
+                for c in range(1, max(cycles)+1):
+                    idx = cycles[cycles == c].index   
+                    cyc[c] = idx
+                # add cyc dict to nested stage_cuts dict
+                stage_cuts[stage] = cyc
+            else:
+                stage_cuts[stage] = None
+
+        self.stage_cuts = stage_cuts
+        print('Done.')
 
 
     # EKG Analysis Methods #
