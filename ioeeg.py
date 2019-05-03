@@ -242,7 +242,17 @@ class Dataset:
         self.stage_cuts = stage_cuts
         print('Done.')
 
-
+    def cut_segments(self):
+        """ cut dataset based on loaded hypnogram """
+        cut_data = {}
+        for stage in d.stage_cuts.keys():
+            if d.stage_cuts[stage] is not None:
+                data = {}
+                cycs = len(d.stage_cuts[stage])
+                for c in range(1, cycs+1):
+                    data[c] = d.data.loc[(d.stage_cuts[stage][c])]
+                cut_data[stage] = data
+        self.cut_data = cut_data
 
 
 
