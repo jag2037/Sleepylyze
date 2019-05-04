@@ -242,18 +242,118 @@ class Dataset:
         self.stage_cuts = stage_cuts
         print('Done.')
 
-    def cut_segments(self):
-        """ cut dataset based on loaded hypnogram """
+    def cut_segments(self, sleepstage='all'):
+        """ cut dataset based on loaded hypnogram 
+        Parameters
+        ----------
+        stage: str or list of str
+            sleep stages to cut. Options: {'awake', 'rem', s1', 's2', 'ads', 'sws', 'rcbrk'} """
+        if sleepstage == 'all':
+            stages = self.stage_cuts.keys()
+        else:
+            stage = sleepstage
+
         cut_data = {}
-        for stage in d.stage_cuts.keys():
-            if d.stage_cuts[stage] is not None:
+        for stage in stages:
+            if self.stage_cuts[stage] is not None:
                 data = {}
-                cycs = len(d.stage_cuts[stage])
+                cycs = len(self.stage_cuts[stage])
                 for c in range(1, cycs+1):
-                    data[c] = d.data.loc[(d.stage_cuts[stage][c])]
+                    data[c] = self.data.loc[(self.stage_cuts[stage][c])]
                 cut_data[stage] = data
+
         self.cut_data = cut_data
 
+
+    def export_csv(self, data, stages = 'all', outputdir=None):
+        """ Export data to csv 
+        
+        Parameters
+        ----------
+        data: df or dict
+            data to export. Dict is dict nested by sleep stage, cycle, and data (produced by Dataset.cut_eeg())
+        stages: str or list
+            stages to export (for use in combination with dict data type)
+            Options: [awake, rem, s1, s2, ads, sws, rcbrk]
+
+        Returns
+        -------
+        csv files w/ EEG data
+        
+        """
+        import os
+
+        # set save dirctory
+        if outputdir is None:
+            savedir = os.getcwd()
+            chngdir = input('Files will be saved to ' + savedir + '. Change save directory? [Y/N] ')
+            if chngdir == 'Y':
+                savedir = input('New save directory: ')
+                if not os.path.exists(savedir):
+                    createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
+                    if createdir == 'Y':
+                        os.makedirs(savedir)
+                    else:
+                        savedir = input('Try again. Save directory: ')
+                        if not os.path.exists(savedir):
+                            print(savedir + ' does not exist. Aborting. ')
+                            return
+        
+        # set savename base & elements for modification
+        savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+        savename_elems = savename_base.split('_')
+        
+        # Export a a single dataframe
+        if type(data) == pd.core.frame.DataFrame:
+            df = data
+            spec_stg =  input('Specify sleep stage? [Y/N] ')
+            if spec_stg == 'N':
+                savename = savename_base
+            if spec_stg == 'Y':
+                stg = input('Sleep stage: ')
+                spec_cyc = input('Specify cycle? [Y/N] ')
+                if spec_cyc == 'N':
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_' + savename_elems[2]
+                elif spec_cyc == 'Y':
+                    cyc = input('Sleep stage cycle: ')
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
+            
+            print('Exporting file...\n')
+            data.to_csv(os.path.join(savedir, savename))
+            print(('{} successfully exported.\n*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".').format(savename))
+     
+        # export a nested dict of dataframes
+        if type(data) == dict:
+            print('Exporting files...\n')
+            if stages == 'all':
+                for stg in self.cut_data.keys():
+                    for cyc in self.cut_data[stg].keys():
+                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
+                        data.to_csv(os.path.join(savedir, savename))
+                        print(('{} successfully exported.').format(savename)) 
+            elif type(stages) == list:
+                for stg in stages:
+                    if stg not in d.cut_data.keys():
+                        stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [skip]: ')
+                    if stg == 'skip':
+                        continue
+                    for cyc in self.cut_data[stg].keys():
+                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
+                        data.to_csv(os.path.join(savedir, savename))
+                        print(('{} successfully exported.').format(savename))
+            elif type(stages) == str:
+                stg = stages
+                if stg not in d.cut_data.keys():
+                    stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [abort]: ')
+                if stg == 'abort':
+                    return
+                for cyc in self.cut_data[stg].keys():
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
+                    data.to_csv(os.path.join(savedir, savename))
+                    print(('{} successfully exported.').format(savename))
+               
+        else:
+            print(('Abort: Data must be type pd.core.frame.DataFrame or dict. Input data is type {}.').format(type(data)))
 
 
     ## Spindle Detection Methods ##
