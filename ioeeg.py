@@ -265,13 +265,13 @@ class Dataset:
         self.cut_data = cut_data
 
 
-    def export_csv(self, data, stages = 'all', outputdir=None):
+    def export_csv(self, data=None, stages = 'all', savedir=None):
         """ Export data to csv 
         
         Parameters
         ----------
-        data: df or dict
-            data to export. Dict is dict nested by sleep stage, cycle, and data (produced by Dataset.cut_eeg())
+        data: df [Optional]
+            Single dataframe to export. Defaults to self.cut_data dict of dfs produced by Dataset.cut_eeg())
         stages: str or list
             stages to export (for use in combination with dict data type)
             Options: [awake, rem, s1, s2, ads, sws, rcbrk]
@@ -284,7 +284,7 @@ class Dataset:
         import os
 
         # set save dirctory
-        if outputdir is None:
+        if savedir is None:
             savedir = os.getcwd()
             chngdir = input('Files will be saved to ' + savedir + '. Change save directory? [Y/N] ')
             if chngdir == 'Y':
@@ -298,14 +298,22 @@ class Dataset:
                         if not os.path.exists(savedir):
                             print(savedir + ' does not exist. Aborting. ')
                             return
+        elif not os.path.exists(savedir):
+            print(savedir + ' does not exist. Creating directory...')
+            os.makedirs(savedir)
+        else:
+            print('Files will be saved to ' + savedir)
         
-        # set savename base & elements for modification
-        savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
-        savename_elems = savename_base.split('_')
-        
-        # Export a a single dataframe
-        if type(data) == pd.core.frame.DataFrame:
+        # Option to export a single dataframe
+        if data is not None:
+            # abort if data is not a single df
+            if type(data) != pd.core.frame.DataFrame:
+                print(('If data parameter is specified, type must be pd.core.frame.DataFrame. Specified data is type {}').format(type(data)))
+                return
+            # set savename base & elements for modification
             df = data
+            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+            savename_elems = savename_base.split('_')
             spec_stg =  input('Specify sleep stage? [Y/N] ')
             if spec_stg == 'N':
                 savename = savename_base
@@ -322,34 +330,43 @@ class Dataset:
             data.to_csv(os.path.join(savedir, savename))
             print(('{} successfully exported.\n*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".').format(savename))
      
-        # export a nested dict of dataframes
-        if type(data) == dict:
+        # Export a nested dict of dataframes [Default]
+        elif data is None:
             print('Exporting files...\n')
             if stages == 'all':
                 for stg in self.cut_data.keys():
                     for cyc in self.cut_data[stg].keys():
-                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
-                        data.to_csv(os.path.join(savedir, savename))
+                        df = self.cut_data[stg][cyc]
+                        savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                        savename_elems = savename_base.split('_')
+                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2]
+                        df.to_csv(os.path.join(savedir, savename))
                         print(('{} successfully exported.').format(savename)) 
             elif type(stages) == list:
                 for stg in stages:
-                    if stg not in d.cut_data.keys():
+                    if stg not in self.cut_data.keys():
                         stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [skip]: ')
                     if stg == 'skip':
                         continue
                     for cyc in self.cut_data[stg].keys():
-                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
-                        data.to_csv(os.path.join(savedir, savename))
+                        df = self.cut_data[stg][cyc]
+                        savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                        savename_elems = savename_base.split('_')
+                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2]
+                        df.to_csv(os.path.join(savedir, savename))
                         print(('{} successfully exported.').format(savename))
             elif type(stages) == str:
                 stg = stages
-                if stg not in d.cut_data.keys():
+                if stg not in self.cut_data.keys():
                     stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [abort]: ')
                 if stg == 'abort':
                     return
                 for cyc in self.cut_data[stg].keys():
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
-                    data.to_csv(os.path.join(savedir, savename))
+                    df = self.cut_data[stg][cyc]
+                    savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                    savename_elems = savename_base.split('_')
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2]
+                    df.to_csv(os.path.join(savedir, savename))
                     print(('{} successfully exported.').format(savename))
                
         else:
