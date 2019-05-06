@@ -1,9 +1,14 @@
-""" This file contains the EKG class and helper functions for batch loading """
+""" This file contains the EKG class and helper functions for batch loading 
+
+    TO DO:
+        1. Add helper function for batch loading -- Completed 5-6-19
+        2. Optimize detect_Rpeaks() for speed
+    """
 
 import datetime
-import pandas as pd 
-import math
 import numpy as np 
+import os
+import pandas as pd 
 import scipy.io as io
 
 class EKG:
@@ -25,20 +30,19 @@ class EKG:
         self.in_num, self.start_date, self.slpstage, self.cycle = fname.split('_')[:-1]
         
         self.load_ekg()
+        print(('EKG successfully imported:\n\tPatient Identifier: {}\n\tStart Date:{}\n\tStage/cycle: {} {}\n').format(self.in_num, self.start_date, self.slpstage, self.cycle))
         
 
     def load_ekg(self):
         """ Load ekg data and extract sampling frequency """
-        data = pd.read_csv(self.filepath, header = [0, 1], index_col = 0)['EKG']
-        data.index = pd.to_datetime(data.index)
+        data = pd.read_csv(self.filepath, header = [0, 1], index_col = 0, parse_dates=True)['EKG']
+        #data.index = pd.to_datetime(data.index)
         self.data = data
 
         diff = data.index.to_series().diff()[1:2]
         self.s_freq = 1000000/diff[0].microseconds
 
-    ### EKG analysis methods
-    # --> want to create a new df for threshold (don't add to existing)
-    def set_Rthres(self, mw_size=0.2, upshift=1.05):
+    def set_Rthres(self, mw_size, upshift):
         """ set R peak detection threshold based on moving average + %signal upshift """
         print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
         
@@ -52,7 +56,7 @@ class EKG:
 
         # set detection threshold as +5% of moving average
         det_thres = mavg*upshift
-        self.data['EKG_thres'] = det_thres
+        self.data['EKG_thres'] = det_thres # can remove this for speed, just keep as series
 
     def detect_Rpeaks(self):
         """ detect R peaks from raw signal """
@@ -75,25 +79,22 @@ class EKG:
                 window = [] #Clear marked ROI
                 listpos += 1
             
-            self.r_times = [self.data.index[x] for x in peaklist] # get peak times           
-            self.r_vals = [self.data.Raw[x] for x in peaklist] # get peak values
+            self.rpeaks = self.data['Raw'].loc[self.data.index[peaklist]]
         print('R peak detection complete')
 
     def calc_RR(self):
         """ Calculate the intervals between successive R-R peaks, as well as first order derivative """
-        rr = []
-        for i in range(len(self.r_times)-1):
-            rr.append(self.r_times[i+1]-self.r_times[i]) # gives you a timedelta object
-        rr_us = np.array([x.microseconds for x in rr]) # convert timedelta to microseconds
-        
-        self.rr_int = rr_us/1e6 # convert to seconds
+        # get time between peaks and convert to seconds
+        self.rr_int = np.diff(self.rpeaks.index)/np.timedelta64(1, 's')
+        # get difference between intervals & squared
         self.rr_int_diff = np.diff(self.rr_int)
         self.rr_int_diffsq = self.rr_int_diff**2
 
     def calc_RRstats(self):
         """ Calculate commonly used HRV statistics """   
         # heartrate in bpm
-        self.heartrate = np.mean(self.rr_int)*60
+        secs = int((self.data.index[-1]-self.data.index[0])/np.timedelta64(1, 's'))
+        self.heartrate = (len(self.rpeaks)/secs) *60
         print('Average heartrate = {}bpm'.format(int(self.heartrate)))
 
         # inter-beat interval & SD
@@ -110,8 +111,41 @@ class EKG:
         # pnn20 & pnn50
         print('Call ekg.__dict__ for additional statistics')
 
-    def ekgstats(self):
-        self.set_Rthres()
+    def ekgstats(self, mw_size = 0.2, upshift = 1.05):
+        """ Calculate all statistics on EKG object """
+        self.set_Rthres(mw_size, upshift)
         self.detect_Rpeaks()
         self.calc_RR()
         self.calc_RRstats()
+
+
+
+def loadEKG_batch(path, stage=None):
+    """ Batch import all raw data from a given directory 
+    
+    Parameters
+    ----------
+    dirc: str
+        Directory containing raw files to import
+    stage: str {Default: None}
+        Sleep stage to import [Options: awake, rem, s1, s2, ads, sws, rcbrk]
+
+    Returns
+    -------
+    List of EKG class objects
+
+    """
+
+    files = [x for x in os.listdir(path) if stage in x]
+    if len(files) == 0:
+        print('"'+ stage +'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk. Aborting.')
+
+    names = ['ekg'+ str(n) for n, m in enumerate(files)]
+    ekg_set = []
+    for file, name in zip(files, names):
+        name = EKG(file, path)
+        ekg_set.append(name)
+
+    return ekg_set
+
+
