@@ -42,15 +42,17 @@ class EKG:
         """ set R peak detection threshold based on moving average + %signal upshift """
         print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
         
-        mw = int(mw_size*self.s_freq) # moving window size in number of samples (must be an integer)
-        mavg = self.data.Raw.rolling(mw).mean() # calculate rolling average on column "EKG"
+        # convert moving window to sample & calc moving average over window
+        mw = int(mw_size*self.s_freq)
+        mavg = self.data.Raw.rolling(mw).mean()
 
         # replace edge nans with overall average
         ekg_avg = np.mean(self.data['Raw'])
-        mov_avg = [ekg_avg if math.isnan(x) else x for x in mavg]
+        mavg = mavg.fillna(ekg_avg)
 
-        det_thres = [x*upshift for x in mov_avg] # set detection threshold as +5% of moving average
-        self.data['EKG_thres'] = det_thres # add a column onto the EEG dataframe
+        # set detection threshold as +5% of moving average
+        det_thres = mavg*upshift
+        self.data['EKG_thres'] = det_thres
 
     def detect_Rpeaks(self):
         """ detect R peaks from raw signal """
@@ -106,11 +108,10 @@ class EKG:
         # nn20 & nn50
 
         # pnn20 & pnn50
-        print('Call dataset.__dict__ for additional statistics')
+        print('Call ekg.__dict__ for additional statistics')
 
     def ekgstats(self):
         self.set_Rthres()
         self.detect_Rpeaks()
         self.calc_RR()
-        self.calc_RRdiff()
         self.calc_RRstats()
