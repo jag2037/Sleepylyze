@@ -26,7 +26,7 @@ class EKG:
         
         self.load_ekg()
         
-    
+
     def load_ekg(self):
         """ Load ekg data and extract sampling frequency """
         data = pd.read_csv(self.filepath, header = [0, 1], index_col = 0)['EKG']
@@ -41,29 +41,26 @@ class EKG:
     def set_Rthres(self, mw_size=0.2, upshift=1.05):
         """ set R peak detection threshold based on moving average + %signal upshift """
         print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
-        s_freq = self.s_freq
-        data = self.data
         
-        mw = int(mw_size*s_freq) # moving window size in number of samples (must be an integer)
-        mavg = data.EKG.rolling(mw).mean() # calculate rolling average on column "EKG"
+        mw = int(mw_size*self.s_freq) # moving window size in number of samples (must be an integer)
+        mavg = self.data.Raw.rolling(mw).mean() # calculate rolling average on column "EKG"
 
         # replace edge nans with overall average
-        ekg_avg = np.mean(data['EKG'])
+        ekg_avg = np.mean(self.data['Raw'])
         mov_avg = [ekg_avg if math.isnan(x) else x for x in mavg]
 
         det_thres = [x*upshift for x in mov_avg] # set detection threshold as +5% of moving average
-        data['EKG_thres'] = det_thres # add a column onto the EEG dataframe
+        self.data['EKG_thres'] = det_thres # add a column onto the EEG dataframe
 
     def detect_Rpeaks(self):
         """ detect R peaks from raw signal """
         print('Detecting R peaks...')
-        data = self.data
         
         window = []
         peaklist = []
         listpos = 0 # use a counter to move over the different data columns
-        for datapoint in data.EKG:
-            m_avg = data.EKG_thres[listpos] # get the moving average at a given position
+        for datapoint in self.data.Raw:
+            m_avg = self.data.EKG_thres[listpos] # get the moving average at a given position
             if (datapoint <= m_avg) and (len(window) < 1): # If signal has not crossed m_avg -> do nothing
                 listpos += 1
             elif (datapoint > m_avg): # If signal crosses moving average, mark ROI
@@ -76,31 +73,20 @@ class EKG:
                 window = [] #Clear marked ROI
                 listpos += 1
             
-            self.r_times = [data.index[x] for x in peaklist] # get peak times           
-            self.r_vals = [data.EKG[x] for x in peaklist] # get peak values
+            self.r_times = [self.data.index[x] for x in peaklist] # get peak times           
+            self.r_vals = [self.data.Raw[x] for x in peaklist] # get peak values
         print('R peak detection complete')
 
     def calc_RR(self):
-        """ Calculate the intervals between successive R-R peaks """
-        r_times = self.r_times
+        """ Calculate the intervals between successive R-R peaks, as well as first order derivative """
         rr = []
-        for i in range(len(r_times)-1):
-            rr.append(r_times[i+1]-r_times[i]) # gives you a timedelta object
+        for i in range(len(self.r_times)-1):
+            rr.append(self.r_times[i+1]-self.r_times[i]) # gives you a timedelta object
         rr_us = np.array([x.microseconds for x in rr]) # convert timedelta to microseconds
-        self.rr_int = rr_us/1e6 # convert to seconds
-
-    def calc_RRdiff(self):
-        """ Calculate the difference between successive R-R intervals, as the difference squared """
-        rr_int = self.rr_int
-        rr_diff = []
-        rr_diffsq = []
-        for i in range(len(rr_int)-1):
-            diff = abs(rr_int[i+1]-rr_int[i])
-            rr_diff.append(diff)
-            rr_diffsq.append(diff**2)
         
-        self.rr_int_diff = rr_diff 
-        self.rr_int_diffsq = rr_diffsq
+        self.rr_int = rr_us/1e6 # convert to seconds
+        self.rr_int_diff = np.diff(self.rr_int)
+        self.rr_int_diffsq = self.rr_int_diff**2
 
     def calc_RRstats(self):
         """ Calculate commonly used HRV statistics """   
