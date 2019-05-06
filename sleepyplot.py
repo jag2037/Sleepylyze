@@ -206,4 +206,7 @@ def plotEKG(ekg, rpeaks=False):
     fig = plt.figure(figsize = [18, 6])
     plt.plot(ekg.data)
 
+    if rpeaks == True:
+        plt.scatter(ekg.rpeaks.index, ekg.rpeaks.values, color='red')
+
     return fig
