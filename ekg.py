@@ -1,4 +1,4 @@
-""" Descriptor here """
+""" This file contains the EKG class and helper functions for batch loading """
 
 import datetime
 import pandas as pd 
@@ -11,22 +11,32 @@ class EKG:
     
     Parameters
     ----------
-    dataset: instance of Dataset class
+    df: pd.DataFrame
+        Dataframe containing 'EKG' column data
     
     Attributes
     ----------
     """
 
-    def __init__(self, dataset):
+    def __init__(self, fname, fpath):
         
-        self.datafile = dataset.filepath
-        self.in_num = dataset.in_num
-        self.s_freq = dataset.s_freq
+        self.filename = fname
+        self.filepath = os.path.join(fpath, fname)
+        self.in_num, self.start_date, self.slpstage, self.cycle = fname.split('_')[:-1]
         
-        #self.get_info()
-        #self.get_chans()
-        #self.load_eeg()
+        self.load_ekg()
+        
+    
+    def load_ekg(self):
+        """ Load ekg data and extract sampling frequency """
+        data = pd.read_csv(self.filepath, header = [0, 1], index_col = 0)['EKG']
+        data.index = pd.to_datetime(data.index)
+        self.data = data
 
+        diff = data.index.to_series().diff()[1:2]
+        self.s_freq = 1000000/diff[0].microseconds
+
+    ### EKG analysis methods
     # --> want to create a new df for threshold (don't add to existing)
     def set_Rthres(self, mw_size=0.2, upshift=1.05):
         """ set R peak detection threshold based on moving average + %signal upshift """
