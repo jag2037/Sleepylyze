@@ -1,4 +1,8 @@
-""" plotting functions for Dataset objects """
+""" plotting functions for Dataset objects 
+    
+    To Do:
+        Make plot_hyp() function
+"""
 
 import matplotlib.pyplot as plt
 import numpy as np 
@@ -195,4 +199,11 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     fig.suptitle(d.in_num)
     plt.xlabel('Time')
     
+    return fig
+
+def plotEKG(ekg, rpeaks=False):
+    """ plot EKG class instance """
+    fig = plt.figure(figsize = [18, 6])
+    plt.plot(ekg.data)
+
     return fig
