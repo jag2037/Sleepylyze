@@ -30,17 +30,34 @@ class EKG:
         self.in_num, self.start_date, self.slpstage, self.cycle = fname.split('_')[:-1]
         
         self.load_ekg()
-        print(('EKG successfully imported:\n\tPatient Identifier: {}\n\tStart Date:{}\n\tStage/cycle: {} {}\n').format(self.in_num, self.start_date, self.slpstage, self.cycle))
+        
         
 
-    def load_ekg(self):
-        """ Load ekg data and extract sampling frequency """
+def load_ekg(self, dur_min=True):
+        """ 
+        Load ekg data and extract sampling frequency. 
+        
+        Parameters
+        ----------
+        dur_min: bool, default: True
+            If set to True, will not load files shorter than 5 minutes long 
+        """
+        
         data = pd.read_csv(self.filepath, header = [0, 1], index_col = 0, parse_dates=True)['EKG']
-        #data.index = pd.to_datetime(data.index)
-        self.data = data
-
-        diff = data.index.to_series().diff()[1:2]
-        self.s_freq = 1000000/diff[0].microseconds
+        
+        # Check cycle length against 5 minute duration minimum
+        if (data.index[-1] - data.index[0]).total_seconds() < 60*5:
+            if dur_min == True:
+                print(('{} {} {} is shorter than 5 minutes long. Epoch will not be loaded.').format(self.in_num, self.slpstage, self.cycle))
+                return
+            else:
+                print(('* WARNING: {} {} {} is shorter than 5 minutes long.').format(self.in_num, self.slpstage, self.cycle))
+        else:
+            self.data = data
+            diff = data.index.to_series().diff()[1:2]
+            self.s_freq = 1000000/diff[0].microseconds
+        
+        print(('EKG successfully imported:\n\tPatient Identifier: {}\n\tStart Date:{}\n\tStage/cycle: {} {}\n').format(self.in_num, self.start_date, self.slpstage, self.cycle))
 
     def set_Rthres(self, mw_size, upshift):
         """ set R peak detection threshold based on moving average + %signal upshift """
