@@ -1,8 +1,13 @@
-""" import this class by using the __init__.py file 'from .ioeeg import Dataset' """
+""" import this class by using the __init__.py file 'from .ioeeg import Dataset' 
+
+    To Do:
+        Remove spindle detection functions --> to be moved to new class for cut segments 
+"""
 
 import datetime
 import math 
 import numpy as np 
+import os
 import pandas as pd
 import scipy.io as io
 from scipy.signal import buttord, butter, sosfiltfilt, sosfreqz
@@ -47,7 +52,8 @@ class Dataset:
     
     def __init__(self, fname, fpath=None):
         if fpath is not None:
-            filepath = fpath + fname
+            filepath = os.path.join(fpath, fname)
+            #filepath = fpath + fname
         else:
             filepath = fname
         
@@ -242,7 +248,7 @@ class Dataset:
         self.stage_cuts = stage_cuts
         print('Done.')
 
-    def cut_segments(self, sleepstage='all'):
+    def cut_EEG(self, sleepstage='all'):
         """ cut dataset based on loaded hypnogram 
         Parameters
         ----------
@@ -281,7 +287,6 @@ class Dataset:
         csv files w/ EEG data
         
         """
-        import os
 
         # set save dirctory
         if savedir is None:
@@ -368,7 +373,8 @@ class Dataset:
                     savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2]
                     df.to_csv(os.path.join(savedir, savename))
                     print(('{} successfully exported.').format(savename))
-               
+            print('\nDone.')
+
         else:
             print(('Abort: Data must be type pd.core.frame.DataFrame or dict. Input data is type {}.').format(type(data)))
 
