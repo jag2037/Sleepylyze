@@ -210,3 +210,44 @@ def plotEKG(ekg, rpeaks=False):
         plt.scatter(ekg.rpeaks.index, ekg.rpeaks.values, color='red')
 
     return fig
+
+def plotEKG_slider(ekg, rpeaks=False):
+    """ plot EKG class instance """
+    fig, ax = plt.subplots(figsize = [18, 6])
+    ax.plot(ekg.data)
+
+    if rpeaks == True:
+        plt.scatter(ekg.rpeaks.index, ekg.rpeaks.values, color='red')
+    
+    # create x-axis slider
+    x_min_index = 0
+    x_max_index = 2500
+
+    x_min = ekg.data.index[x_min_index]
+    x_max = ekg.data.index[x_max_index]
+    x_dt = x_max - x_min
+    
+    y_min, y_max = plt.axis()[2], plt.axis()[3]
+
+    plt.axis([x_min, x_max, y_min, y_max])
+
+    axcolor = 'lightgoldenrodyellow'
+    axpos = plt.axes([0.2, 0.1, 0.65, 0.03], facecolor=axcolor)
+    
+    slider_max = len(ekg.data) - x_max_index - 1
+
+    spos = Slider(axpos, 'Pos', matplotlib.dates.date2num(x_min), matplotlib.dates.date2num(ekg.data.index[slider_max]))
+
+    # format date names
+    #plt.gcf().autofmt_xdate()
+    
+    def update(val):
+        pos = spos.val
+        xmin_time = matplotlib.dates.num2date(pos)
+        xmax_time = matplotlib.dates.num2date(pos) + x_dt
+        ax.axis([xmin_time, xmax_time, y_min, y_max])
+        fig.canvas.draw_idle()
+
+    spos.on_changed(update)
+    
+    return fig 
