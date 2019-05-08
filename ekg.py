@@ -122,18 +122,20 @@ class EKG:
         self.heartrate = (len(self.rpeaks)/secs) *60
         print('Average heartrate = {}bpm'.format(int(self.heartrate)))
 
-        # inter-beat interval & SD
+        # inter-beat interval & SD (ms)
         self.ibi = np.mean(self.rr_int)
-        self.sdnn = np.std(self.rr_int)
-        print('Average IBI (sec) = {0:.2f} SD = {0:.2f}'.format(self.ibi, self.sdnn))
+        self.sdrr = np.std(self.rr_int)
+        print('Average IBI (ms) = {0:.2f} SD = {0:.2f}'.format(self.ibi, self.sdnn))
 
-        # SD & RMS of differences between successive RR intervals
+        # SD & RMS of differences between successive RR intervals (ms)
         self.sdsd = np.std(self.rr_int_diff)
-        self.rmssd = np.sqrt(self.rr_int_diffsq)
+        self.rmssd = np.sqrt(np.mean(self.rr_int_diffsq))
 
-        # nn20 & nn50
-
-        # pnn20 & pnn50
+        # rr20 & rr50
+        # prr20 & prr50
+        self.prr20 = sum(np.abs(ekg.rr_int_diff) >= 20.0)/len(ekg.rr_int_diff)*100
+        self.prr50 = sum(np.abs(ekg.rr_int_diff) >= 50.0)/len(ekg.rr_int_diff)*100
+        print('pRR20 = {0:.2f}% & pRR50 = {0:.2f}%'.format(self.prr20, self.prr50))
         print('Call ekg.__dict__ for additional statistics')
 
     def ekgstats(self, mw_size = 0.2, upshift = 1.05):
