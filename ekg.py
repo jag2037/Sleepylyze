@@ -136,7 +136,13 @@ class EKG:
         self.prr20 = sum(np.abs(ekg.rr_int_diff) >= 20.0)/len(ekg.rr_int_diff)*100
         self.prr50 = sum(np.abs(ekg.rr_int_diff) >= 50.0)/len(ekg.rr_int_diff)*100
         print('pRR20 = {0:.2f}% & pRR50 = {0:.2f}%'.format(self.prr20, self.prr50))
-        print('Call ekg.__dict__ for additional statistics')
+
+        # hrv triangular index
+        stat, bin_edges, bin_num = stats.binned_statistic(ekg.rr_int, ekg.rr_int, bins = np.arange(min(ekg.rr_int), max(ekg.rr_int) + 7.8125, 7.8125), statistic='count')
+        self.hti = sum(stat)/max(stat)
+        self.tinn = bin_edges[-1] - bin_edges[0]
+        print('HRV Triangular Index (HTI) = {}.\nTriangular Interpolation of NN Interval Histogram (TINN) = {}ms'.format(self.hti, self.tinn))
+        print('Call ekg.__dict__ for all statistics')
 
     def ekgstats(self, mw_size = 0.2, upshift = 1.05):
         """ Calculate all statistics on EKG object """
