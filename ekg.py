@@ -23,40 +23,43 @@ class EKG:
     ----------
     """
 
-    def __init__(self, fname, fpath):
+    def __init__(self, fname, fpath, min_dur=True):
         
         self.filename = fname
         self.filepath = os.path.join(fpath, fname)
         self.in_num, self.start_date, self.slpstage, self.cycle = fname.split('_')[:-1]
         
-        self.load_ekg()
+        self.load_ekg(min_dur)
         
         
 
-def load_ekg(self, dur_min=True):
+    def load_ekg(self, min_dur):
         """ 
         Load ekg data and extract sampling frequency. 
         
         Parameters
         ----------
-        dur_min: bool, default: True
+        min_dur: bool, default: True
             If set to True, will not load files shorter than 5 minutes long 
         """
         
         data = pd.read_csv(self.filepath, header = [0, 1], index_col = 0, parse_dates=True)['EKG']
         
         # Check cycle length against 5 minute duration minimum
-        if (data.index[-1] - data.index[0]).total_seconds() < 60*5:
-            if dur_min == True:
-                print(('{} {} {} is shorter than 5 minutes long. Epoch will not be loaded.').format(self.in_num, self.slpstage, self.cycle))
+        self.cycle_len_secs = (data.index[-1] - data.index[0]).total_seconds()
+        if self.cycle_len_secs < 60*5:
+            if min_dur == True:
+                print(('{} {} {} is shorter than 5 minutes. Cycle will not be loaded.').format(self.in_num, self.slpstage, self.cycle))
                 return
             else:
-                print(('* WARNING: {} {} {} is shorter than 5 minutes long.').format(self.in_num, self.slpstage, self.cycle))
+                print(('* WARNING: {} {} {} is shorter than 5 minutes.').format(self.in_num, self.slpstage, self.cycle))
+                self.data = data
         else:
             self.data = data
-            diff = data.index.to_series().diff()[1:2]
-            self.s_freq = 1000000/diff[0].microseconds
         
+        diff = data.index.to_series().diff()[1:2]
+        self.s_freq = 1000000/diff[0].microseconds
+
         print(('EKG successfully imported:\n\tPatient Identifier: {}\n\tStart Date:{}\n\tStage/cycle: {} {}\n').format(self.in_num, self.start_date, self.slpstage, self.cycle))
 
     def set_Rthres(self, mw_size, upshift):
@@ -78,31 +81,36 @@ def load_ekg(self, dur_min=True):
     def detect_Rpeaks(self):
         """ detect R peaks from raw signal """
         print('Detecting R peaks...')
+
+        raw = pd.Series(self.data['Raw'])
+        thres = pd.Series(self.data['EKG_thres'])
         
-        window = []
-        peaklist = []
-        listpos = 0 # use a counter to move over the different data columns
-        for datapoint in self.data.Raw:
-            m_avg = self.data.EKG_thres[listpos] # get the moving average at a given position
-            if (datapoint <= m_avg) and (len(window) < 1): # If signal has not crossed m_avg -> do nothing
-                listpos += 1
-            elif (datapoint > m_avg): # If signal crosses moving average, mark ROI
-                window.append(datapoint)
-                listpos += 1
-            else: #If signal drops below moving average -> find local maxima within window
-                peak = max(window)
-                beatposition = listpos - len(window) + (window.index(max(window))) #Notate the position of the point on the X-axis
-                peaklist.append(beatposition) #Add detected peak to list
-                window = [] #Clear marked ROI
-                listpos += 1
-            
-            self.rpeaks = self.data['Raw'].loc[self.data.index[peaklist]]
+        peaks = []
+        x = 0
+        while x < len(self.data):
+            if raw[x] > thres[x]:
+                roi_start = x
+                # count forwards to find down-crossing
+                for h in range(x, len(self.data), 1):
+                    if raw[h] < thres[h]:
+                        roi_end = h
+                        break
+                # get maximum between roi_start and roi_end
+                peak = raw[x:h].idxmax()
+                peaks.append(peak)
+                # advance the pointer
+                x = h
+            else:
+                x += 1
+
+        self.rpeaks = raw[peaks]
         print('R peak detection complete')
 
     def calc_RR(self):
-        """ Calculate the intervals between successive R-R peaks, as well as first order derivative """
+        """ Calculate the intervals between successive R-R peaks, as well as first order derivative.
+            Returns: rr_int, rr_int_diff, and rr_int_diffsq in milliseconds """
         # get time between peaks and convert to seconds
-        self.rr_int = np.diff(self.rpeaks.index)/np.timedelta64(1, 's')
+        self.rr_int = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
         # get difference between intervals & squared
         self.rr_int_diff = np.diff(self.rr_int)
         self.rr_int_diffsq = self.rr_int_diff**2
@@ -132,12 +140,16 @@ def load_ekg(self, dur_min=True):
         """ Calculate all statistics on EKG object """
         self.set_Rthres(mw_size, upshift)
         self.detect_Rpeaks()
+
+        # divide cycles into 5-minute epochs
+        #if self.cycle_len_secs > 60*5:
+
         self.calc_RR()
         self.calc_RRstats()
 
 
 
-def loadEKG_batch(path, stage=None):
+def loadEKG_batch(path, stage=None, min_dur=True):
     """ Batch import all raw data from a given directory 
     
     Parameters
@@ -151,6 +163,10 @@ def loadEKG_batch(path, stage=None):
     -------
     List of EKG class objects
 
+    NOTE: this fails if stage not specified and folder does not contain any cycles
+    of a given sleep stage. Can write in code to pull present stages from filenames
+    to fix this.
+
     """
 
     files = [x for x in os.listdir(path) if stage in x]
@@ -160,9 +176,10 @@ def loadEKG_batch(path, stage=None):
     names = ['ekg'+ str(n) for n, m in enumerate(files)]
     ekg_set = []
     for file, name in zip(files, names):
-        name = EKG(file, path)
+        name = EKG(file, path, min_dur)
         ekg_set.append(name)
 
+    print('\nDone.')
     return ekg_set
 
 
