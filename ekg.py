@@ -121,46 +121,49 @@ class EKG:
 
             TO DO: Reformat as stats dictionary
         """   
+        print('Calculating time domain statistics...')
+        time_stats = {}
         # heartrate in bpm
-        self.heartrate_avg = 60/np.mean(self.rr_int)*1000
-        print('Average heartrate (bpm) = {}'.format(int(self.heartrate_avg)))
+        time_stats['HR_avg'] = 60/np.mean(self.rr_int)*1000
+        #print('Average heartrate (bpm) = {}'.format(int(self.heartrate_avg)))
         
         rollmean_rr = pd.Series(self.rr_int).rolling(5).mean()
         mx_rr, mn_rr = np.nanmax(rollmean_rr), np.nanmin(rollmean_rr)
-        self.heartrate_max = 60/mn_rr*1000
-        self.heartrate_min = 60/mx_rr*1000
-        print('Maximum heartrate (bpm) = {}'.format(int(self.heartrate_max)))
-        print('Minimum heartrate (bpm) = {}'.format(int(self.heartrate_min)))
+        time_stats['HR_max'] = 60/mn_rr*1000
+        time_stats['HR_min'] = 60/mx_rr*1000
+        #print('Maximum heartrate (bpm) = {}'.format(int(self.heartrate_max)))
+        #print('Minimum heartrate (bpm) = {}'.format(int(self.heartrate_min)))
 
 
         # inter-beat interval & SD (ms)
-        self.ibi = np.mean(self.rr_int)
-        self.sdrr = np.std(self.rr_int)
-        print('Average IBI (ms) = {0:.2f} SD = {1:.2f}'.format(self.ibi, self.sdrr))
+        time_stats['ibi'] = np.mean(self.rr_int)
+        time_stats['sdrr'] = np.std(self.rr_int)
+        #print('Average IBI (ms) = {0:.2f} SD = {1:.2f}'.format(self.ibi, self.sdrr))
 
         # SD & RMS of differences between successive RR intervals (ms)
-        self.sdsd = np.std(self.rr_int_diff)
-        self.rmssd = np.sqrt(np.mean(self.rr_int_diffsq))
+        time_stats['sdsd'] = np.std(self.rr_int_diff)
+        time_stats['rmssd'] = np.sqrt(np.mean(self.rr_int_diffsq))
 
         # rr20 & rr50
         # prr20 & prr50
-        self.prr20 = sum(np.abs(self.rr_int_diff) >= 20.0)/len(self.rr_int_diff)*100
-        self.prr50 = sum(np.abs(self.rr_int_diff) >= 50.0)/len(self.rr_int_diff)*100
-        print('pRR20 = {0:.2f}% & pRR50 = {1:.2f}%'.format(self.prr20, self.prr50))
+        time_stats['prr20'] = sum(np.abs(self.rr_int_diff) >= 20.0)/len(self.rr_int_diff)*100
+        time_stats['prr50'] = sum(np.abs(self.rr_int_diff) >= 50.0)/len(self.rr_int_diff)*100
+        #print('pRR20 = {0:.2f}% & pRR50 = {1:.2f}%'.format(self.prr20, self.prr50))
 
         # hrv triangular index
         bin_width = 7.8125
         stat, bin_edges, bin_num = stats.binned_statistic(self.rr_int, self.rr_int, bins = np.arange(min(self.rr_int), max(self.rr_int) + bin_width, bin_width), statistic='count')
-        self.hti = sum(stat)/max(stat)
+        time_stats['hti'] = sum(stat)/max(stat)
         # triangular interpolation of NN interval
         # if 1st bin is max, can't calculatin TINN
         if stat[0] == max(stat):
-            self.tinn = '1st bin == histogram max. Unable to calculate TINN.'
+            time_stats['tinn'] = None
         else:
             # this calculation is wrong
-            self.tinn = bin_edges[-1] - bin_edges[0]
-        print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
-        print('Call ekg.__dict__ for all statistics')
+            time_stats['tinn'] = bin_edges[-1] - bin_edges[0]
+        #print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
+        #print('Call ekg.__dict__ for all statistics')
+        print('Time domain stats stored in ekg.time_stats')
 
     
     def interpolateRR(self, fs):
@@ -173,7 +176,6 @@ class EKG:
                 resampling frequency (4 Hz is standard)
             *Note: adapted from pyHRV
         """
-
         t = np.cumsum(self.rr_int)
         t -= t[0]
         f_interp = sp.interpolate.interp1d(t, self.rr_int, 'cubic')
@@ -184,7 +186,6 @@ class EKG:
 
     def psd_welch(self, window='hamming'):
         """ Calculate welch power spectral density """
-        
         # set nfft to guidelines of power of 2 above len(data), min 256 (based on MATLAB guidelines)
         nfft = max(256, 2**(int(np.log2(len(self.rr_interp))) + 1))
         
@@ -301,15 +302,20 @@ class EKG:
             Frequency bands of interest. Leave as none for default. To do: update for custom bands
         """
         # resample & interpolate tachogram
+        print('Interpolating and resampling RR tachogram...')
         self.interpolateRR(fs)
-        # calculate power spectrum
+       
+       # calculate power spectrum
+        print('Calculating power spectrum...')
         if method == 'mt':
             self.psd_mt(bandwidth)
         elif method == 'welch':
             self.psd_welch(window)
+        
         #calculate frequency domain statistics
+        print('Calculating frequency domain measures...')
         self.calc_fstats(method, bands)
-
+        print('Frequency measures stored in ekg.freq_stats')
 
     def hrv_stats(self, mw_size = 0.2, upshift = 1.05):
         """ Calculate all statistics on EKG object 
@@ -328,6 +334,7 @@ class EKG:
         self.calc_RR()
         self.time_stats()
         self.freq_stats()
+        print('Done.')
 
 
 
