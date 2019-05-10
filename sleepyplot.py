@@ -251,3 +251,51 @@ def plotEKG_slider(ekg, rpeaks=False):
     spos.on_changed(update)
     
     return fig 
+
+def plotHTI(ekg):
+    """ plot histogram of HRV Triangular Index (bin size 1/128sec) 
+        Note: 1/128 bin size is used for consistency with literature """
+    fig = plt.figure()
+    # may have to remove histtype or change to 'step' if plotting multiple overlaid datasets
+    plt.hist(ekg.rr_int, bins=np.arange(min(ekg.rr_int), max(ekg.rr_int) + 7.8125, 7.8125), histtype='stepfilled')
+    return fig
+
+
+def plotPS(ekg, method, dB=False, bands=False):
+    """ Plot power spectrum 
+        To Do: Add color by freq bands
+    """
+    
+    if method == 'mt':
+        title = 'Multitaper'
+        psd = ekg.psd_mt
+    elif method == 'welch':
+        title = 'Welch'
+        psd = ekg.psd_welch
+    
+    if dB == True:
+        pwr = 10 * np.log10(psd['pwr'])
+        ylabel = 'Power spectral density (dB)'
+    else:
+        pwr = psd['pwr']/1e6 # convert to seconds
+        ylabel = 'Power spectral density (s^2/Hz)'
+    
+    fig, ax = plt.subplots()
+    
+    if bands == False:
+        ax.plot(psd['freqs'], pwr)
+    elif bands == True:
+        # use matplotlib.patches.Patch to make objects
+        # fill with ax.fill_between
+        # add lines with ax.vlines
+        
+        
+    ax.set_xlim(0, 0.4)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel(ylabel)
+    plt.suptitle(title)
+
+    return fig
