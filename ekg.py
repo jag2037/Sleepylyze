@@ -1,15 +1,15 @@
-""" This file contains the EKG class and helper functions for batch loading 
-
-    TO DO:
-        1. Add helper function for batch loading -- Completed 5-6-19
-        2. Optimize detect_Rpeaks() for speed
-    """
+""" This file contains the EKG class and helper functions for batch loading """
 
 import datetime
 import numpy as np 
 import os
 import pandas as pd 
+import scipy as sp
 import scipy.io as io
+import scipy.stats as stats
+
+from mne.time_frequency import psd_array_multitaper
+from scipy.signal import welch
 
 class EKG:
     """ General class containing EKG analyses
@@ -50,6 +50,7 @@ class EKG:
         if self.cycle_len_secs < 60*5:
             if min_dur == True:
                 print(('{} {} {} is shorter than 5 minutes. Cycle will not be loaded.').format(self.in_num, self.slpstage, self.cycle))
+                print('--> To load data, set min_dur to False')
                 return
             else:
                 print(('* WARNING: {} {} {} is shorter than 5 minutes.').format(self.in_num, self.slpstage, self.cycle))
@@ -115,17 +116,27 @@ class EKG:
         self.rr_int_diff = np.diff(self.rr_int)
         self.rr_int_diffsq = self.rr_int_diff**2
 
-    def calc_RRstats(self):
-        """ Calculate commonly used HRV statistics """   
+    def time_stats(self):
+        """ Calculate commonly used HRV statistics. Min/max HR is determined over 5 RR intervals 
+
+            TO DO: Reformat as stats dictionary
+        """   
         # heartrate in bpm
-        secs = int((self.data.index[-1]-self.data.index[0])/np.timedelta64(1, 's'))
-        self.heartrate = (len(self.rpeaks)/secs) *60
-        print('Average heartrate = {}bpm'.format(int(self.heartrate)))
+        self.heartrate_avg = 60/np.mean(self.rr_int)*1000
+        print('Average heartrate (bpm) = {}'.format(int(self.heartrate_avg)))
+        
+        rollmean_rr = pd.Series(self.rr_int).rolling(5).mean()
+        mx_rr, mn_rr = np.nanmax(rollmean_rr), np.nanmin(rollmean_rr)
+        self.heartrate_max = 60/mn_rr*1000
+        self.heartrate_min = 60/mx_rr*1000
+        print('Maximum heartrate (bpm) = {}'.format(int(self.heartrate_max)))
+        print('Minimum heartrate (bpm) = {}'.format(int(self.heartrate_min)))
+
 
         # inter-beat interval & SD (ms)
         self.ibi = np.mean(self.rr_int)
         self.sdrr = np.std(self.rr_int)
-        print('Average IBI (ms) = {0:.2f} SD = {0:.2f}'.format(self.ibi, self.sdnn))
+        print('Average IBI (ms) = {0:.2f} SD = {1:.2f}'.format(self.ibi, self.sdrr))
 
         # SD & RMS of differences between successive RR intervals (ms)
         self.sdsd = np.std(self.rr_int_diff)
@@ -133,27 +144,190 @@ class EKG:
 
         # rr20 & rr50
         # prr20 & prr50
-        self.prr20 = sum(np.abs(ekg.rr_int_diff) >= 20.0)/len(ekg.rr_int_diff)*100
-        self.prr50 = sum(np.abs(ekg.rr_int_diff) >= 50.0)/len(ekg.rr_int_diff)*100
-        print('pRR20 = {0:.2f}% & pRR50 = {0:.2f}%'.format(self.prr20, self.prr50))
+        self.prr20 = sum(np.abs(self.rr_int_diff) >= 20.0)/len(self.rr_int_diff)*100
+        self.prr50 = sum(np.abs(self.rr_int_diff) >= 50.0)/len(self.rr_int_diff)*100
+        print('pRR20 = {0:.2f}% & pRR50 = {1:.2f}%'.format(self.prr20, self.prr50))
 
         # hrv triangular index
-        stat, bin_edges, bin_num = stats.binned_statistic(ekg.rr_int, ekg.rr_int, bins = np.arange(min(ekg.rr_int), max(ekg.rr_int) + 7.8125, 7.8125), statistic='count')
+        bin_width = 7.8125
+        stat, bin_edges, bin_num = stats.binned_statistic(self.rr_int, self.rr_int, bins = np.arange(min(self.rr_int), max(self.rr_int) + bin_width, bin_width), statistic='count')
         self.hti = sum(stat)/max(stat)
-        self.tinn = bin_edges[-1] - bin_edges[0]
-        print('HRV Triangular Index (HTI) = {}.\nTriangular Interpolation of NN Interval Histogram (TINN) = {}ms'.format(self.hti, self.tinn))
+        # triangular interpolation of NN interval
+        # if 1st bin is max, can't calculatin TINN
+        if stat[0] == max(stat):
+            self.tinn = '1st bin == histogram max. Unable to calculate TINN.'
+        else:
+            # this calculation is wrong
+            self.tinn = bin_edges[-1] - bin_edges[0]
+        print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
         print('Call ekg.__dict__ for all statistics')
 
-    def ekgstats(self, mw_size = 0.2, upshift = 1.05):
-        """ Calculate all statistics on EKG object """
+    
+    def interpolateRR(self, fs):
+        """ Resample RR tachogram (since RRs are not evenly spaced) and interpolate for power 
+            spectral estimation 
+
+            Params
+            -------
+            fs: int
+                resampling frequency (4 Hz is standard)
+            *Note: adapted from pyHRV
+        """
+
+        t = np.cumsum(self.rr_int)
+        t -= t[0]
+        f_interp = sp.interpolate.interp1d(t, self.rr_int, 'cubic')
+        t_interp = np.arange(t[0], t[-1], 1000./fs)
+        self.rr_interp = f_interp(t_interp)
+        self.fs_interp = fs
+
+
+    def psd_welch(self, window='hamming'):
+        """ Calculate welch power spectral density """
+        
+        # set nfft to guidelines of power of 2 above len(data), min 256 (based on MATLAB guidelines)
+        nfft = max(256, 2**(int(np.log2(len(self.rr_interp))) + 1))
+        
+        # Adapt 'nperseg' according to the total duration of the NNI series (5min threshold = 300000ms)
+        if max(np.cumsum(self.rr_int)) < 300000:
+            nperseg = nfft
+        else:
+            nperseg = 300
+        
+        # default overlap = 50%
+        f, Pxx = welch(self.rr_interp, fs=4, window=window, scaling = 'density', nfft=nfft, 
+                        nperseg=nperseg)
+        self.psd_welch =psd_welch = {'freqs':f, 'pwr': Pxx, 'nfft': nfft, 'nperseg': nperseg}
+
+    def psd_mt(self, bandwidth=0.02):
+        """ Calculate multitaper power spectrum 
+
+            Params
+            ------
+            bandwidth: float
+                frequency resolution (NW)
+
+            Returns
+            -------
+            psd_mt: dict
+                'freqs': ndarray
+                'psd': ndarray. power spectral density in (V^2/Hz). 10log10 to convert to dB.
+
+        """
+        pwr, freqs = psd_array_multitaper(self.rr_interp, self.fs_interp, adaptive=True, 
+                                            bandwidth=bandwidth, normalization='full', verbose=0)
+        self.psd_mt = {'freqs': freqs, 'pwr': pwr}
+
+    def calc_fstats(self, method, bands):
+        """ Calculate different frequency band measures 
+            TO DO: add option to change bands
+            Note: modified from pyHRV
+            * normalized units are normalized to total lf + hf power, according to Heathers et al. (2014)
+        """
+        if method is None:
+            method = input('Please enter PSD method (options: "welch", "mt"): ')
+        if method == 'welch':
+            psd = self.psd_welch
+        elif method == 'mt':
+            psd = self.psd_mt
+        
+        # set frequency bands
+        if bands is None:
+            ulf = None
+            vlf = (0.000, 0.04)
+            lf = (0.04, 0.15)
+            hf = (0.15, 0.4)
+            args = (ulf, vlf, lf, hf)
+            names = ('ulf', 'vlf', 'lf', 'hf')
+        freq_bands = dict(zip(names, args))
+        
+        # get indices and values for frequency bands in calculated spectrum
+        fband_vals = {}
+        for key in freq_bands.keys():
+            fband_vals[key] = {}
+            if freq_bands[key] is None:
+                fband_vals[key]['idx'] = None
+                fband_vals[key]['pwr'] = None
+            else:
+                fband_vals[key]['idx'] = np.where((freq_bands[key][0] <= psd['freqs']) & (psd['freqs'] <= freq_bands[key][1]))[0]
+                fband_vals[key]['pwr'] = psd['pwr'][fband_vals[key]['idx']]
+                
+        self.psd_fband_vals = fband_vals
+        
+        # calculate stats 
+        freq_stats = {}
+        freq_stats['method'] = method
+        freq_stats['total_pwr'] = sum(filter(None, [np.sum(fband_vals[key]['pwr']) for key in fband_vals.keys()]))
+        # by band
+        for key in freq_bands.keys():
+            freq_stats[key] = {}
+            freq_stats[key]['freq_range'] = freq_bands[key]
+            if freq_bands[key] is None:
+                freq_stats[key]['pwr_ms2'] = None
+                freq_stats[key]['pwr_peak'] = None
+                freq_stats[key]['pwr_log'] = None
+                freq_stats[key]['pwr_%'] = None
+                freq_stats[key]['pwr_nu'] = None
+            else:
+                freq_stats[key]['pwr_ms2'] = np.sum(fband_vals[key]['pwr'])
+                peak_idx = np.where(fband_vals[key]['pwr'] == max(fband_vals[key]['pwr']))[0][0]
+                freq_stats[key]['pwr_peak'] = psd['freqs'][fband_vals[key]['idx'][peak_idx]]
+                freq_stats[key]['pwr_log'] = np.log(freq_stats[key]['pwr_ms2'])
+                freq_stats[key]['pwr_%'] = freq_stats[key]['pwr_ms2']/freq_stats['total_pwr']*100
+        
+        # add normalized units to lf & hf bands
+        for key in ['lf', 'hf']:
+            freq_stats[key]['pwr_nu'] = freq_stats[key]['pwr_ms2']/(freq_stats['lf']['pwr_ms2'] + freq_stats['hf']['pwr_ms2'])*100
+        # add lf/hf ratio
+        freq_stats['lf/hf'] = freq_stats['lf']['pwr_ms2']/freq_stats['hf']['pwr_ms2']
+       
+        self.freq_stats = freq_stats
+
+
+    def freq_stats(self, fs=4, method='mt', bandwidth=0.02, window='hamming', bands=None):
+        """ Calculate frequency domain statistics 
+
+        Parameters
+        ----------
+        fs: int, optional (default: 4)
+            frequency to resample tachogram
+        method: str, optional (default: 'mt')
+            Method to compute power spectra. options: 'welch', 'mt' (multitaper)
+        bandwith: float, optional (default: 0.02)
+            Bandwidth for multitaper power spectral estimation
+        window: str, optional (default: 'hamming')
+            Window to use for welch FFT. See mne.time_frequency.psd_array_multitaper for options
+        bands: Nonetype
+            Frequency bands of interest. Leave as none for default. To do: update for custom bands
+        """
+        # resample & interpolate tachogram
+        self.interpolateRR(fs)
+        # calculate power spectrum
+        if method == 'mt':
+            self.psd_mt(bandwidth)
+        elif method == 'welch':
+            self.psd_welch(window)
+        #calculate frequency domain statistics
+        self.calc_fstats(method, bands)
+
+
+    def hrv_stats(self, mw_size = 0.2, upshift = 1.05):
+        """ Calculate all statistics on EKG object 
+
+            TO DO: Add freq_stats arguments to hrv_stats params? 
+                   Divide into 5-min epochs 
+        """
+        # detect R peaks
         self.set_Rthres(mw_size, upshift)
         self.detect_Rpeaks()
 
         # divide cycles into 5-minute epochs
         #if self.cycle_len_secs > 60*5:
 
+        # make RR tachogram
         self.calc_RR()
-        self.calc_RRstats()
+        self.time_stats()
+        self.freq_stats()
 
 
 
@@ -164,7 +338,7 @@ def loadEKG_batch(path, stage=None, min_dur=True):
     ----------
     dirc: str
         Directory containing raw files to import
-    stage: str {Default: None}
+    stage: str (Default: None)
         Sleep stage to import [Options: awake, rem, s1, s2, ads, sws, rcbrk]
 
     Returns
