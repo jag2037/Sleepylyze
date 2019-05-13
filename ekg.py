@@ -7,6 +7,7 @@ import pandas as pd
 import scipy as sp
 import scipy.io as io
 import scipy.stats as stats
+import pyhrv.nonlinear as nl
 
 from mne.time_frequency import psd_array_multitaper
 from scipy.signal import welch
@@ -163,25 +164,21 @@ class EKG:
             time_stats['tinn'] = bin_edges[-1] - bin_edges[0]
         #print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
         #print('Call ekg.__dict__ for all statistics')
-        print('Time domain stats stored in ekg.time_stats')
+        print('Time domain stats stored in ekg.time_stats\n')
 
     
-    def interpolateRR(self, fs):
-        """ Resample RR tachogram (since RRs are not evenly spaced) and interpolate for power 
-            spectral estimation 
-
-            Params
-            -------
-            fs: int
-                resampling frequency (4 Hz is standard)
+    def interpolateRR(self):
+        """ Resample RR tachogram to original sampling frequency (since RRs are not evenly spaced)
+            and interpolate for power spectral estimation 
             *Note: adapted from pyHRV
         """
+        fs = self.s_freq
         t = np.cumsum(self.rr_int)
         t -= t[0]
         f_interp = sp.interpolate.interp1d(t, self.rr_int, 'cubic')
         t_interp = np.arange(t[0], t[-1], 1000./fs)
         self.rr_interp = f_interp(t_interp)
-        self.fs_interp = fs
+        self.fs_interp = self.s_freq
 
 
     def psd_welch(self, window='hamming'):
@@ -241,6 +238,7 @@ class EKG:
             args = (ulf, vlf, lf, hf)
             names = ('ulf', 'vlf', 'lf', 'hf')
         freq_bands = dict(zip(names, args))
+        self.freq_bands = freq_bands
         
         # get indices and values for frequency bands in calculated spectrum
         fband_vals = {}
@@ -290,8 +288,6 @@ class EKG:
 
         Parameters
         ----------
-        fs: int, optional (default: 4)
-            frequency to resample tachogram
         method: str, optional (default: 'mt')
             Method to compute power spectra. options: 'welch', 'mt' (multitaper)
         bandwith: float, optional (default: 0.02)
@@ -303,7 +299,7 @@ class EKG:
         """
         # resample & interpolate tachogram
         print('Interpolating and resampling RR tachogram...')
-        self.interpolateRR(fs)
+        self.interpolateRR()
        
        # calculate power spectrum
         print('Calculating power spectrum...')
@@ -315,7 +311,29 @@ class EKG:
         #calculate frequency domain statistics
         print('Calculating frequency domain measures...')
         self.calc_fstats(method, bands)
-        print('Frequency measures stored in ekg.freq_stats')
+        print('Frequency measures stored in ekg.freq_stats\n')
+
+    
+    def nonlinear_stats(self):
+        """ calculate nonlinear dynamics poincare & sample entropy 
+            Note: From pyhrv non-linear module """
+        print('Calculating nonlinear statistics...')
+        nonlinear_stats = {}
+
+        # poincare
+        pc = nl.poincare(self.rr_int)
+        nonlinear_stats['poincare'] = {'sd1': pc[1], 'sd2': pc[2], 'sd_ratio':pc[3], 'ellipse_area':pc[4], 
+                        'plot':pc[0]}
+        # sample entropy (tolerance and dim set to match Riganello et al. 2018)
+        nonlinear_stats['sampEn'] = nl.sample_entropy(self.rr_int, dim=2, tolerance=0.15)
+
+        # detrended fluctuation analysis
+        dfa = nl.dfa(self.rr_int)
+        nonlinear_stats['dfa'] = {'alpha1': dfa[1], 'alpha2': dfa[2], 'plot': dfa[0]}
+
+        self.nonlinear_stats = nonlinear_stats
+        print('Nonlinear stats stored in ekg.nonlinear_stats\n')
+
 
     def hrv_stats(self, mw_size = 0.2, upshift = 1.05):
         """ Calculate all statistics on EKG object 
@@ -334,6 +352,7 @@ class EKG:
         self.calc_RR()
         self.time_stats()
         self.freq_stats()
+        self.nonlinear_stats()
         print('Done.')
 
 
