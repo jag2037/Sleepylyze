@@ -32,7 +32,7 @@ class EKG:
         self.metadata = {'file_info':{'in_num': in_num,
                                 'fname': fname,
                                 'path': filepath,
-                                'start_date': start_date,
+                                #'start_date': start_date,
                                 'sleep_stage': slpstage,
                                 'cycle': cycle
                                 }
@@ -69,6 +69,7 @@ class EKG:
         diff = data.index.to_series().diff()[1:2]
         s_freq = 1000000/diff[0].microseconds
 
+        self.metadata['file_info']['start_time'] = data.index[0]
         self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
 
         print('EKG successfully imported.')
@@ -283,7 +284,7 @@ class EKG:
         # by band
         for key in freq_bands.keys():
             freq_stats[key] = {}
-            freq_stats[key]['freq_range'] = freq_bands[key]
+            freq_stats[key]['freq_range'] = str(freq_bands[key])
             if freq_bands[key] is None:
                 freq_stats[key]['pwr_ms2'] = None
                 freq_stats[key]['pwr_peak'] = None
@@ -382,6 +383,70 @@ class EKG:
         self.nonlinear_stats()
         print('Done.')
 
+    def to_spreadsheet(self, spreadsheet):
+        """ Append calculations as a row in master spreadsheet. Creates new spreadsheet
+            if output file does not exist. 
+            
+            Parameters
+            ----------
+            ekg: EKG object
+            spreadsheet: .csv
+                output file (new or existing)
+        """
+        
+        arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
+        data = {k:v for k,v in vars(self).items() if k not in arrays}
+        
+        reform = {(level1_key, level2_key, level3_key): values
+                    for level1_key, level2_dict in data.items()
+                    for level2_key, level3_dict in level2_dict.items()
+                    for level3_key, values      in level3_dict.items()}
+        
+        df = pd.DataFrame(reform, index=[0])
+        df.set_index([('metadata', 'file_info', 'in_num'), ('metadata', 'file_info', 'start_time')], inplace=True)
+        savename = spreadsheet
+        
+        if os.path.exists(spreadsheet):
+            with open(savename, 'a') as f:
+                df.to_csv(f, header=False, line_terminator='\n')
+            print('Data added to {}'.format(spreadsheet))
+        else:
+            with open(savename, 'a') as f:
+                df.to_csv(f, header=True, line_terminator='\n')
+            print('{} does not exist. Data saved to new spreadsheet'.format(spreadsheet))
+
+    def to_report(self, json=False):
+        """ export statistics as a csv report """
+        
+        # export everything that isn't a dataframe, series, or array    
+        arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
+        data = {k:v for k,v in vars(self).items() if k not in arrays}
+        
+        if json is False:
+            savename = data['metadata']['file_info']['fname'] + '_HRVstats.txt'
+            with open(savename, 'w') as f:
+                for k, v in data.items():
+                    if type(v) is not dict:
+                        line = k+' '+str(v) + '\n'
+                        f.write(line)
+                    elif type(v) is dict:
+                        line = k + '\n'
+                        f.write(line)
+                        for kx, vx in v.items():
+                            if type(vx) is not dict:
+                                line = '\t'+ kx + ' ' + str(vx) + '\n'
+                                f.write(line)
+                            else:
+                                line = '\t' + kx + '\n'
+                                f.write(line)
+                                for kxx, vxx in vx.items():
+                                    line = '\t\t' + kxx + ' ' + str(vxx) + '\n'
+                                    f.write(line)
+        else:
+            savename = data['filename'] + '_HRVstats_json.txt'
+            with open(savename, 'w') as f:
+                json.dump(data, f, indent=4)            
+
 
 
 def loadEKG_batch(path, stage=None, min_dur=True):
@@ -416,52 +481,4 @@ def loadEKG_batch(path, stage=None, min_dur=True):
 
     print('\nDone.')
     return ekg_set
-
-
-def exportEKG_json(ekg):
-    """ 
-    Export calculated statistics to txt file
-    TO DO : add export for dataframes/raw data (pd.Series.to_json())
-            make formatting nicer
-    """
-    # export everything that isn't a dataframe, series, or array    
-    arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
-    data = vars(ekg)
-    data = {k:v for k,v in data.items() if k not in arrays}
-    
-    del data['nonlinear_stats']['poincare']['plot']
-    del data['nonlinear_stats']['dfa']['plot']
-    
-    savename = data['filename'] + '_HRVstats_json.txt'
-    
-    with open(savename, 'w') as f:
-        json.dump(data, f, indent=4)
-
-
-def exportEKG(ekg):
-     # export everything that isn't a dataframe, series, or array    
-    arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
-   # data = vars(ekg)
-    data = {k:v for k,v in vars(ekg).items() if k not in arrays}
-    
-    savename = data['metadata']['file_info']['fname'] + '_HRVstats.txt'
-    
-    with open(savename, 'w') as f:
-        for k, v in data.items():
-            if type(v) is not dict:
-                line = k+' '+str(v) + '\n'
-                f.write(line)
-            elif type(v) is dict:
-                line = k + '\n'
-                f.write(line)
-                for kx, vx in v.items():
-                    if type(vx) is not dict:
-                        line = '\t'+ kx + ' ' + str(vx) + '\n'
-                        f.write(line)
-                    else:
-                        line = '\t' + kx + '\n'
-                        f.write(line)
-                        for kxx, vxx in vx.items():
-                            line = '\t\t' + kxx + ' ' + str(vxx) + '\n'
-                            f.write(line)
 
