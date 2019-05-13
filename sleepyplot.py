@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np 
 import pandas as pd
 import itertools
+import shapely.geometry as SG
 
 
 def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
@@ -262,9 +263,7 @@ def plotHTI(ekg):
 
 
 def plotPS(ekg, method, dB=False, bands=False):
-    """ Plot power spectrum 
-        To Do: Add color by freq bands
-    """
+    """ Plot power spectrum """
     
     if method == 'mt':
         title = 'Multitaper'
@@ -285,12 +284,27 @@ def plotPS(ekg, method, dB=False, bands=False):
     if bands == False:
         ax.plot(psd['freqs'], pwr)
     elif bands == True:
-        # use matplotlib.patches.Patch to make objects
-        # fill with ax.fill_between
-        # add lines with ax.vlines
+        # use matplotlib.patches.Patch to make objects for legend w/ data
+        ax.plot(psd['freqs'], pwr, color='grey')
         
+        yline = SG.LineString(list(zip(psd['freqs'],pwr)))
+        #ax.plot(yline, color='black')
+        
+        colors = [None, 'blue', 'purple', 'green']
+        for (key, value), color in zip(ekg.psd_fband_vals.items(), colors):
+            if value['idx'] is not None:
+                # get intercepts & plot vertical lines for bands
+                xrange = ekg.freq_stats[key]['freq_range']
+                xline = SG.LineString([(xrange[1], min(pwr)), (xrange[1], max(pwr))])
+                coords = np.array(xline.intersection(yline))            
+                ax.vlines(coords[0], 0, coords[1], colors='grey', linestyles='dotted')
+                
+                # fill spectra by band
+                ax.fill_between(psd['freqs'], pwr, where = [xrange[0] <= x <=xrange[1] for x in psd['freqs']], 
+                                facecolor=color, alpha=.09)    
         
     ax.set_xlim(0, 0.4)
+    ax.margins(y=0)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
