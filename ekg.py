@@ -164,6 +164,7 @@ class EKG:
             time_stats['tinn'] = bin_edges[-1] - bin_edges[0]
         #print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
         #print('Call ekg.__dict__ for all statistics')
+        self.time_stats = time_stats
         print('Time domain stats stored in ekg.time_stats\n')
 
     
@@ -314,7 +315,7 @@ class EKG:
         print('Frequency measures stored in ekg.freq_stats\n')
 
     
-    def nonlinear_stats(self):
+    def nonlinear_stats(self, save_plots=False):
         """ calculate nonlinear dynamics poincare & sample entropy 
             Note: From pyhrv non-linear module """
         print('Calculating nonlinear statistics...')
@@ -322,14 +323,18 @@ class EKG:
 
         # poincare
         pc = nl.poincare(self.rr_int)
-        nonlinear_stats['poincare'] = {'sd1': pc[1], 'sd2': pc[2], 'sd_ratio':pc[3], 'ellipse_area':pc[4], 
-                        'plot':pc[0]}
+        nonlinear_stats['poincare'] = {'sd1': pc[1], 'sd2': pc[2], 'sd_ratio':pc[3], 'ellipse_area':pc[4]}
         # sample entropy (tolerance and dim set to match Riganello et al. 2018)
-        nonlinear_stats['sampEn'] = nl.sample_entropy(self.rr_int, dim=2, tolerance=0.15)
+        sampEN = nl.sample_entropy(self.rr_int, dim=2, tolerance=0.15)
+        nonlinear_stats['sampEn'] = sampEN[0]
 
         # detrended fluctuation analysis
         dfa = nl.dfa(self.rr_int)
-        nonlinear_stats['dfa'] = {'alpha1': dfa[1], 'alpha2': dfa[2], 'plot': dfa[0]}
+        nonlinear_stats['dfa'] = {'alpha1': dfa[1], 'alpha2': dfa[2]}
+
+        if save_plots == True:
+            nonlinear_stats['dfa']['plot'] = dfa[0]
+            nonlinear_stats['poincare']['plot'] = pc[0]
 
         self.nonlinear_stats = nonlinear_stats
         print('Nonlinear stats stored in ekg.nonlinear_stats\n')
@@ -390,4 +395,51 @@ def loadEKG_batch(path, stage=None, min_dur=True):
     print('\nDone.')
     return ekg_set
 
+
+def exportEKG_json(ekg):
+    """ 
+    Export calculated statistics to txt file
+    TO DO : add export for dataframes/raw data (pd.Series.to_json())
+            make formatting nicer
+    """
+    # export everything that isn't a dataframe, series, or array    
+    arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
+    data = vars(ekg)
+    data = {k:v for k,v in data.items() if k not in arrays}
+    
+    del data['nonlinear_stats']['poincare']['plot']
+    del data['nonlinear_stats']['dfa']['plot']
+    
+    savename = data['filename'] + '_HRVstats_json.txt'
+    
+    with open(savename, 'w') as f:
+        json.dump(data, f, indent=4)
+
+
+def exportEKG(ekg):
+     # export everything that isn't a dataframe, series, or array    
+    arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
+   # data = vars(ekg)
+    data = {k:v for k,v in vars(ekg).items() if k not in arrays}
+    
+    savename = data['filename'] + '_HRVstats.txt'
+    
+    with open(savename, 'w') as f:
+        for k, v in data.items():
+            if type(v) is not dict:
+                line = k+' '+str(v) + '\n'
+                f.write(line)
+            elif type(v) is dict:
+                line = k + '\n'
+                f.write(line)
+                for kx, vx in v.items():
+                    if type(vx) is not dict:
+                        line = '\t'+ kx + ' ' + str(vx) + '\n'
+                        f.write(line)
+                    else:
+                        line = '\t' + kx + '\n'
+                        f.write(line)
+                        for kxx, vxx in vx.items():
+                            line = '\t\t' + kxx + ' ' + str(vxx) + '\n'
+                            f.write(line)
 
