@@ -422,6 +422,7 @@ class EKG:
         arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
+        # save calculations
         if json is False:
             savename = data['metadata']['file_info']['fname'] + '_HRVstats.txt'
             with open(savename, 'w') as f:
@@ -443,10 +444,15 @@ class EKG:
                                     line = '\t\t' + kxx + ' ' + str(vxx) + '\n'
                                     f.write(line)
         else:
-            savename = data['filename'] + '_HRVstats_json.txt'
+            savename = data['metadata']['file_info']['fname'] + '_HRVstats_json.txt'
             with open(savename, 'w') as f:
-                json.dump(data, f, indent=4)            
+                json.dump(data, f, indent=4)   
 
+        # save detections
+        savepeaks = data['metadata']['file_info']['fname'] + '_rpeaks.txt'
+        self.rpeaks.to_csv(savepeaks)
+        saverr = data['metadata']['file_info']['fname'] + '_rri.txt'
+        np.savetxt(saverr, self.rr_int, delimiter='\n')
 
 
 def loadEKG_batch(path, stage=None, min_dur=True):
