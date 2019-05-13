@@ -25,11 +25,18 @@ class EKG:
     """
 
     def __init__(self, fname, fpath, min_dur=True):
-        
-        self.filename = fname
-        self.filepath = os.path.join(fpath, fname)
-        self.in_num, self.start_date, self.slpstage, self.cycle = fname.split('_')[:-1]
-        
+
+        #self.filename = fname
+        filepath = os.path.join(fpath, fname)
+        in_num, start_date, slpstage, cycle = fname.split('_')[:-1]
+        self.metadata = {'file_info':{'in_num': in_num,
+                                'fname': fname,
+                                'path': filepath,
+                                'start_date': start_date,
+                                'sleep_stage': slpstage,
+                                'cycle': cycle
+                                }
+                    }
         self.load_ekg(min_dur)
         
         
@@ -44,32 +51,34 @@ class EKG:
             If set to True, will not load files shorter than 5 minutes long 
         """
         
-        data = pd.read_csv(self.filepath, header = [0, 1], index_col = 0, parse_dates=True)['EKG']
+        data = pd.read_csv(self.metadata['file_info']['path'], header = [0, 1], index_col = 0, parse_dates=True)['EKG']
         
         # Check cycle length against 5 minute duration minimum
-        self.cycle_len_secs = (data.index[-1] - data.index[0]).total_seconds()
-        if self.cycle_len_secs < 60*5:
+        cycle_len_secs = (data.index[-1] - data.index[0]).total_seconds()
+        if cycle_len_secs < 60*5:
             if min_dur == True:
-                print(('{} {} {} is shorter than 5 minutes. Cycle will not be loaded.').format(self.in_num, self.slpstage, self.cycle))
+                print('Data is shorter than 5 minutes. Cycle will not be loaded.')
                 print('--> To load data, set min_dur to False')
                 return
             else:
-                print(('* WARNING: {} {} {} is shorter than 5 minutes.').format(self.in_num, self.slpstage, self.cycle))
+                print('* WARNING: Data is shorter than 5 minutes.')
                 self.data = data
         else:
             self.data = data
         
         diff = data.index.to_series().diff()[1:2]
-        self.s_freq = 1000000/diff[0].microseconds
+        s_freq = 1000000/diff[0].microseconds
 
-        print(('EKG successfully imported:\n\tPatient Identifier: {}\n\tStart Date:{}\n\tStage/cycle: {} {}\n').format(self.in_num, self.start_date, self.slpstage, self.cycle))
+        self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
+
+        print('EKG successfully imported.')
 
     def set_Rthres(self, mw_size, upshift):
         """ set R peak detection threshold based on moving average + %signal upshift """
         print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
         
         # convert moving window to sample & calc moving average over window
-        mw = int(mw_size*self.s_freq)
+        mw = int(mw_size*self.metadata['analysis_info']['s_freq'])
         mavg = self.data.Raw.rolling(mw).mean()
 
         # replace edge nans with overall average
@@ -79,6 +88,9 @@ class EKG:
         # set detection threshold as +5% of moving average
         det_thres = mavg*upshift
         self.data['EKG_thres'] = det_thres # can remove this for speed, just keep as series
+
+        self.metadata['analysis_info']['mw_size'] = mw_size
+        self.metadata['analysis_info']['upshift'] = upshift
 
     def detect_Rpeaks(self):
         """ detect R peaks from raw signal """
@@ -123,48 +135,49 @@ class EKG:
             TO DO: Reformat as stats dictionary
         """   
         print('Calculating time domain statistics...')
-        time_stats = {}
         # heartrate in bpm
-        time_stats['HR_avg'] = 60/np.mean(self.rr_int)*1000
+        hr_avg = 60/np.mean(self.rr_int)*1000
         #print('Average heartrate (bpm) = {}'.format(int(self.heartrate_avg)))
         
         rollmean_rr = pd.Series(self.rr_int).rolling(5).mean()
         mx_rr, mn_rr = np.nanmax(rollmean_rr), np.nanmin(rollmean_rr)
-        time_stats['HR_max'] = 60/mn_rr*1000
-        time_stats['HR_min'] = 60/mx_rr*1000
+        hr_max = 60/mn_rr*1000
+        hr_min = 60/mx_rr*1000
         #print('Maximum heartrate (bpm) = {}'.format(int(self.heartrate_max)))
         #print('Minimum heartrate (bpm) = {}'.format(int(self.heartrate_min)))
 
 
         # inter-beat interval & SD (ms)
-        time_stats['ibi'] = np.mean(self.rr_int)
-        time_stats['sdrr'] = np.std(self.rr_int)
+        ibi = np.mean(self.rr_int)
+        sdrr = np.std(self.rr_int)
         #print('Average IBI (ms) = {0:.2f} SD = {1:.2f}'.format(self.ibi, self.sdrr))
 
         # SD & RMS of differences between successive RR intervals (ms)
-        time_stats['sdsd'] = np.std(self.rr_int_diff)
-        time_stats['rmssd'] = np.sqrt(np.mean(self.rr_int_diffsq))
+        sdsd = np.std(self.rr_int_diff)
+        rmssd = np.sqrt(np.mean(self.rr_int_diffsq))
 
-        # rr20 & rr50
         # prr20 & prr50
-        time_stats['prr20'] = sum(np.abs(self.rr_int_diff) >= 20.0)/len(self.rr_int_diff)*100
-        time_stats['prr50'] = sum(np.abs(self.rr_int_diff) >= 50.0)/len(self.rr_int_diff)*100
+        prr20 = sum(np.abs(self.rr_int_diff) >= 20.0)/len(self.rr_int_diff)*100
+        prr50 = sum(np.abs(self.rr_int_diff) >= 50.0)/len(self.rr_int_diff)*100
         #print('pRR20 = {0:.2f}% & pRR50 = {1:.2f}%'.format(self.prr20, self.prr50))
 
         # hrv triangular index
         bin_width = 7.8125
         stat, bin_edges, bin_num = stats.binned_statistic(self.rr_int, self.rr_int, bins = np.arange(min(self.rr_int), max(self.rr_int) + bin_width, bin_width), statistic='count')
-        time_stats['hti'] = sum(stat)/max(stat)
+        hti = sum(stat)/max(stat)
         # triangular interpolation of NN interval
         # if 1st bin is max, can't calculatin TINN
         if stat[0] == max(stat):
-            time_stats['tinn'] = None
+            tinn = None
         else:
             # this calculation is wrong
-            time_stats['tinn'] = bin_edges[-1] - bin_edges[0]
+            tinn = bin_edges[-1] - bin_edges[0]
         #print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
         #print('Call ekg.__dict__ for all statistics')
-        self.time_stats = time_stats
+        self.time_stats = {'linear':{'HR_avg': hr_avg, 'HR_max': hr_max, 'HR_min': hr_min, 'IBI': ibi,
+                                    'SDRR': sdrr, 'RMSSD': rmssd, 'pRR20': prr20, 'pRR50': prr50},
+                            'geometric': {'hti':hti, 'tinn':tinn}
+                            }
         print('Time domain stats stored in ekg.time_stats\n')
 
     
@@ -173,17 +186,21 @@ class EKG:
             and interpolate for power spectral estimation 
             *Note: adapted from pyHRV
         """
-        fs = self.s_freq
+        fs = self.metadata['analysis_info']['s_freq']
         t = np.cumsum(self.rr_int)
         t -= t[0]
         f_interp = sp.interpolate.interp1d(t, self.rr_int, 'cubic')
         t_interp = np.arange(t[0], t[-1], 1000./fs)
         self.rr_interp = f_interp(t_interp)
-        self.fs_interp = self.s_freq
+        self.metadata['analysis_info']['s_freq_interp'] = self.metadata['analysis_info']['s_freq']
 
 
     def psd_welch(self, window='hamming'):
         """ Calculate welch power spectral density """
+        
+        self.metadata['analysis_info']['psd_method'] = 'welch'
+        self.metadata['analysis_info']['psd_window'] = window
+        
         # set nfft to guidelines of power of 2 above len(data), min 256 (based on MATLAB guidelines)
         nfft = max(256, 2**(int(np.log2(len(self.rr_interp))) + 1))
         
@@ -196,7 +213,8 @@ class EKG:
         # default overlap = 50%
         f, Pxx = welch(self.rr_interp, fs=4, window=window, scaling = 'density', nfft=nfft, 
                         nperseg=nperseg)
-        self.psd_welch =psd_welch = {'freqs':f, 'pwr': Pxx, 'nfft': nfft, 'nperseg': nperseg}
+        self.psd_welch = {'freqs':f, 'pwr': Pxx, 'nfft': nfft, 'nperseg': nperseg}
+
 
     def psd_mt(self, bandwidth=0.02):
         """ Calculate multitaper power spectrum 
@@ -213,9 +231,14 @@ class EKG:
                 'psd': ndarray. power spectral density in (V^2/Hz). 10log10 to convert to dB.
 
         """
-        pwr, freqs = psd_array_multitaper(self.rr_interp, self.fs_interp, adaptive=True, 
+        self.metadata['analysis_info']['psd_method'] = 'multitaper'
+        self.metadata['analysis_info']['psd_bandwidth'] = bandwidth
+        sf_interp = self.metadata['analysis_info']['s_freq_interp']
+
+        pwr, freqs = psd_array_multitaper(self.rr_interp, sf_interp, adaptive=True, 
                                             bandwidth=bandwidth, normalization='full', verbose=0)
         self.psd_mt = {'freqs': freqs, 'pwr': pwr}
+        self.metadata['analysis_info']['psd_method'] = 'multitaper'
 
     def calc_fstats(self, method, bands):
         """ Calculate different frequency band measures 
@@ -239,7 +262,7 @@ class EKG:
             args = (ulf, vlf, lf, hf)
             names = ('ulf', 'vlf', 'lf', 'hf')
         freq_bands = dict(zip(names, args))
-        self.freq_bands = freq_bands
+        #self.freq_bands = freq_bands
         
         # get indices and values for frequency bands in calculated spectrum
         fband_vals = {}
@@ -253,11 +276,10 @@ class EKG:
                 fband_vals[key]['pwr'] = psd['pwr'][fband_vals[key]['idx']]
                 
         self.psd_fband_vals = fband_vals
-        
+
         # calculate stats 
-        freq_stats = {}
-        freq_stats['method'] = method
-        freq_stats['total_pwr'] = sum(filter(None, [np.sum(fband_vals[key]['pwr']) for key in fband_vals.keys()]))
+        total_pwr = sum(filter(None, [np.sum(fband_vals[key]['pwr']) for key in fband_vals.keys()]))
+        freq_stats = {'totals':{'total_pwr': total_pwr}}
         # by band
         for key in freq_bands.keys():
             freq_stats[key] = {}
@@ -273,14 +295,14 @@ class EKG:
                 peak_idx = np.where(fband_vals[key]['pwr'] == max(fband_vals[key]['pwr']))[0][0]
                 freq_stats[key]['pwr_peak'] = psd['freqs'][fband_vals[key]['idx'][peak_idx]]
                 freq_stats[key]['pwr_log'] = np.log(freq_stats[key]['pwr_ms2'])
-                freq_stats[key]['pwr_%'] = freq_stats[key]['pwr_ms2']/freq_stats['total_pwr']*100
+                freq_stats[key]['pwr_%'] = freq_stats[key]['pwr_ms2']/freq_stats['totals']['total_pwr']*100
         
         # add normalized units to lf & hf bands
         for key in ['lf', 'hf']:
             freq_stats[key]['pwr_nu'] = freq_stats[key]['pwr_ms2']/(freq_stats['lf']['pwr_ms2'] + freq_stats['hf']['pwr_ms2'])*100
         # add lf/hf ratio
-        freq_stats['lf/hf'] = freq_stats['lf']['pwr_ms2']/freq_stats['hf']['pwr_ms2']
-       
+        freq_stats['totals']['lf/hf'] = freq_stats['lf']['pwr_ms2']/freq_stats['hf']['pwr_ms2']
+        
         self.freq_stats = freq_stats
 
 
@@ -326,7 +348,7 @@ class EKG:
         nonlinear_stats['poincare'] = {'sd1': pc[1], 'sd2': pc[2], 'sd_ratio':pc[3], 'ellipse_area':pc[4]}
         # sample entropy (tolerance and dim set to match Riganello et al. 2018)
         sampEN = nl.sample_entropy(self.rr_int, dim=2, tolerance=0.15)
-        nonlinear_stats['sampEn'] = sampEN[0]
+        nonlinear_stats['entropy'] = {'sampEN':sampEN[0]}
 
         # detrended fluctuation analysis
         dfa = nl.dfa(self.rr_int)
@@ -422,7 +444,7 @@ def exportEKG(ekg):
    # data = vars(ekg)
     data = {k:v for k,v in vars(ekg).items() if k not in arrays}
     
-    savename = data['filename'] + '_HRVstats.txt'
+    savename = data['metadata']['file_info']['fname'] + '_HRVstats.txt'
     
     with open(savename, 'w') as f:
         for k, v in data.items():
