@@ -4,15 +4,67 @@
         Make plot_hyp() function
 """
 
+import matplotlib
+matplotlib.use('Qt5Agg')
+import itertools
 import matplotlib.pyplot as plt
 import numpy as np 
+import os
 import pandas as pd
-import itertools
 import shapely.geometry as SG
+from PyQt5 import QtWidgets, QtCore
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+
+class ScrollableWindow(QtWidgets.QMainWindow):
+    """ Potentially for use to see spindle detections """
+    def __init__(self, fig, ax, step=0.1):
+        plt.close("all")
+        if not QtWidgets.QApplication.instance():
+            self.app = QtWidgets.QApplication(sys.argv)
+        else:
+            self.app = QtWidgets.QApplication.instance() 
+
+        QtWidgets.QMainWindow.__init__(self)
+        self.widget = QtWidgets.QWidget()
+        self.setCentralWidget(self.widget)
+        self.widget.setLayout(QtWidgets.QVBoxLayout())
+        self.widget.layout().setContentsMargins(0,0,0,0)
+        self.widget.layout().setSpacing(0)
+
+        self.fig = fig
+        self.ax = ax
+        self.canvas = FigureCanvas(self.fig)
+        self.canvas.draw()
+        self.scroll = QtWidgets.QScrollBar(QtCore.Qt.Horizontal)
+        self.step = step
+        self.setupSlider()
+        self.nav = NavigationToolbar(self.canvas, self.widget)
+        self.widget.layout().addWidget(self.nav)
+        self.widget.layout().addWidget(self.canvas)
+        self.widget.layout().addWidget(self.scroll)
+
+        self.canvas.draw()
+        self.show()
+        self.qapp.exec_()
+
+    def setupSlider(self):
+        self.lims = np.array(self.ax.get_xlim())
+        self.scroll.setPageStep(self.step*100)
+        self.scroll.actionTriggered.connect(self.update)
+        self.update()
+
+    def update(self, evt=None):
+        r = self.scroll.value()/((1+self.step)*100)
+        l1 = self.lims[0]+r*np.diff(self.lims)
+        l2 = l1 +  np.diff(self.lims)*self.step
+        self.ax.set_xlim(l1,l2)
+        print(self.scroll.value(), l1,l2)
+        self.fig.canvas.draw_idle()
 
 
 def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
-    """ plot multichannel EEG 
+    """ plot multichannel EEG w/ option for double panel raw & filtered 
     
     Parameters
     ----------
@@ -49,12 +101,15 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     if spindle_rejects == True:
         sp_rej_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects[i])) for i in d.spindle_rejects.keys()]   
 
+    # set channels based on dataset
+    channels = [col[0] for col in data.columns]
+
     # plot data    
     fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=(10,10), squeeze=False)
     fig.subplots_adjust(hspace=.1, top=.9, bottom=.1, left=.05, right=.95)
     
     for dat, ax, t in zip(data, axs.flatten(), title):
-        for i, c in enumerate(d.eeg_channels):
+        for i, c in enumerate(channels):
             # normalize each channel to [0, 1]
             dat_ser = pd.Series(dat[(c, t)], index=dat.index)
             norm_dat = (dat_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i # subtract i for plotting offset
@@ -73,8 +128,8 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
                 ax.plot(spin_rejects, color='red', alpha=0.5)
         
         ax.set_title(t)
-        ax.set_yticks(list(np.arange(0.5, -(len(d.eeg_channels)-1), -1)))
-        ax.set_yticklabels(d.eeg_channels)
+        ax.set_yticks(list(np.arange(0.5, -(len(channels)-1), -1)))
+        ax.set_yticklabels(channels)
         ax.margins(x=0) # remove white space margins between data and y axis
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -83,7 +138,7 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     fig.suptitle(d.in_num)
     plt.xlabel('Time')
 
-    return fig
+    return fig, axs
 
 
 
@@ -265,6 +320,7 @@ def plotHTI(ekg):
 def plotPS(ekg, method, dB=False, bands=False):
     """ Plot power spectrum """
     
+    # set data to plot
     if method == 'mt':
         title = 'Multitaper'
         psd = ekg.psd_mt
@@ -272,6 +328,7 @@ def plotPS(ekg, method, dB=False, bands=False):
         title = 'Welch'
         psd = ekg.psd_welch
     
+    # transform units
     if dB == True:
         pwr = 10 * np.log10(psd['pwr'])
         ylabel = 'Power spectral density (dB)'
@@ -281,8 +338,11 @@ def plotPS(ekg, method, dB=False, bands=False):
     
     fig, ax = plt.subplots()
     
+    # plot just spectrum
     if bands == False:
         ax.plot(psd['freqs'], pwr)
+    
+    # or plot spectrum colored by frequency band
     elif bands == True:
         # use matplotlib.patches.Patch to make objects for legend w/ data
         ax.plot(psd['freqs'], pwr, color='grey')
