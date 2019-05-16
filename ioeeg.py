@@ -9,6 +9,7 @@ import math
 import numpy as np 
 import os
 import pandas as pd
+import re
 import scipy.io as io
 from scipy.signal import buttord, butter, sosfiltfilt, sosfreqz
 
@@ -164,6 +165,57 @@ class Dataset:
         self.data = data
         print('Data successfully imported')
 
+    def clean_eeg(self, noise_log=None, rm_chans=None):
+        """ Replace artifact with NaN 
+        
+        Parameters
+        ----------
+        noise_log: .txt file (optional)
+            file containing list of artifact seconds to remove (format: YYYY-MM-DD hh:mm:ss)
+        rm_chans: str or list of string (optional)
+            entire channels to remove
+
+        Returns
+        -------
+        self.data pd.DataFrame of raw EEG with artifact times replaced with NaNs
+        """
+        channel_list = [col[0] for col in self.data.columns]
+        
+        # check chans against data channel list (case insensitive) & convert str to list
+        if rm_chans is not None:
+            if type(rm_chans) == str:
+                rm_chans_list = [x for x in channel_list if rm_chans.lower() == x.lower()]
+            elif type(rm_chans) == list:
+                rm_chans_list = [x for x in channel_list for r in rm_chans if r.lower() == x.lower()]
+            # replace channels with NaNs
+            for chan in rm_chans_list:
+                self.data[(chan, 'Raw')] = np.NaN
+        
+        if noise_log is not None:
+            noise = pd.read_csv(noise_log, header=None, names=['time', 'channels'], sep = '\t', index_col='time')
+            noise.index = pd.to_datetime(noise.index)
+            # split channel strings into lists
+            noise['channels'] = [re.findall(r"[\w'\*]+", n) for n in noise['channels']]
+            # unpack to dict
+            unpacked_noise = {(y, mo, d, h, m, s): chans for (y, mo, d, h, m, s, chans) in zip(noise.index.year, noise.index.month, 
+                                                        noise.index.day, noise.index.hour, noise.index.minute, noise.index.second, 
+                                                        noise['channels'])}
+            # compare to data index
+            noise_idx = {}
+            for i in self.data.index:
+                for idx, chan in unpacked_noise.items():
+                    if (i.year, i.month, i.day, i.hour, i.minute, i.second) == idx:
+                        # make a dict of indices marked as noise w/ channels to apply to
+                        noise_idx[i] = chan
+
+            # replace noise with NaNs
+            for t, c in noise_idx.items():
+                if c == ['*']:
+                    self.data.loc[t] = np.NaN
+                else:
+                    for cx in c:
+                        self.data[(cx, 'Raw')].loc[t] = np.NaN
+
 
     def load_hyp(self, scorefile, date):
         """ Loads hypnogram .txt file and produces DateTimeIndex by sleep stage and 
@@ -248,12 +300,15 @@ class Dataset:
         self.stage_cuts = stage_cuts
         print('Done.')
 
-    def cut_EEG(self, sleepstage='all'):
+    def cut_EEG(self, sleepstage='all', epoch_len=None):
         """ cut dataset based on loaded hypnogram 
         Parameters
         ----------
         stage: str or list of str
-            sleep stages to cut. Options: {'awake', 'rem', s1', 's2', 'ads', 'sws', 'rcbrk'} """
+            sleep stages to cut. Options: {'awake', 'rem', s1', 's2', 'ads', 'sws', 'rcbrk'} 
+        epoch_len: int (Optional)
+            length (in seconds) to epoch the data by 
+        """
         if sleepstage == 'all':
             stages = self.stage_cuts.keys()
         else:
@@ -277,7 +332,7 @@ class Dataset:
         Parameters
         ----------
         data: df [Optional]
-            Single dataframe to export. Defaults to self.cut_data dict of dfs produced by Dataset.cut_eeg())
+            Single dataframe to export. Defaults to  self.cut_data dict of dfs produced by Dataset.cut_eeg())
         stages: str or list
             stages to export (for use in combination with dict data type)
             Options: [awake, rem, s1, s2, ads, sws, rcbrk]
