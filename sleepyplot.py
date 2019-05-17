@@ -5,7 +5,7 @@
 """
 
 import matplotlib
-matplotlib.use('Qt5Agg')
+#matplotlib.use('Qt5Agg') # uncomment for scrollable plot
 import itertools
 import matplotlib.pyplot as plt
 import numpy as np 
@@ -354,7 +354,7 @@ def plotPS(ekg, method, dB=False, bands=False):
         for (key, value), color in zip(ekg.psd_fband_vals.items(), colors):
             if value['idx'] is not None:
                 # get intercepts & plot vertical lines for bands
-                xrange = ekg.freq_stats[key]['freq_range']
+                xrange = [float(x) for x in ekg.freq_stats[key]['freq_range'][1:-1].split(",")] 
                 xline = SG.LineString([(xrange[1], min(pwr)), (xrange[1], max(pwr))])
                 coords = np.array(xline.intersection(yline))            
                 ax.vlines(coords[0], 0, coords[1], colors='grey', linestyles='dotted')
