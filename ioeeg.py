@@ -51,7 +51,7 @@ class Dataset:
         raw EEG/EKG data
     """
     
-    def __init__(self, fname, fpath=None):
+    def __init__(self, fname, fpath=None, noise_log=None, rm_chans=None):
         if fpath is not None:
             filepath = os.path.join(fpath, fname)
             #filepath = fpath + fname
@@ -65,6 +65,7 @@ class Dataset:
         self.get_info()
         self.get_chans()
         self.load_eeg()
+        self.clean_eeg(noise_log, rm_chans)
 
     
     # io methods #
@@ -165,7 +166,7 @@ class Dataset:
         self.data = data
         print('Data successfully imported')
 
-    def clean_eeg(self, noise_log=None, rm_chans=None):
+    def clean_eeg(self, noise_log, rm_chans):
         """ Replace artifact with NaN 
         
         Parameters
