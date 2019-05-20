@@ -240,7 +240,7 @@ class Dataset:
         -----
         To Do: Require .txt file to include start date?
         """
-                # read the first 8 characters to get the starting time
+        # read the first 8 characters to get the starting time
         with open(scorefile, 'r') as f:
                 start_sec = f.read(8)
                 
@@ -310,24 +310,62 @@ class Dataset:
         epoch_len: int (Optional)
             length (in seconds) to epoch the data by 
         """
+
         if sleepstage == 'all':
             stages = self.stage_cuts.keys()
         else:
             stage = sleepstage
 
-        cut_data = {}
-        for stage in stages:
-            if self.stage_cuts[stage] is not None:
-                data = {}
-                cycs = len(self.stage_cuts[stage])
-                for c in range(1, cycs+1):
-                    data[c] = self.data.loc[(self.stage_cuts[stage][c])]
-                cut_data[stage] = data
+        if epoch_len is not None:
+            # cut data by sleep stage and epoch
 
-        self.cut_data = cut_data
+            # convert from seconds to samples
+            #epoch_len = self.s_freq*epoch_len
+            epoch_cuts = {}
+            epoch_data = {}
+
+            for stage in stages:
+                # create epoch_cuts dict entry
+                if self.stage_cuts[stage] is None:
+                    epoch_cuts[stage] = None
+                else:
+                    epoch_cuts[stage] = {}
+                    # loop through each cycle
+                    for cycle, idx in self.stage_cuts[stage].items():
+                        cycle_len = (idx[-1] - idx[0]).seconds
+                        # if cycle is at least one epoch long, create new epoch
+                        if cycle_len >= epoch_len:
+                            epoch_cuts[stage][cycle] = {}
+                            epochs = range(int(cycle_len/epoch_len))
+                            for e in epochs:
+                                epoch_cuts[stage][cycle][e] = idx[epoch_len*self.s_freq*e : epoch_len*self.s_freq*(e+1)]
+                    # cut epoch data
+                    if len(epoch_cuts[stage]) >0:
+                        epoch_data[stage] = {}
+                        cycs = [x for x in epoch_cuts[stage]]
+                        for cyc in cycs:
+                            epoch_data[stage][cyc] = {}
+                            for epoch, idx in epoch_cuts[stage][cyc].items():
+                                epoch_data[stage][cyc][epoch] = self.data.loc[(epoch_cuts[stage][cyc][epoch])]
+
+            self.epoch_cuts = epoch_cuts
+            self.epoch_data = epoch_data
+        
+        else:
+            # cut data by sleep stage w/o epochs
+            cut_data = {}
+            for stage in stages:
+                if self.stage_cuts[stage] is not None:
+                    data = {}
+                    cycs = len(self.stage_cuts[stage])
+                    for c in range(1, cycs+1):
+                        data[c] = self.data.loc[(self.stage_cuts[stage][c])]
+                    cut_data[stage] = data
+
+            self.cut_data = cut_data
 
 
-    def export_csv(self, data=None, stages = 'all', savedir=None):
+    def export_csv(self, data=None, stages ='all', epoched=False, savedir=None):
         """ Export data to csv 
         
         Parameters
@@ -337,6 +375,8 @@ class Dataset:
         stages: str or list
             stages to export (for use in combination with dict data type)
             Options: [awake, rem, s1, s2, ads, sws, rcbrk]
+        epoched: bool (default:False)
+            Specify whether data is epoched
 
         Returns
         -------
@@ -391,8 +431,8 @@ class Dataset:
             data.to_csv(os.path.join(savedir, savename))
             print(('{} successfully exported.\n*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".').format(savename))
      
-        # Export a nested dict of dataframes [Default]
-        elif data is None:
+        # Export a nested dict of dataframes w/o epochs [Default]
+        elif data is None and epoched is False:
             print('Exporting files...\n')
             if stages == 'all':
                 for stg in self.cut_data.keys():
@@ -431,8 +471,54 @@ class Dataset:
                     print(('{} successfully exported.').format(savename))
             print('\nDone.')
 
+        # Export a nested dict of dataframes w/ epochs
+        elif data is None and epoched is True:
+            print('Exporting files...\n')
+            if stages == 'all':
+                for stg in self.epoch_data.keys():
+                    for cyc in self.epoch_data[stg].keys():
+                        for epoch in self.epoch_data[stg][cyc].keys():
+                            df = self.epoch_data[stg][cyc][epoch]
+                            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_elems = savename_base.split('_')
+                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2]
+                            df.to_csv(os.path.join(savedir, savename))
+                            print(('{} successfully exported.').format(savename)) 
+            elif type(stages) == list:
+                for stg in stages:
+                    if stg not in self.cut_data.keys():
+                        stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [skip]: ')
+                    if stg == 'skip':
+                        continue
+                    for cyc in self.cut_data[stg].keys():
+                        for epoch in self.epoch_data[stg][cyc].keys():
+                            df = self.epoch_data[stg][cyc][epoch]
+                            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_elems = savename_base.split('_')
+                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2]
+                            df.to_csv(os.path.join(savedir, savename))
+                            print(('{} successfully exported.').format(savename)) 
+            elif type(stages) == str:
+                stg = stages
+                if stg not in self.cut_data.keys():
+                    stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [abort]: ')
+                if stg == 'abort':
+                    return
+                for cyc in self.cut_data[stg].keys():
+                    for epoch in self.epoch_data[stg][cyc].keys():
+                            df = self.epoch_data[stg][cyc][epoch]
+                            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_elems = savename_base.split('_')
+                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2]
+                            df.to_csv(os.path.join(savedir, savename))
+                            print(('{} successfully exported.').format(savename)) 
+            print('\nDone.\n\t*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".')
+
         else:
             print(('Abort: Data must be type pd.core.frame.DataFrame or dict. Input data is type {}.').format(type(data)))
+
+
+    
 
 
     ## Spindle Detection Methods ##
