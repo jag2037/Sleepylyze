@@ -130,10 +130,10 @@ class EKG:
         """ Calculate the intervals between successive R-R peaks, as well as first order derivative.
             Returns: rr_int, rr_int_diff, and rr_int_diffsq in milliseconds """
         # get time between peaks and convert to seconds
-        self.rr_int = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
+        self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
         # get difference between intervals & squared
-        self.rr_int_diff = np.diff(self.rr_int)
-        self.rr_int_diffsq = self.rr_int_diff**2
+        self.rr_diff = np.diff(self.rr)
+        self.rr_diffsq = self.rr_diff**2
 
 
     def rm_artifacts(self):
@@ -150,18 +150,19 @@ class EKG:
             self.arts: list of tuple (index, rr_int, rejection type)
                 detected artifacts 
         """
+        print('Removing ectopic and misplaced beats...')
 
         th_wn_len = 91
         md_wn_len = 11
         nn = []
         arts = []
 
-        for i, r in enumerate(self.rr_int):
+        for i, r in enumerate(self.rr):
 
             # if i is on left edge, keep first time threshold window stationary
             if i < (0.5 * th_wn_len):
                 # set window for th calculation & remove i from comparison
-                th_wn = self.rr_int[0:th_wn_len]
+                th_wn = self.rr[0:th_wn_len]
                 th_wn = th_wn[np.arange(len(th_wn))!= i]
 
                 # get quartile deviation & time varying threshold
@@ -173,11 +174,11 @@ class EKG:
                     # if i is not on left edge, make moving median window
                     md_wn_start = int(i-md_wn_len/2)
                     md_wn_stop = int(i+md_wn_len/2)
-                    md_wn = self.rr_int[md_wn_start:md_wn_stop]
+                    md_wn = self.rr[md_wn_start:md_wn_stop]
                     md_wn = md_wn[np.arange(len(md_wn)) != i]
                 else:
                     # if i is on left edge, keep first median window stationary
-                    md_wn = self.rr_int[0:md_wn_len]
+                    md_wn = self.rr[0:md_wn_len]
                     md_wn = md_wn[np.arange(len(md_wn)) != i]
 
                 md = statistics.median(md_wn)
@@ -186,8 +187,8 @@ class EKG:
                     nn.append(np.NaN)
                     arts.append(i, r, 'missed')
                 # check for extra beats
-                elif i < len(self.rr_int) - 1 == True:
-                    if np.abs(r + self.rr_int[i+1] - md) < 2*th == True:
+                elif i < len(self.rr) - 1 == True:
+                    if np.abs(r + self.rr[i+1] - md) < 2*th == True:
                         nn.append(np.NaN)
                         arts.append(i, r, 'extra')
                 else:
@@ -195,11 +196,11 @@ class EKG:
                     nn.append(r)
             
             # use moving window for center of array
-            elif (0.5 * th_wn_len) <= i < (len(self.rr_int) - (0.5 * th_wn_len)):
+            elif (0.5 * th_wn_len) <= i < (len(self.rr) - (0.5 * th_wn_len)):
                 #print('hit middle')
                 th_wn_start = int(i-th_wn_len/2)
                 th_wn_stop = int(i+th_wn_len/2)
-                th_wn = self.rr_int[th_wn_start:th_wn_stop]
+                th_wn = self.rr[th_wn_start:th_wn_stop]
                 th_wn = th_wn[np.arange(len(th_wn)) != i]
 
                 # get quartile deviation & time varying threshold
@@ -209,7 +210,7 @@ class EKG:
                 # make median moving window
                 wn_start = int(i-md_wn_len/2)
                 wn_stop = int(i+md_wn_len/2)
-                md_wn = self.rr_int[wn_start:wn_stop]
+                md_wn = self.rr[wn_start:wn_stop]
                 md_wn = md_wn[np.arange(len(md_wn)) != i]
 
                 md = statistics.median(md_wn)
@@ -218,8 +219,8 @@ class EKG:
                     nn.append(np.NaN)
                     arts.append(i, r, 'missed')
                 # check for extra beats
-                elif i < len(self.rr_int) - 1 == True:
-                    if np.abs(r + self.rr_int[i+1] - md) < 2*th == True:
+                elif i < len(self.rr) - 1 == True:
+                    if np.abs(r + self.rr[i+1] - md) < 2*th == True:
                         nn.append(np.NaN)
                         arts.append(i, r, 'extra')
                 else:
@@ -227,9 +228,9 @@ class EKG:
                     nn.append(r)
 
             # if i is on right edge, keep last time threshold window stationary
-            elif i >= (len(self.rr_int) - (0.5 * th_wn_len)):
+            elif i >= (len(self.rr) - (0.5 * th_wn_len)):
                 # set window for th calculation & remove i from comparison
-                th_wn = self.rr_int[-th_wn_len:]
+                th_wn = self.rr[-th_wn_len:]
                 th_wn = th_wn[np.arange(len(th_wn))!= i]
 
                 # get quartile deviation & time varying threshold
@@ -237,8 +238,8 @@ class EKG:
                 th = qd * 5.2
 
                 # if i is on right edge, keep last median window stationary
-                if i > len(self.rr_int) - (0.5 * md_wn_len):
-                    md_wn = self.rr_int[-md_wn_len:]
+                if i > len(self.rr) - (0.5 * md_wn_len):
+                    md_wn = self.rr[-md_wn_len:]
                     md_wn = md_wn[np.arange(len(md_wn)) != i]
                     md = statistics.median(md_wn)
 
@@ -246,7 +247,7 @@ class EKG:
                     # else make median moving window
                     wn_start = int(i-md_wn_len/2)
                     wn_stop = int(i+md_wn_len/2)
-                    md_wn = self.rr_int[wn_start:wn_stop]
+                    md_wn = self.rr[wn_start:wn_stop]
                     md_wn = md_wn[np.arange(len(md_wn)) != i]
 
                 md = statistics.median(md_wn)
@@ -255,8 +256,8 @@ class EKG:
                     nn.append(np.NaN)
                     arts.append(i, r, 'missed')
                 # check for extra beats
-                elif i < len(self.rr_int) - 1 == True:
-                    if np.abs(r + self.rr_int[i+1] - md) < 2*th == True:
+                elif i < len(self.rr) - 1 == True:
+                    if np.abs(r + self.rr[i+1] - md) < 2*th == True:
                         nn.append(np.NaN)
                         arts.append(i, r, 'extra')
                 else:
@@ -264,44 +265,56 @@ class EKG:
                     nn.append(r)
                 
         self.nn = np.array(nn)
-        self.rr_arts = arts
+        self.nn_diff = np.diff(self.nn)
+        self.nn_diffsq = self.nn_diff**2
+
+        self.rr_arts = np.array(arts)
 
 
-    def calc_tstats(self):
+    def calc_tstats(self, itype):
         """ Calculate commonly used time domain HRV statistics. Min/max HR is determined over 5 RR intervals 
 
-            TO DO: Reformat as stats dictionary
+            Params
+            ------
+            itype: str, 
+                Interval type (Options:'rr', 'nn')
         """   
         print('Calculating time domain statistics...')
+
+        if itype == 'rr':
+            ii = self.rr
+            ii_diff = self.rr_diff
+            ii_diffsq = self.rr_diffsq
+        elif itype == 'nn':
+            ii = self.nn
+            ii_diff = self.nn_diff
+            ii_diffsq = self.nn_diffsq
+        self.metadata['analysis_info']['itype'] = itype
+
         # heartrate in bpm
-        hr_avg = 60/np.mean(self.rr_int)*1000
-        #print('Average heartrate (bpm) = {}'.format(int(self.heartrate_avg)))
+        hr_avg = 60/np.mean(ii)*1000
         
-        rollmean_rr = pd.Series(self.rr_int).rolling(5).mean()
+        rollmean_rr = pd.Series(ii).rolling(5).mean()
         mx_rr, mn_rr = np.nanmax(rollmean_rr), np.nanmin(rollmean_rr)
         hr_max = 60/mn_rr*1000
         hr_min = 60/mx_rr*1000
-        #print('Maximum heartrate (bpm) = {}'.format(int(self.heartrate_max)))
-        #print('Minimum heartrate (bpm) = {}'.format(int(self.heartrate_min)))
 
 
         # inter-beat interval & SD (ms)
-        ibi = np.mean(self.rr_int)
-        sdrr = np.std(self.rr_int)
-        #print('Average IBI (ms) = {0:.2f} SD = {1:.2f}'.format(self.ibi, self.sdrr))
+        ibi = np.mean(ii)
+        sdrr = np.std(ii)
 
         # SD & RMS of differences between successive RR intervals (ms)
-        sdsd = np.std(self.rr_int_diff)
-        rmssd = np.sqrt(np.mean(self.rr_int_diffsq))
+        sdsd = np.std(ii_diff)
+        rmssd = np.sqrt(np.mean(ii_diffsq))
 
-        # prr20 & prr50
-        prr20 = sum(np.abs(self.rr_int_diff) >= 20.0)/len(self.rr_int_diff)*100
-        prr50 = sum(np.abs(self.rr_int_diff) >= 50.0)/len(self.rr_int_diff)*100
-        #print('pRR20 = {0:.2f}% & pRR50 = {1:.2f}%'.format(self.prr20, self.prr50))
+        # pNN20 & pNN50
+        pxx20 = sum(np.abs(ii_diff) >= 20.0)/len(ii_diff)*100
+        pxx50 = sum(np.abs(ii_diff) >= 50.0)/len(ii_diff)*100
 
         # hrv triangular index
         bin_width = 7.8125
-        stat, bin_edges, bin_num = stats.binned_statistic(self.rr_int, self.rr_int, bins = np.arange(min(self.rr_int), max(self.rr_int) + bin_width, bin_width), statistic='count')
+        stat, bin_edges, bin_num = stats.binned_statistic(ii, ii, bins = np.arange(min(ii), max(ii) + bin_width, bin_width), statistic='count')
         hti = sum(stat)/max(stat)
         # triangular interpolation of NN interval
         # if 1st bin is max, can't calculatin TINN
@@ -314,43 +327,69 @@ class EKG:
         #print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
         #print('Call ekg.__dict__ for all statistics')
         self.time_stats = {'linear':{'HR_avg': hr_avg, 'HR_max': hr_max, 'HR_min': hr_min, 'IBI': ibi,
-                                    'SDRR': sdrr, 'RMSSD': rmssd, 'pRR20': prr20, 'pRR50': prr50},
+                                    'SDRR': sdrr, 'RMSSD': rmssd, 'pXX20': pxx20, 'pXX50': pxx50},
                             'geometric': {'hti':hti, 'tinn':tinn}
                             }
         print('Time domain stats stored in ekg.time_stats\n')
 
     
-    def interpolateRR(self):
-        """ Resample RR tachogram to original sampling frequency (since RRs are not evenly spaced)
+    def interpolateII(self, itype):
+        """ Resample tachogram to original sampling frequency (since RRs are not evenly spaced)
             and interpolate for power spectral estimation 
             *Note: adapted from pyHRV
+
+            Params
+            ------
+            itype: str
+                interval type (options: 'rr', 'nn')
         """
+        # specify data
+        if itype == 'rr':
+            ii = self.rr
+        elif itype == 'nn':
+            ii = self.nn
+
+        # interpolate
         fs = self.metadata['analysis_info']['s_freq']
-        t = np.cumsum(self.rr_int)
+        t = np.cumsum(ii)
         t -= t[0]
-        f_interp = sp.interpolate.interp1d(t, self.rr_int, 'cubic')
+        f_interp = sp.interpolate.interp1d(t, ii, 'cubic')
         t_interp = np.arange(t[0], t[-1], 1000./fs)
-        self.rr_interp = f_interp(t_interp)
+        self.ii_interp = f_interp(t_interp)
         self.metadata['analysis_info']['s_freq_interp'] = self.metadata['analysis_info']['s_freq']
 
 
-    def calc_psd_welch(self, window='hamming'):
-        """ Calculate welch power spectral density """
+    def calc_psd_welch(self, itype, window):
+        """ Calculate welch power spectral density 
+
+            Params
+            ------
+            itype: str
+                interval type (options: 'rr', 'nn')
+            window: str
+                windowing function. options from scipy.signal welch. (wrapper default: 'hamming')
+        """
         
         self.metadata['analysis_info']['psd_method'] = 'welch'
         self.metadata['analysis_info']['psd_window'] = window
+
+        # specify data
+        if itype == 'rr':
+            ii = self.rr
+        elif itype == 'nn':
+            ii = self.nn
         
         # set nfft to guidelines of power of 2 above len(data), min 256 (based on MATLAB guidelines)
-        nfft = max(256, 2**(int(np.log2(len(self.rr_interp))) + 1))
+        nfft = max(256, 2**(int(np.log2(len(self.ii_interp))) + 1))
         
-        # Adapt 'nperseg' according to the total duration of the NNI series (5min threshold = 300000ms)
-        if max(np.cumsum(self.rr_int)) < 300000:
+        # Adapt 'nperseg' according to the total duration of the II series (5min threshold = 300000ms)
+        if max(np.cumsum(ii)) < 300000:
             nperseg = nfft
         else:
             nperseg = 300
         
         # default overlap = 50%
-        f, Pxx = welch(self.rr_interp, fs=4, window=window, scaling = 'density', nfft=nfft, 
+        f, Pxx = welch(self.ii_interp, fs=4, window=window, scaling = 'density', nfft=nfft, 
                         nperseg=nperseg)
         self.psd_welch = {'freqs':f, 'pwr': Pxx, 'nfft': nfft, 'nperseg': nperseg}
 
@@ -374,7 +413,7 @@ class EKG:
         self.metadata['analysis_info']['psd_bandwidth'] = bandwidth
         sf_interp = self.metadata['analysis_info']['s_freq_interp']
 
-        pwr, freqs = psd_array_multitaper(self.rr_interp, sf_interp, adaptive=True, 
+        pwr, freqs = psd_array_multitaper(self.ii_interp, sf_interp, adaptive=True, 
                                             bandwidth=bandwidth, normalization='full', verbose=0)
         self.psd_mt = {'freqs': freqs, 'pwr': pwr}
         self.metadata['analysis_info']['psd_method'] = 'multitaper'
@@ -445,11 +484,13 @@ class EKG:
         self.freq_stats = freq_stats
 
 
-    def calc_fstats(self, fs=4, method='mt', bandwidth=None, window='hamming', bands=None):
+    def calc_fstats(self, itype, method, bandwidth, window='hamming', bands=None):
         """ Calculate frequency domain statistics 
 
         Parameters
         ----------
+        itype: str
+            interval type (options: 'rr', 'nn')
         method: str, optional (default: 'mt')
             Method to compute power spectra. options: 'welch', 'mt' (multitaper)
         bandwith: float, optional (default: 0.02)
@@ -460,15 +501,15 @@ class EKG:
             Frequency bands of interest. Leave as none for default. To do: update for custom bands
         """
         # resample & interpolate tachogram
-        print('Interpolating and resampling RR tachogram...')
-        self.interpolateRR()
+        print('Interpolating and resampling tachogram...')
+        self.interpolateII(itype)
        
        # calculate power spectrum
         print('Calculating power spectrum...')
         if method == 'mt':
             self.calc_psd_mt(bandwidth)
         elif method == 'welch':
-            self.calc_psd_welch(window)
+            self.calc_psd_welch(itype, window)
         
         #calculate frequency domain statistics
         print('Calculating frequency domain measures...')
@@ -476,21 +517,35 @@ class EKG:
         print('Frequency measures stored in ekg.freq_stats\n')
 
     
-    def calc_nlstats(self, save_plots=False):
+    def calc_nlstats(self, itype, save_plots=False):
         """ calculate nonlinear dynamics poincare & sample entropy 
-            Note: From pyhrv non-linear module """
+            Note: From pyhrv non-linear module 
+
+            Params
+            ------
+            itype: str
+                interval type (options: 'rr', 'nn')
+        """
+        
+        # specify data
+        if itype == 'rr':
+            ii = self.rr
+        elif itype == 'nn':
+            ii = self.nn
+
         print('Calculating nonlinear statistics...')
         nonlinear_stats = {}
 
         # poincare
-        pc = nl.poincare(self.rr_int)
+        pc = nl.poincare(ii)
         nonlinear_stats['poincare'] = {'sd1': pc[1], 'sd2': pc[2], 'sd_ratio':pc[3], 'ellipse_area':pc[4]}
+        
         # sample entropy (tolerance and dim set to match Riganello et al. 2018)
-        sampEN = nl.sample_entropy(self.rr_int, dim=2, tolerance=0.15)
+        sampEN = nl.sample_entropy(ii, dim=2, tolerance=0.15)
         nonlinear_stats['entropy'] = {'sampEN':sampEN[0]}
 
         # detrended fluctuation analysis
-        dfa = nl.dfa(self.rr_int)
+        dfa = nl.dfa(ii)
         nonlinear_stats['dfa'] = {'alpha1': dfa[1], 'alpha2': dfa[2]}
 
         if save_plots == True:
@@ -501,7 +556,7 @@ class EKG:
         print('Nonlinear stats stored in ekg.nonlinear_stats\n')
 
 
-    def hrv_stats(self, mw_size = 0.2, upshift = 1.05, bandwidth=0.01):
+    def hrv_stats(self, mw_size = 0.2, upshift = 1.05, method='mt', bandwidth=0.01, rm_artifacts=True):
         """ Calculate all statistics on EKG object 
 
             TO DO: Add freq_stats arguments to hrv_stats params? 
@@ -516,9 +571,18 @@ class EKG:
 
         # make RR tachogram
         self.calc_RR()
-        self.calc_tstats()
-        self.calc_fstats(bandwidth)
-        self.calc_nlstats()
+
+        # remove artifacts
+        if rm_artifacts == True:
+            self.rm_artifacts()
+            itype = 'nn'
+        else:
+            itype = 'rr'
+
+        # calculate statistics
+        self.calc_tstats(itype)
+        self.calc_fstats(itype, method, bandwidth)
+        self.calc_nlstats(itype)
         print('Done.')
 
     def to_spreadsheet(self, spreadsheet):
@@ -532,7 +596,7 @@ class EKG:
                 output file (new or existing)
         """
         
-        arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
+        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
         reform = {(level1_key, level2_key, level3_key): values
@@ -554,10 +618,12 @@ class EKG:
             print('{} does not exist. Data saved to new spreadsheet'.format(spreadsheet))
 
     def to_report(self, json=False):
-        """ export statistics as a csv report """
+        """ export statistics as a csv report 
+            TO DO: add line to check if nn exists
+        """
         
         # export everything that isn't a dataframe, series, or array    
-        arrays = ['data', 'rpeaks', 'rr_int', 'rr_int_diff', 'rr_int_diffsq', 'rr_interp', 'psd_mt', 'psd_fband_vals']
+        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
         # save calculations
@@ -589,9 +655,14 @@ class EKG:
         # save detections
         savepeaks = data['metadata']['file_info']['fname'] + '_rpeaks.txt'
         self.rpeaks.to_csv(savepeaks)
-        saverr = data['metadata']['file_info']['fname'] + '_rri.txt'
-        np.savetxt(saverr, self.rr_int, delimiter='\n')
-
+        saverr = data['metadata']['file_info']['fname'] + '_rr.txt'
+        np.savetxt(saverr, self.rr, delimiter='\n')
+        # check if nn exists
+        try: self.nn
+        except NameError: pass
+        else:
+            savenn = data['metadata']['file_info']['fname'] + '_nn.txt'
+            np.savetxt(savenn, self.nn, delimiter='\n')
 
 def loadEKG_batch(path, stage=None, min_dur=True):
     """ Batch import all raw data from a given directory 
