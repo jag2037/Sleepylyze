@@ -257,6 +257,54 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
+def plot_cyclelens(d, plt_stages='all', logscale=True, normx=True):
+    """ 
+        plot cycle length for each sleep stage vs cycle # 
+        -> This should show if there are trends in cycle length
+        based on number of times that stage has been cycled through
+        
+        Params
+        ------
+        d: instance of Dataset
+        plt_stages: str (default: 'all')
+            stages to plot
+        logscale: bool (default:True)
+            plot the y-axis on a log scale
+        normx: bool (default: True)
+            normalize x-axis according to total number of cycles for that stage
+    """
+
+    if plt_stages == 'all':
+        stages = ['awake', 'rem', 's1', 's2', 'ads', 'sws']
+    elif type(plt_stages) == str:
+        stages = [plt_stages]
+    elif type(plt_stages) == list:
+        stages = plt_stages
+
+    fig, ax = plt.subplots()
+
+    for key in hyp_stats.keys():
+        if key in stages:
+            if hyp_stats[key]['n_cycles'] > 0:
+                if normx == True:
+                    x = [x/hyp_stats[key]['n_cycles'] for x in hyp_stats[key]['cycle_lengths'].keys()]
+                    xlabel = 'Normalized Cycle'
+                else:
+                    x = hyp_stats[key]['cycle_lengths'].keys()
+                    xlabel = 'Cycle'
+                if logscale == True:
+                    y = [math.log10(y) for y in hyp_stats[key]['cycle_lengths'].values()]
+                    ylabel = 'Cycle length [log(seconds)]'
+                else:
+                    y = hyp_stats[key]['cycle_lengths'].values()
+                    ylabel = 'Cycle length (seconds)'
+                ax.plot(x, y, label = key)
+    ax.legend()
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    return fig
+
 def plotEKG(ekg, rpeaks=False):
     """ plot EKG class instance """
     fig = plt.figure(figsize = [18, 6])
