@@ -5,62 +5,12 @@
 """
 
 import matplotlib
-#matplotlib.use('Qt5Agg') # uncomment for scrollable plot
 import itertools
 import matplotlib.pyplot as plt
 import numpy as np 
 import os
 import pandas as pd
 import shapely.geometry as SG
-from PyQt5 import QtWidgets, QtCore
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-
-class ScrollableWindow(QtWidgets.QMainWindow):
-    """ Potentially for use to see spindle detections """
-    def __init__(self, fig, ax, step=0.1):
-        plt.close("all")
-        if not QtWidgets.QApplication.instance():
-            self.app = QtWidgets.QApplication(sys.argv)
-        else:
-            self.app = QtWidgets.QApplication.instance() 
-
-        QtWidgets.QMainWindow.__init__(self)
-        self.widget = QtWidgets.QWidget()
-        self.setCentralWidget(self.widget)
-        self.widget.setLayout(QtWidgets.QVBoxLayout())
-        self.widget.layout().setContentsMargins(0,0,0,0)
-        self.widget.layout().setSpacing(0)
-
-        self.fig = fig
-        self.ax = ax
-        self.canvas = FigureCanvas(self.fig)
-        self.canvas.draw()
-        self.scroll = QtWidgets.QScrollBar(QtCore.Qt.Horizontal)
-        self.step = step
-        self.setupSlider()
-        self.nav = NavigationToolbar(self.canvas, self.widget)
-        self.widget.layout().addWidget(self.nav)
-        self.widget.layout().addWidget(self.canvas)
-        self.widget.layout().addWidget(self.scroll)
-
-        self.canvas.draw()
-        self.show()
-        self.qapp.exec_()
-
-    def setupSlider(self):
-        self.lims = np.array(self.ax.get_xlim())
-        self.scroll.setPageStep(self.step*100)
-        self.scroll.actionTriggered.connect(self.update)
-        self.update()
-
-    def update(self, evt=None):
-        r = self.scroll.value()/((1+self.step)*100)
-        l1 = self.lims[0]+r*np.diff(self.lims)
-        l2 = l1 +  np.diff(self.lims)*self.step
-        self.ax.set_xlim(l1,l2)
-        print(self.scroll.value(), l1,l2)
-        self.fig.canvas.draw_idle()
 
 
 def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
@@ -257,7 +207,7 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
-def plot_cyclelens(d, plt_stages='all', logscale=True, normx=True):
+def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
     """ 
         plot cycle length for each sleep stage vs cycle # 
         -> This should show if there are trends in cycle length
@@ -314,47 +264,6 @@ def plotEKG(ekg, rpeaks=False):
         plt.scatter(ekg.rpeaks.index, ekg.rpeaks.values, color='red')
 
     return fig
-
-def plotEKG_slider(ekg, rpeaks=False):
-    """ plot EKG class instance """
-    fig, ax = plt.subplots(figsize = [18, 6])
-    ax.plot(ekg.data)
-
-    if rpeaks == True:
-        plt.scatter(ekg.rpeaks.index, ekg.rpeaks.values, color='red')
-    
-    # create x-axis slider
-    x_min_index = 0
-    x_max_index = 2500
-
-    x_min = ekg.data.index[x_min_index]
-    x_max = ekg.data.index[x_max_index]
-    x_dt = x_max - x_min
-    
-    y_min, y_max = plt.axis()[2], plt.axis()[3]
-
-    plt.axis([x_min, x_max, y_min, y_max])
-
-    axcolor = 'lightgoldenrodyellow'
-    axpos = plt.axes([0.2, 0.1, 0.65, 0.03], facecolor=axcolor)
-    
-    slider_max = len(ekg.data) - x_max_index - 1
-
-    spos = Slider(axpos, 'Pos', matplotlib.dates.date2num(x_min), matplotlib.dates.date2num(ekg.data.index[slider_max]))
-
-    # format date names
-    #plt.gcf().autofmt_xdate()
-    
-    def update(val):
-        pos = spos.val
-        xmin_time = matplotlib.dates.num2date(pos)
-        xmax_time = matplotlib.dates.num2date(pos) + x_dt
-        ax.axis([xmin_time, xmax_time, y_min, y_max])
-        fig.canvas.draw_idle()
-
-    spos.on_changed(update)
-    
-    return fig 
 
 def plotHTI(ekg):
     """ plot histogram of HRV Triangular Index (bin size 1/128sec) 
