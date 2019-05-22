@@ -73,9 +73,11 @@ class EKG:
         
         diff = data.index.to_series().diff()[1:2]
         s_freq = 1000000/diff[0].microseconds
+        nans = len(data) - data['EKG'].count()
 
         self.metadata['file_info']['start_time'] = data.index[0]
-        self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
+        self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs, 
+                                        'NaNs(samples)': nans, 'NaNs(secs)': nans/s_freq}
 
         print('EKG successfully imported.')
 
@@ -517,14 +519,17 @@ class EKG:
         print('Frequency measures stored in ekg.freq_stats\n')
 
     
-    def calc_nlstats(self, itype, save_plots=False):
+    def calc_nlstats(self, itype, calc_dfa=False, save_plots=False):
         """ calculate nonlinear dynamics poincare & sample entropy 
             Note: From pyhrv non-linear module 
 
             Params
             ------
             itype: str
-                interval type (options: 'rr', 'nn')
+                Interval type (options: 'rr', 'nn')
+            calc_dfa: bool (default: False)
+                Option to calculate detrended fluctuation analysis. Appropriate
+                for data several hours long
         """
         
         # specify data
@@ -545,12 +550,14 @@ class EKG:
         nonlinear_stats['entropy'] = {'sampEN':sampEN[0]}
 
         # detrended fluctuation analysis
-        dfa = nl.dfa(ii)
-        nonlinear_stats['dfa'] = {'alpha1': dfa[1], 'alpha2': dfa[2]}
+        if calc_dfa is True:
+            dfa = nl.dfa(ii)
+            nonlinear_stats['dfa'] = {'alpha1': dfa[1], 'alpha2': dfa[2]}
 
         if save_plots == True:
-            nonlinear_stats['dfa']['plot'] = dfa[0]
             nonlinear_stats['poincare']['plot'] = pc[0]
+            if calc_dfa is True:
+                nonlinear_stats['dfa']['plot'] = dfa[0]
 
         self.nonlinear_stats = nonlinear_stats
         print('Nonlinear stats stored in ekg.nonlinear_stats\n')
