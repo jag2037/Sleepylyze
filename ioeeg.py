@@ -2,6 +2,7 @@
 
     To Do:
         Remove spindle detection functions --> to be moved to new class for cut segments 
+        Add modified calculate_transitions code
 """
 
 import datetime
@@ -335,6 +336,39 @@ class Dataset:
         self.hyp_stats = hyp_stats
 
         print('Done.')
+
+    def export_hypstats(self, savedir=None):
+        """ Save a report of sleep structure statistics """
+        # set save directory
+        if savedir is None:
+            savedir = os.getcwd()
+            chngdir = input('Files will be saved to ' + savedir + '. Change save directory? [Y/N] ')
+            if chngdir == 'Y':
+                savedir = input('New save directory: ')
+                if not os.path.exists(savedir):
+                    createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
+                    if createdir == 'Y':
+                        os.makedirs(savedir)
+                    else:
+                        savedir = input('Try again. Save directory: ')
+                        if not os.path.exists(savedir):
+                            print(savedir + ' does not exist. Aborting. ')
+                            return
+        else:
+            if not os.path.exists(savedir):
+                createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
+                if createdir == 'Y':
+                    os.makedirs(savedir)
+                else:
+                    savedir = input('Try again. Save directory: ')
+                    if not os.path.exists(savedir):
+                        print(savedir + ' does not exist. Aborting. ')
+                        return
+        
+        savename = d.in_num + '_SleepStats_' + d.start_date + '.txt'
+        save = os.path.join(savedir, savename)
+        with open(save, 'w') as f:
+            json.dump(self.hyp_stats, f, indent=4)
 
     def cut_EEG(self, sleepstage='all', epoch_len=None):
         """ cut dataset based on loaded hypnogram 
