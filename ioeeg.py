@@ -222,6 +222,9 @@ class Dataset:
         """ Loads hypnogram .txt file and produces DateTimeIndex by sleep stage and 
         stage cycle for cutting
         
+        TO DO: Add hypnogram stats (sleep efficiency, length of each cycle, # of cycles for each stage.
+                % of night spent in each stage, average cycle length)
+
         Parameters
         ----------
         scorefile: .txt file
@@ -246,9 +249,9 @@ class Dataset:
                 
         # read in sleep scores & resample to EEG/EKG frequency
         print('Importing sleep scores...')
-        scores = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
-        scores = pd.DataFrame(np.repeat(scores.values, self.s_freq*30,axis=0), columns=scores.columns)
-        
+        hyp = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
+        scores = pd.DataFrame(np.repeat(hyp.values, self.s_freq*30,axis=0), columns=hyp.columns)
+
         # reindex to match EEG/EKG data
         ## --> add warning here if index start date isn't found in EEG data
         ind_freq = str(int(1/self.s_freq*1000000))+'us'
@@ -297,8 +300,40 @@ class Dataset:
                 stage_cuts[stage] = cyc
             else:
                 stage_cuts[stage] = None
-
+        
         self.stage_cuts = stage_cuts
+
+        # Sleep structure analyses
+        print('Calculating sleep structure statistics...')
+        hyp_stats = {}
+        # sleep efficiency (removing record breaks)
+        hyp_stats['sleep_efficiency'] = (len(hyp) - len(hyp[hyp.values == 0.0]) - len(hyp[hyp.values == 6.0]))/
+                                        (len(hyp) - len(hyp[hyp.values == 6.0])) * 100
+        # sleep stage % (removing record breaks)
+        for stage, code in stages.items():
+            if stage is not 'rbrk':
+                percent = len(hyp[hyp.values == code])/(len(hyp)-len(hyp[hyp.values == 6.0])) * 100
+            elif stage is 'rbrk':
+                percent = len(hyp[hyp.values == code])/len(hyp)
+            hyp_stats[stage]= {'%night': percent}
+        # cycle stats for each sleep stage
+        for stage, cycles in self.stage_cuts.items():
+            if cycles is None:
+                hyp_stats[stage]['n_cycles'] = 0
+            else:
+                # number of cycles
+                hyp_stats[stage]['n_cycles'] = len(cycles)
+                # length of each cycle
+                cycle_lens = {}
+                for cycle, idx in cycles.items():
+                    length = (idx[-1] - idx[0]).seconds + 1
+                    cycle_lens[cycle] = length
+                hyp_stats[stage]['cycle_lengths'] = cycle_lens
+                # average cycle length
+                hyp_stats[stage]['avg_len'] = sum(cycle_lens.values())/len(cycle_lens.values())
+
+        self.hyp_stats = hyp_stats
+
         print('Done.')
 
     def cut_EEG(self, sleepstage='all', epoch_len=None):
