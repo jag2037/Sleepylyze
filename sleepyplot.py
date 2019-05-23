@@ -4,8 +4,8 @@
         Make plot_hyp() function
 """
 
-import matplotlib
 import itertools
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np 
 import os
@@ -267,14 +267,14 @@ def cycles_boxplot(d, yscale='min'):
     """
     ylist = []
     xticklabels = []
-    for key in hyp_stats.keys():
-        if hyp_stats[key]['n_cycles'] > 0:
-            xticklabels.append(key + '\n(n='+ str(hyp_stats[key]['n_cycles']) + ')')
+    for key in d.hyp_stats.keys():
+        if d.hyp_stats[key]['n_cycles'] > 0:
+            xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
             if yscale == 'sec':
-                ylist.append(list(hyp_stats[key]['cycle_lengths'].values()))
+                ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
                 ylabel = 'Cycle Length (sec)'
             elif yscale == 'min':
-                ylist.append([y/60. for y in hyp_stats[key]['cycle_lengths'].values()])
+                ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
                 ylabel = 'Cycle Length (min)'
                 
     fig, ax = plt.subplots()
@@ -320,14 +320,14 @@ def cycles_boxplot_colors(d, yscale='min'):
     """
     ylist = []
     xticklabels = []
-    for key in hyp_stats.keys():
-        if hyp_stats[key]['n_cycles'] > 0:
-            xticklabels.append(key + '\n(n='+ str(hyp_stats[key]['n_cycles']) + ')')
+    for key in d.hyp_stats.keys():
+        if d.hyp_stats[key]['n_cycles'] > 0:
+            xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
             if yscale == 'sec':
-                ylist.append(list(hyp_stats[key]['cycle_lengths'].values()))
+                ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
                 ylabel = 'Cycle Length (sec)'
             elif yscale == 'min':
-                ylist.append([y/60. for y in hyp_stats[key]['cycle_lengths'].values()])
+                ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
                 ylabel = 'Cycle Length (min)'
                 
     fig, ax = plt.subplots()
@@ -360,10 +360,23 @@ def plot_hyp(d):
     """ plot hypnogram for Dataset instance
         --> NEEDS REFINEMENT
     """
-    plt.figure(figsize = (30, 5))
-    plt.plot(d.data[('Hyp', 'Score')])
+    fig, ax = plt.subplots(figsize = (30,5))
+    
+    ax.plot(d.hyp, color='lightseagreen', lw=2)
     ax = plt.gca()
     ax.set_ylim(ax.get_ylim()[::-1])
+    ax.set_yticks([0, 1, 2, 3, 4, 5])
+    ax.set_yticklabels(['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta\nSleep     ', 'SWS'])
+
+    fmt = mdates.DateFormatter('%I:%M%p')
+    ax.xaxis.set_major_formatter(fmt)
+    ax.margins(x=.01)
+    
+    plt.xlabel('Time')
+    plt.ylabel('Sleep Stage')
+    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    
+    return fig
 
 
 
