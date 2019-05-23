@@ -269,7 +269,7 @@ def cycles_boxplot(d, yscale='min'):
     xticklabels = []
     for key in hyp_stats.keys():
         if hyp_stats[key]['n_cycles'] > 0:
-            xticklabels.append(key)
+            xticklabels.append(key + '\n(n='+ str(hyp_stats[key]['n_cycles']) + ')')
             if yscale == 'sec':
                 ylist.append(list(hyp_stats[key]['cycle_lengths'].values()))
                 ylabel = 'Cycle Length (sec)'
@@ -287,22 +287,69 @@ def cycles_boxplot(d, yscale='min'):
         box.set(facecolor='lightgray')
     # change median color
     for median in bp['medians']:
-        median.set(color='#1b9e77')
+        median.set(color='grey', lw=2)
     # change whisker color
     for whisker in bp['whiskers']:
-        whisker.set(color='grey')
+        whisker.set(color='grey', lw=2)
     # change cap color
     for cap in bp['caps']:
-        cap.set(color='grey')
+        cap.set(color='grey', lw = 2)
     # change the style of fliers and their fill
     for flier in bp['fliers']:
-        flier.set(marker='o', color='grey', alpha=0.5)
+        flier.set(markerfacecolor='grey', marker='o', markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
     
     ax.set_xticklabels(xticklabels)
     #ax.spines['top'].set_visible(False)
     #ax.spines['right'].set_visible(False)
     
-    plt.xlabel('Sleep Stage')
+    plt.xlabel('\nSleep Stage')
+    plt.ylabel(ylabel)
+    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    
+    return fig
+
+def cycles_boxplot_colors(d, yscale='min'):
+    """ boxplot of cycle lengths 
+    
+        Params
+        ------
+        yscale: str (default: 'min')
+            y scaling (options: 'min', 'sec')
+        
+        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
+    """
+    ylist = []
+    xticklabels = []
+    for key in hyp_stats.keys():
+        if hyp_stats[key]['n_cycles'] > 0:
+            xticklabels.append(key + '\n(n='+ str(hyp_stats[key]['n_cycles']) + ')')
+            if yscale == 'sec':
+                ylist.append(list(hyp_stats[key]['cycle_lengths'].values()))
+                ylabel = 'Cycle Length (sec)'
+            elif yscale == 'min':
+                ylist.append([y/60. for y in hyp_stats[key]['cycle_lengths'].values()])
+                ylabel = 'Cycle Length (min)'
+                
+    fig, ax = plt.subplots()
+    
+    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
+    
+    colors = ['darkgrey', 'orange', 'lime', 'blue', 'purple']
+    
+    for box, median, whisker, flier, col in zip(bp['boxes'], bp['medians'], bp['whiskers'], bp['fliers'], colors):
+        box.set(facecolor= col, edgecolor=col, alpha=0.6, lw=0)
+        flier.set(markerfacecolor=col, markeredgecolor=col, marker='o', alpha=0.8, lw=2)
+        median.set(color=col, lw=2)
+    
+    for whisker, cap, col in zip(bp['whiskers'], bp['caps'], np.repeat(colors, 2)):
+        whisker.set(color=col, lw=2)
+        cap.set(color=col, lw=2)
+    
+    ax.set_xticklabels(xticklabels)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    plt.xlabel('\nSleep Stage')
     plt.ylabel(ylabel)
     plt.suptitle(d.in_num + ' (' + d.start_date + ')')
     
