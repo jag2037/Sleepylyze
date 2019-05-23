@@ -287,18 +287,16 @@ def cycles_boxplot(d, yscale='min'):
         box.set(facecolor='lightgray')
     # change median color
     for median in bp['medians']:
-        median.set(color='black')
-        #median.set(color='#1b9e77')
+        median.set(color='#1b9e77')
     # change whisker color
     for whisker in bp['whiskers']:
-        whisker.set(color='')
-        #whisker.set(color='darkgrey')
+        whisker.set(color='grey')
     # change cap color
     for cap in bp['caps']:
-        cap.set(color='darkgrey')
+        cap.set(color='grey')
     # change the style of fliers and their fill
     for flier in bp['fliers']:
-        flier.set(marker='o', color='darkgrey', alpha=0.5)
+        flier.set(marker='o', color='grey', alpha=0.5)
     
     ax.set_xticklabels(xticklabels)
     #ax.spines['top'].set_visible(False)
