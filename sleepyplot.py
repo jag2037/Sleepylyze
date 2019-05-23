@@ -209,14 +209,14 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
 
 def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
     """ 
-        plot cycle length for each sleep stage vs cycle # 
+        Plot cycle length for each sleep stage vs cycle # 
         -> This should show if there are trends in cycle length
         based on number of times that stage has been cycled through
         
         Params
         ------
         d: instance of Dataset
-        plt_stages: str (default: 'all')
+        plt_stages: str or list of string (default: 'all')
             stages to plot
         logscale: bool (default:True)
             plot the y-axis on a log scale
@@ -254,6 +254,75 @@ def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
     plt.ylabel(ylabel)
 
     return fig
+
+def cycles_boxplot(d, yscale='min'):
+    """ boxplot of cycle lengths 
+    
+        Params
+        ------
+        yscale: str (default: 'min')
+            y scaling (options: 'min', 'sec')
+        
+        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
+    """
+    ylist = []
+    xticklabels = []
+    for key in hyp_stats.keys():
+        if hyp_stats[key]['n_cycles'] > 0:
+            xticklabels.append(key)
+            if yscale == 'sec':
+                ylist.append(list(hyp_stats[key]['cycle_lengths'].values()))
+                ylabel = 'Cycle Length (sec)'
+            elif yscale == 'min':
+                ylist.append([y/60. for y in hyp_stats[key]['cycle_lengths'].values()])
+                ylabel = 'Cycle Length (min)'
+                
+    fig, ax = plt.subplots()
+    
+    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
+    
+    # change box outline & fill
+    for box in bp['boxes']:
+        box.set(color='lightgray')
+        box.set(facecolor='lightgray')
+    # change median color
+    for median in bp['medians']:
+        median.set(color='black')
+        #median.set(color='#1b9e77')
+    # change whisker color
+    for whisker in bp['whiskers']:
+        whisker.set(color='')
+        #whisker.set(color='darkgrey')
+    # change cap color
+    for cap in bp['caps']:
+        cap.set(color='darkgrey')
+    # change the style of fliers and their fill
+    for flier in bp['fliers']:
+        flier.set(marker='o', color='darkgrey', alpha=0.5)
+    
+    ax.set_xticklabels(xticklabels)
+    #ax.spines['top'].set_visible(False)
+    #ax.spines['right'].set_visible(False)
+    
+    plt.xlabel('Sleep Stage')
+    plt.ylabel(ylabel)
+    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    
+    return fig
+    
+
+def plot_hyp(d):
+    """ plot hypnogram for Dataset instance
+        --> NEEDS REFINEMENT
+    """
+    plt.figure(figsize = (30, 5))
+    plt.plot(d.data[('Hyp', 'Score')])
+    ax = plt.gca()
+    ax.set_ylim(ax.get_ylim()[::-1])
+
+
+
+### EKG Methods ###
 
 def plotEKG(ekg, rpeaks=False):
     """ plot EKG class instance """
