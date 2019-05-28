@@ -13,6 +13,7 @@ import pandas as pd
 import re
 import scipy.io as io
 from scipy.signal import buttord, butter, sosfiltfilt, sosfreqz
+import statistics
 
 class Dataset:
     """ General class containing EEG recordings
@@ -266,7 +267,7 @@ class Dataset:
             if i in self.data.index:
                 overlap = i
                 self.hyp = pd.Series(scores['Score'])
-                print(('Scorefile and Data timestamp match detected at {}.').format(i))
+                print(('Scorefile and data timestamp match detected at {}.').format(i))
                 break
         try:
             overlap
@@ -301,8 +302,6 @@ class Dataset:
                 stage_cuts[stage] = cyc
             else:
                 stage_cuts[stage] = None
-        
-        self.stage_cuts = stage_cuts
 
         # Sleep structure analyses
         print('Calculating sleep structure statistics...')
@@ -332,7 +331,10 @@ class Dataset:
                 hyp_stats[stage]['cycle_lengths'] = cycle_lens
                 # average cycle length
                 hyp_stats[stage]['avg_len'] = sum(cycle_lens.values())/len(cycle_lens.values())
+                hyp_stats[stage]['stdev'] = np.std(list(cycle_lens.values()))
+                hyp_stats[stage]['median'] = statistics.median(list(cycle_lens.values())) 
 
+        self.stage_cuts = stage_cuts
         self.hyp_stats = hyp_stats
 
         print('Done.')
