@@ -1,10 +1,11 @@
 """ plotting functions for Dataset objects 
     
     To Do:
-        Make plot_hyp() function
+        Edit hyp_stats plots to take transitions.HypStats object instead of ioeeg.Dataset object
 """
 
 import itertools
+import math
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np 
@@ -215,7 +216,7 @@ def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
         
         Params
         ------
-        d: instance of Dataset
+        d: transitions.HypStats or ioeeg.Dataset object
         plt_stages: str or list of string (default: 'all')
             stages to plot
         logscale: bool (default:True)
@@ -233,20 +234,20 @@ def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
 
     fig, ax = plt.subplots()
 
-    for key in hyp_stats.keys():
+    for key in d.hyp_stats.keys():
         if key in stages:
-            if hyp_stats[key]['n_cycles'] > 0:
+            if d.hyp_stats[key]['n_cycles'] > 0:
                 if normx == True:
-                    x = [x/hyp_stats[key]['n_cycles'] for x in hyp_stats[key]['cycle_lengths'].keys()]
+                    x = [int(x)/d.hyp_stats[key]['n_cycles'] for x in d.hyp_stats[key]['cycle_lengths'].keys()]
                     xlabel = 'Normalized Cycle'
                 else:
-                    x = hyp_stats[key]['cycle_lengths'].keys()
+                    x = d.hyp_stats[key]['cycle_lengths'].keys()
                     xlabel = 'Cycle'
                 if logscale == True:
-                    y = [math.log10(y) for y in hyp_stats[key]['cycle_lengths'].values()]
+                    y = [math.log10(y) for y in d.hyp_stats[key]['cycle_lengths'].values()]
                     ylabel = 'Cycle length [log(seconds)]'
                 else:
-                    y = hyp_stats[key]['cycle_lengths'].values()
+                    y = d.hyp_stats[key]['cycle_lengths'].values()
                     ylabel = 'Cycle length (seconds)'
                 ax.plot(x, y, label = key)
     ax.legend()
@@ -268,14 +269,15 @@ def cycles_boxplot(d, yscale='min'):
     ylist = []
     xticklabels = []
     for key in d.hyp_stats.keys():
-        if d.hyp_stats[key]['n_cycles'] > 0:
-            xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
-            if yscale == 'sec':
-                ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
-                ylabel = 'Cycle Length (sec)'
-            elif yscale == 'min':
-                ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
-                ylabel = 'Cycle Length (min)'
+        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
+                if yscale == 'sec':
+                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
+                    ylabel = 'Cycle Length (sec)'
+                elif yscale == 'min':
+                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
+                    ylabel = 'Cycle Length (min)'
                 
     fig, ax = plt.subplots()
     
@@ -318,20 +320,35 @@ def cycles_scatterbox(d, yscale='min'):
         
         Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
     """
+
     ylist = []
     xticklabels = []
-    for key in hyp_stats.keys():
-        if hyp_stats[key]['n_cycles'] > 0:
-            xticklabels.append(key + '\n(n='+ str(hyp_stats[key]['n_cycles']) + ')')
-            if yscale == 'sec':
-                ylist.append(list(hyp_stats[key]['cycle_lengths'].values()))
-                ylabel = 'Cycle Length (sec)'
-            elif yscale == 'min':
-                ylist.append([y/60. for y in hyp_stats[key]['cycle_lengths'].values()])
-                ylabel = 'Cycle Length (min)'
-                
+    colors = []
+    for key in d.hyp_stats.keys():
+        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                # set xtick labels
+                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
+                # set y values
+                if yscale == 'sec':
+                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
+                    ylabel = 'Cycle Length (sec)'
+                elif yscale == 'min':
+                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
+                    ylabel = 'Cycle Length (min)'
+                # set colors
+                if key == 'awake':
+                    colors.append('darkgrey')
+                elif key == 's1':
+                    colors.append('orange')
+                elif key == 's2':
+                    colors.append('lime')
+                elif key == 'ads':
+                    colors.append('blue')
+                elif key == 'sws':
+                    colors.append('purple')
+
     fig, ax = plt.subplots()
-    
     bp = ax.boxplot(ylist, notch=False, patch_artist=True)
     
     # change box outline & fill
@@ -351,7 +368,6 @@ def cycles_scatterbox(d, yscale='min'):
         flier.set(markerfacecolor='grey', marker=None, markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
         
     # add scatterplot for datapoints
-    colors = ['darkgrey', 'orange', 'lime', 'blue', 'purple']
     for i in range(len(ylist)):
         y = ylist[i]
         # create jitter by randomly distributing x vals
@@ -372,9 +388,7 @@ def cycles_scatterbox(d, yscale='min'):
     
 
 def plot_hyp(d):
-    """ plot hypnogram for Dataset instance
-        --> NEEDS REFINEMENT
-    """
+    """ plot hypnogram for ioeeg.Dataset instance """
     fig, ax = plt.subplots(figsize = (30,5))
     
     ax.plot(d.hyp, color='lightseagreen', lw=2)
