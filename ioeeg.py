@@ -303,12 +303,13 @@ class Dataset:
             else:
                 stage_cuts[stage] = None
 
+        self.stage_cuts = stage_cuts
+
         # Sleep structure analyses
         print('Calculating sleep structure statistics...')
         hyp_stats = {}
         # sleep efficiency (removing record breaks)
-        hyp_stats['sleep_efficiency'] = (len(hyp) - len(hyp[hyp.values == 0.0]) - len(hyp[hyp.values == 6.0]))/
-                                        (len(hyp) - len(hyp[hyp.values == 6.0])) * 100
+        hyp_stats['sleep_efficiency'] = (len(hyp) - len(hyp[hyp.values == 0.0]) - len(hyp[hyp.values == 6.0]))/(len(hyp) - len(hyp[hyp.values == 6.0])) * 100
         # sleep stage % (removing record breaks)
         for stage, code in stages.items():
             if stage is not 'rbrk':
@@ -334,13 +335,20 @@ class Dataset:
                 hyp_stats[stage]['stdev'] = np.std(list(cycle_lens.values()))
                 hyp_stats[stage]['median'] = statistics.median(list(cycle_lens.values())) 
 
-        self.stage_cuts = stage_cuts
         self.hyp_stats = hyp_stats
 
         print('Done.')
 
-    def export_hypstats(self, savedir=None):
-        """ Save a report of sleep structure statistics """
+    def export_hypstats(self, savedir=None, export_hyp=True):
+        """ Save a report of sleep structure statistics 
+        
+        Params
+        ------
+        savedir: str
+            path to directory where files will be saved
+        export_hyp: bool (default: True)
+            export resampled hypnogram
+        """
         # set save directory
         if savedir is None:
             savedir = os.getcwd()
@@ -367,10 +375,17 @@ class Dataset:
                         print(savedir + ' does not exist. Aborting. ')
                         return
         
-        savename = d.in_num + '_SleepStats_' + d.start_date + '.txt'
-        save = os.path.join(savedir, savename)
-        with open(save, 'w') as f:
+        # export hypnogram stats
+        stats_savename = d.in_num + '_SleepStats_' + d.start_date + '.txt'
+        stats_save = os.path.join(savedir, stats_savename)
+        with open(stats_save, 'w') as f:
             json.dump(self.hyp_stats, f, indent=4)
+
+        # export resampled hypnogram
+        hyp_savename = d.in_num + '_Hyp_' + d.s_freq + 'Hz_' + d.start_date + '.txt'
+        hyp_save = os.path.join(savedir, hyp_savename)
+        self.hyp.to_csv(hyp_save, header=False)
+
 
     def cut_EEG(self, sleepstage='all', epoch_len=None):
         """ cut dataset based on loaded hypnogram 
