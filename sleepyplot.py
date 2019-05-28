@@ -308,8 +308,8 @@ def cycles_boxplot(d, yscale='min'):
     
     return fig
 
-def cycles_boxplot_colors(d, yscale='min'):
-    """ boxplot of cycle lengths 
+def cycles_scatterbox(d, yscale='min'):
+    """ boxplot of cycle lengths w/ colored scatterplot of datapoints
     
         Params
         ------
@@ -320,35 +320,50 @@ def cycles_boxplot_colors(d, yscale='min'):
     """
     ylist = []
     xticklabels = []
-    for key in d.hyp_stats.keys():
-        if d.hyp_stats[key]['n_cycles'] > 0:
-            xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
+    for key in hyp_stats.keys():
+        if hyp_stats[key]['n_cycles'] > 0:
+            xticklabels.append(key + '\n(n='+ str(hyp_stats[key]['n_cycles']) + ')')
             if yscale == 'sec':
-                ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
+                ylist.append(list(hyp_stats[key]['cycle_lengths'].values()))
                 ylabel = 'Cycle Length (sec)'
             elif yscale == 'min':
-                ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
+                ylist.append([y/60. for y in hyp_stats[key]['cycle_lengths'].values()])
                 ylabel = 'Cycle Length (min)'
                 
     fig, ax = plt.subplots()
     
     bp = ax.boxplot(ylist, notch=False, patch_artist=True)
     
+    # change box outline & fill
+    for box in bp['boxes']:
+        box.set(color='lightgray', alpha=1)
+    # change median color
+    for median in bp['medians']:
+        median.set(color='grey', lw=2)
+    # change whisker color
+    for whisker in bp['whiskers']:
+        whisker.set(color='grey', lw=2)
+    # change cap color
+    for cap in bp['caps']:
+        cap.set(color='grey', lw = 2)
+    # change the style of fliers and their fill
+    for flier in bp['fliers']:
+        flier.set(markerfacecolor='grey', marker=None, markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
+        
+    # add scatterplot for datapoints
     colors = ['darkgrey', 'orange', 'lime', 'blue', 'purple']
-    
-    for box, median, whisker, flier, col in zip(bp['boxes'], bp['medians'], bp['whiskers'], bp['fliers'], colors):
-        box.set(facecolor= col, edgecolor=col, alpha=0.6, lw=0)
-        flier.set(markerfacecolor=col, markeredgecolor=col, marker='o', alpha=0.8, lw=2)
-        median.set(color=col, lw=2)
-    
-    for whisker, cap, col in zip(bp['whiskers'], bp['caps'], np.repeat(colors, 2)):
-        whisker.set(color=col, lw=2)
-        cap.set(color=col, lw=2)
-    
+    for i in range(len(ylist)):
+        y = ylist[i]
+        # create jitter by randomly distributing x vals
+        x = np.random.normal(1+i, 0.1, size=len(y))
+        ax.plot(x, y, 'r.', markerfacecolor=colors[i], markeredgecolor=colors[i], markersize=12, 
+                markeredgewidth=0.8, alpha=0.5, zorder=3) #zorder sets scatter on top
+
     ax.set_xticklabels(xticklabels)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
+    plt.grid(axis='both', linestyle=':', linewidth=1)
     plt.xlabel('\nSleep Stage')
     plt.ylabel(ylabel)
     plt.suptitle(d.in_num + ' (' + d.start_date + ')')
