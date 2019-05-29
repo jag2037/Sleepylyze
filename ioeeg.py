@@ -381,11 +381,11 @@ class Dataset:
         with open(stats_save, 'w') as f:
             json.dump(self.hyp_stats, f, indent=4)
 
-        # export resampled hypnogram
-        hyp_savename = d.in_num + '_Hyp_' + d.s_freq + 'Hz_' + d.start_date + '.txt'
+        # export the resampled hypnogram @ the original frequency (for downstream speed)
+        new_hyp = d.hyp[(d.hyp.index.microsecond == 0) & ((d.hyp.index.second == 0) | (d.hyp.index.second == 30))]
+        hyp_savename = d.in_num + '_Hypnogram_' + d.start_date + '.txt'
         hyp_save = os.path.join(savedir, hyp_savename)
-        self.hyp.to_csv(hyp_save, header=False)
-
+        new_hyp.to_csv(hyp_save, header=False)
 
     def cut_EEG(self, sleepstage='all', epoch_len=None):
         """ cut dataset based on loaded hypnogram 
