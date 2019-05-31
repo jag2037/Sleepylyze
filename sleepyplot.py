@@ -5,6 +5,7 @@
 """
 
 import itertools
+import igraph as ig
 import math
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -407,6 +408,57 @@ def plot_hyp(d):
     
     return fig
 
+
+def plot_transitions(h, savefig=False, savedir=None):
+    """ plot sleep stage transition diagram. 
+        
+        NOTE: This is for preliminary visualization. For high quality
+        figures use plot_transitions.R
+            *for 3d plots use R code, or see https://stackoverflow.com/questions/16907564/how-can-i-plot-a-3d-graph-in-python-with-igraph
+            or this http://bommaritollc.com/2011/02/21/plotting-3d-graphs-with-python-igraph-and-cairo-cn220-example/
+    """
+
+    # set data
+    m = np.matrix(h.transition_perc)/2
+    net=ig.Graph.Weighted_Adjacency(m.tolist(), attr='width', loops=False)
+
+    # set node params [see https://www.cs.rhul.ac.uk/home/tamas/development/igraph/tutorial/tutorial.html]
+    node_size = np.array((h.epoch_counts['Awake'], h.epoch_counts['REM'], h.epoch_counts['Stage 1'], h.epoch_counts['Stage 2'], h.epoch_counts['Alpha-Delta'], h.epoch_counts['SWS']))
+    net.vs['size'] = node_size/4
+    net.vs['shape'] = 'circle'
+    net.vs['color'] = ['lightgrey', 'red', 'orange', 'lime', 'blue', 'purple']
+
+    label_dist = [0 if x>200 else 1.3 for x in node_size]
+    net.vs['label_dist'] = label_dist
+    net.vs['label_angle'] = [np.pi/2, np.pi, np.pi, 0, np.pi*3/2, 0]
+    net.vs['label_size'] = 12
+    net.vs['label'] = ['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta', 'SWS']
+
+    # set edge params
+    net.es['curved'] = True # this can be set to a float also (ex. 0.3)
+    net.es['arrow_size'] = 0.8
+    net.es['arrow_width'] = 1.5
+    net.es['color'] = 'darkgrey'
+
+    # set layout
+    l = [(0, 0), (-2, 2), (-1, 1), (1, 1), (0, 2), (2, 2)]
+    layout = ig.Layout(l)
+
+    # set visual style
+    visual_style = {}
+    visual_style['bbox'] = (500, 500)
+    visual_style['margin'] = 110
+
+    fig = ig.plot(net, layout=layout, **visual_style)
+
+    if savefig == True:
+        savename = h.in_num + '_TransitionPlot_' + h.start_date + '.png'
+        if savedir is None:
+            savedir = os.getcwd()
+        save = os.path.join(savedir, savename)
+        fig.save(save)
+
+    return fig
 
 
 ### EKG Methods ###
