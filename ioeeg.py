@@ -354,7 +354,7 @@ class Dataset:
             savedir = os.getcwd()
             chngdir = input('Files will be saved to ' + savedir + '. Change save directory? [Y/N] ')
             if chngdir == 'Y':
-                savedir = input('New save directory: ')
+                savedir = input('New save directory: ') 
                 if not os.path.exists(savedir):
                     createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
                     if createdir == 'Y':
