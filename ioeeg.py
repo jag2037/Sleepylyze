@@ -245,9 +245,11 @@ class Dataset:
         -----
         To Do: Require .txt file to include start date?
         """
-        # read the first 8 characters to get the starting time
+        # read the first line to get starting date & time
         with open(scorefile, 'r') as f:
-                start_sec = f.read(8)
+                first_epoch = f.readline()
+                start_date = first_epoch.split(' ')[0]
+                start_sec = first_epoch.split(' ')[1].split('\t')[0]
                 
         # read in sleep scores & resample to EEG/EKG frequency
         print('Importing sleep scores...')
