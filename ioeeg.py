@@ -187,9 +187,9 @@ class Dataset:
         # check chans against data channel list (case insensitive) & convert str to list
         if rm_chans is not None:
             if type(rm_chans) == str:
-                rm_chans_list = [x for x in channel_list if rm_chans.lower() == x.lower()]
+                rm_chans_list = [x for x in channel_list if rm_chans.casefold() == x.casefold()]
             elif type(rm_chans) == list:
-                rm_chans_list = [x for x in channel_list for r in rm_chans if r.lower() == x.lower()]
+                rm_chans_list = [x for x in channel_list for r in rm_chans if r.casefold() == x.casefold()]
             # replace channels with NaNs
             for chan in rm_chans_list:
                 self.data[(chan, 'Raw')] = np.NaN
@@ -203,20 +203,33 @@ class Dataset:
             unpacked_noise = {(y, mo, d, h, m, s): chans for (y, mo, d, h, m, s, chans) in zip(noise.index.year, noise.index.month, 
                                                         noise.index.day, noise.index.hour, noise.index.minute, noise.index.second, 
                                                         noise['channels'])}
+            # case correct channel names
+            unpacked_noise_corr = {}
+            channel_list_cf = [x.casefold() for x in channel_list]
+            for key, val in unpacked_noise.items():
+                new_val = []
+                for i in range(len(val)):
+                    if val[i] == '*':
+                        new_val.append(val[i])
+                    else:
+                        new_val.append(channel_list[channel_list_cf.index(val[i].casefold())])
+                unpacked_noise_corr[key] = new_val
+
             # compare to data index
             noise_idx = {}
             for i in self.data.index:
-                for idx, chan in unpacked_noise.items():
+                for idx, chan in unpacked_noise_corr.items():
                     if (i.year, i.month, i.day, i.hour, i.minute, i.second) == idx:
                         # make a dict of indices marked as noise w/ channels to apply to
                         noise_idx[i] = chan
 
             # replace noise with NaNs
             for t, c in noise_idx.items():
-                if c == ['*']:
-                    self.data.loc[t] = np.NaN
-                else:
-                    for cx in c:
+                for cx in c:
+                    if cx == '*':
+                        for x in self.eeg_channels:
+                            self.data[(x, 'Raw')].loc[t] = np.NaN
+                    else:
                         self.data[(cx, 'Raw')].loc[t] = np.NaN
 
 
