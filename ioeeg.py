@@ -228,9 +228,13 @@ class Dataset:
                 for cx in c:
                     if cx == '*':
                         for x in self.eeg_channels:
-                            self.data[(x, 'Raw')].loc[t] = np.NaN
+                            #self.data[(x, 'Raw')].loc[t] = np.NaN # much slower
+                            #self.data.at[t, (x, 'Raw')] = np.NaN # not depricated, slightly slower
+                            self.data.set_value(t, (x, 'Raw'), np.NaN)
                     else:
-                        self.data[(cx, 'Raw')].loc[t] = np.NaN
+                        #self.data[(cx, 'Raw')].loc[t] = np.NaN
+                        #self.data.at[t, (cx, 'Raw')] = np.NaN
+                        self.data.set_value(t, (cx, 'Raw'), np.NaN)
 
 
     def load_hyp(self, scorefile, date):
