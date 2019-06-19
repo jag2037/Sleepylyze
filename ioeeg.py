@@ -27,6 +27,11 @@ class Dataset:
         xltek .txt filename
     fpath: str
         absolute path to file
+    trim:
+    start:
+    end:
+    noise_log:
+    rm_chans:
     
     Attributes
     ----------
@@ -53,7 +58,7 @@ class Dataset:
         raw EEG/EKG data
     """
     
-    def __init__(self, fname, fpath=None, noise_log=None, rm_chans=None):
+    def __init__(self, fname, fpath=None, trim=True, start='22:00:00', end='07:00:00', noise_log=None, rm_chans=None):
         if fpath is not None:
             filepath = os.path.join(fpath, fname)
             #filepath = fpath + fname
@@ -67,7 +72,14 @@ class Dataset:
         self.get_info()
         self.get_chans()
         self.load_eeg()
-        self.clean_eeg(noise_log, rm_chans)
+        
+        if trim == True:
+            self.trim_eeg(start, end)
+        
+        if noise_log is not None or rm_chans is not None: 
+            self.clean_eeg(noise_log, rm_chans)
+
+        print('\nDone.')
 
     
     # io methods #
@@ -168,6 +180,25 @@ class Dataset:
         self.data = data
         print('Data successfully imported')
 
+    def trim_eeg(self, start, end):
+        """ Trim excess time off the ends of the raw data
+
+        Parameters
+        ----------
+        start: str (format: hh:mm:ss)
+            New start time of data (inclusive). Any previous times will be removed
+        end: str (format: hh:mm:ss)
+            New end time of data (exclusive). This second + any later seconds will be removed
+        """
+        
+        print('Trimming EEG...')
+        # specify indices NOT between start and end time
+        rm_idx = self.data.between_time(end, start, include_start=True, include_end=False).index
+        # drop specified indices
+        self.data.drop(rm_idx, axis=0, inplace=True)
+        
+        print('Data trimmed to {} (inclusive) - {} (exclusive).'.format(start, end))
+
     def clean_eeg(self, noise_log, rm_chans):
         """ Replace artifact with NaN 
         
@@ -182,10 +213,14 @@ class Dataset:
         -------
         self.data pd.DataFrame of raw EEG with artifact times replaced with NaNs
         """
+
+        print('Cleaning raw EEG data...')
+
         channel_list = [col[0] for col in self.data.columns]
         
         # check chans against data channel list (case insensitive) & convert str to list
         if rm_chans is not None:
+            print('Removing noisy channels...')
             if type(rm_chans) == str:
                 rm_chans_list = [x for x in channel_list if rm_chans.casefold() == x.casefold()]
             elif type(rm_chans) == list:
@@ -193,10 +228,11 @@ class Dataset:
             # replace channels with NaNs
             for chan in rm_chans_list:
                 self.data[(chan, 'Raw')] = np.NaN
+            print('Noisy channels removed.')
         
         if noise_log is not None:
-            noise = pd.read_csv(noise_log, header=None, names=['time', 'channels'], sep = '\t', index_col='time')
-            noise.index = pd.to_datetime(noise.index)
+            noise = pd.read_csv(noise_log, header=None, names=[0, 1, 'channels'], sep = '\t', index_col=0, parse_dates=[[0, 1]])
+            noise.index.name = 'time'
             # split channel strings into lists
             noise['channels'] = [re.findall(r"[\w'\*]+", n) for n in noise['channels']]
             # unpack to dict
@@ -216,6 +252,7 @@ class Dataset:
                 unpacked_noise_corr[key] = new_val
 
             # compare to data index
+            print('Specifying noise indices...')
             noise_idx = {}
             for i in self.data.index:
                 for idx, chan in unpacked_noise_corr.items():
@@ -224,6 +261,7 @@ class Dataset:
                         noise_idx[i] = chan
 
             # replace noise with NaNs
+            print('Removing noisy time points...')
             for t, c in noise_idx.items():
                 for cx in c:
                     if cx == '*':
@@ -236,21 +274,19 @@ class Dataset:
                         #self.data.at[t, (cx, 'Raw')] = np.NaN
                         self.data.set_value(t, (cx, 'Raw'), np.NaN)
 
+        print('Data cleaned.')
 
-    def load_hyp(self, scorefile, date):
+    def load_hyp(self, scorefile):
         """ Loads hypnogram .txt file and produces DateTimeIndex by sleep stage and 
         stage cycle for cutting
         
-        TO DO: Add hypnogram stats (sleep efficiency, length of each cycle, # of cycles for each stage.
-                % of night spent in each stage, average cycle length)
+        TO DO: update docstring
 
         Parameters
         ----------
         scorefile: .txt file
-            plain text file with 30-second epoch sleep scores, formatted [hh:mm:ss score]
+            plain text file with 30-second epoch sleep scores, formatted [MM/DD/YYYY hh:mm:ss score]
             NOTE: Time must be in 24h time & scores in consistent format (int or float)
-        date: str
-            start date of sleep scoring, formatted 'MM-DD-YYYY'
 
         Returns:
         --------
@@ -258,9 +294,6 @@ class Dataset:
             Nested dict of sleep stages, cycles, and DateTimeIndex
             Ex. {'awake': {1: DateTimeIndex[(...)], 2: DateTimeIndex[(...)]}}
         
-        NOTES
-        -----
-        To Do: Require .txt file to include start date?
         """
         # read the first line to get starting date & time
         with open(scorefile, 'r') as f:
@@ -276,7 +309,7 @@ class Dataset:
         # reindex to match EEG/EKG data
         ## --> add warning here if index start date isn't found in EEG data
         ind_freq = str(int(1/self.s_freq*1000000))+'us'
-        ind_start = date + ' ' + start_sec + '.000'
+        ind_start = start_date + ' ' + start_sec + '.000'
         ind = pd.date_range(start = ind_start, periods=len(scores), freq=ind_freq)
         scores.index = ind
 
@@ -522,15 +555,15 @@ class Dataset:
             savename_elems = savename_base.split('_')
             spec_stg =  input('Specify sleep stage? [Y/N] ')
             if spec_stg == 'N':
-                savename = savename_base
+                savename = savename_base + '.csv'
             if spec_stg == 'Y':
                 stg = input('Sleep stage: ')
                 spec_cyc = input('Specify cycle? [Y/N] ')
                 if spec_cyc == 'N':
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_' + savename_elems[2]
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_' + savename_elems[2] + '.csv'
                 elif spec_cyc == 'Y':
                     cyc = input('Sleep stage cycle: ')
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2]
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2] + '.csv'
             
             print('Exporting file...\n')
             data.to_csv(os.path.join(savedir, savename))
@@ -545,7 +578,7 @@ class Dataset:
                         df = self.cut_data[stg][cyc]
                         savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                         savename_elems = savename_base.split('_')
-                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2]
+                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
                         print(('{} successfully exported.').format(savename)) 
             elif type(stages) == list:
@@ -558,7 +591,7 @@ class Dataset:
                         df = self.cut_data[stg][cyc]
                         savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                         savename_elems = savename_base.split('_')
-                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2]
+                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
                         print(('{} successfully exported.').format(savename))
             elif type(stages) == str:
@@ -571,7 +604,7 @@ class Dataset:
                     df = self.cut_data[stg][cyc]
                     savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                     savename_elems = savename_base.split('_')
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2]
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                     df.to_csv(os.path.join(savedir, savename))
                     print(('{} successfully exported.').format(savename))
             print('\nDone.')
@@ -586,7 +619,7 @@ class Dataset:
                             df = self.epoch_data[stg][cyc][epoch]
                             savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                             savename_elems = savename_base.split('_')
-                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2]
+                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
                             print(('{} successfully exported.').format(savename)) 
             elif type(stages) == list:
@@ -600,7 +633,7 @@ class Dataset:
                             df = self.epoch_data[stg][cyc][epoch]
                             savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                             savename_elems = savename_base.split('_')
-                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2]
+                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
                             print(('{} successfully exported.').format(savename)) 
             elif type(stages) == str:
@@ -614,7 +647,7 @@ class Dataset:
                             df = self.epoch_data[stg][cyc][epoch]
                             savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                             savename_elems = savename_base.split('_')
-                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2]
+                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
                             print(('{} successfully exported.').format(savename)) 
             print('\nDone.\n\t*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".')
