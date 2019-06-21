@@ -29,29 +29,55 @@ class EKG:
     ----------
     """
 
-    def __init__(self, fname, fpath, min_dur=True, epoched=True):
+    def __init__(self, fname, fpath, min_dur=True, epoched=True, mw_size=0.08, upshift=1.02, rm_artifacts=False):
+        """ Initialize raw EKG object
 
-        #self.filename = fname
+        Parameters
+        ----------
+        fname: str
+            filename
+        fpath: str
+            path to file
+        min_dur: bool (default:True)
+            only load files that are >= 5 minutes long
+        epoched: bool (default: True)
+            Whether file was epoched using ioeeg
+        mw_size: float (default: 0.08)
+            Moving window size for R peak detection (seconds)
+        upshift: float (default: 1.02)
+            Detection threshold upshift for R peak detection (% of signal)
+        rm_artifacts: bool (default: False)
+            Apply IBI artifact removal algorithm
+
+        Returns
+        -------
+        EKG object w/ R peak detections and calculated inter-beat intervals
+         """
+
+        # set metadata
         filepath = os.path.join(fpath, fname)
         if epoched == False:
-            in_num, start_date, slpstage, cycle = fname.split('_')[:-1]
+            in_num, start_date, slpstage, cycle = fname.split('_')[:4]
         elif epoched == True:
-            in_num, start_date, slpstage, cycle, epoch = fname.split('_')[:-1]
+            in_num, start_date, slpstage, cycle, epoch = fname.split('_')[:5]
         self.metadata = {'file_info':{'in_num': in_num,
                                 'fname': fname,
                                 'path': filepath,
-                                #'start_date': start_date,
+                                'start_date': start_date,
                                 'sleep_stage': slpstage,
                                 'cycle': cycle
                                 }
-                    }
+                        }
         if epoched == True:
             self.metadata['file_info']['epoch'] = epoch
         
+        # load the ekg
         self.load_ekg(min_dur)
-        
-        
 
+        # detect R peaks & calculate inter-beat intevals
+        self.calc_RR(mw_size, upshift, rm_artifacts)
+        
+        
     def load_ekg(self, min_dur):
         """ 
         Load ekg data and extract sampling frequency. 
@@ -134,14 +160,9 @@ class EKG:
         self.rpeaks = raw[peaks]
         print('R peak detection complete')
 
-    def calc_RR(self):
-        """ Calculate the intervals between successive R-R peaks, as well as first order derivative.
-            Returns: rr_int, rr_int_diff, and rr_int_diffsq in milliseconds """
-        # get time between peaks and convert to seconds
+        # get time between peaks and convert to mseconds
         self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
-        # get difference between intervals & squared
-        self.rr_diff = np.diff(self.rr)
-        self.rr_diffsq = self.rr_diff**2
+        print('R-R intervals calculated')
 
 
     def rm_artifacts(self):
@@ -150,6 +171,9 @@ class EKG:
 
             *IMPORTANT: This algorithm assumes normal distribution of RR intervals. It will wash out datasets
             that are not normally distributed (NOT for use with ultra-short recordings)
+
+            *NOTE: Not reliable as of 6-20-19. Exit pipeline w/ exported IBI list & rm artificacts using 
+            Artiifact IBI module
 
             Returns
             -------
@@ -279,6 +303,132 @@ class EKG:
         self.rr_arts = np.array(arts)
 
 
+    def calc_RR(self, mw_size, upshift, rm_artifacts):
+        """ Detect R peaks and calculate R-R intervals """
+        
+        # set R peak detection parameters
+        self.set_Rthres(mw_size, upshift)
+        # detect R peaks & make RR tachogram
+        self.detect_Rpeaks()
+        # remove artifacts
+        if rm_artifacts == True:
+            self.rm_artifacts()
+
+    def export_RR(self, savedir):
+        """ Export R peaks and RR interval data to .txt files """
+
+        # set save directory
+        if savedir is None:
+            savedir = os.getcwd()
+            chngdir = input('Files will be saved to ' + savedir + '. Change save directory? [Y/N] ')
+            if chngdir == 'Y':
+                savedir = input('New save directory: ')
+                if not os.path.exists(savedir):
+                    createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
+                    if createdir == 'Y':
+                        os.makedirs(savedir)
+                    else:
+                        savedir = input('Try again. Save directory: ')
+                        if not os.path.exists(savedir):
+                            print(savedir + ' does not exist. Aborting. ')
+                            return
+        elif not os.path.exists(savedir):
+            print(savedir + ' does not exist. Creating directory...')
+            os.makedirs(savedir)
+        else:
+            print('Files will be saved to ' + savedir)
+        
+        # set savename info
+        # f_info1 = self.metadata['file_info']['fname'].split('_')[:5]
+        # f_info2 = data['metadata']['file_info']['fname'].split('_')[5].split('.')[0]
+
+        # save R peak detections
+        savepeaks = self.metadata['file_info']['fname'].split('.')[0] + '_rpeaks.txt'
+        peaks_file = os.path.join(savedir, savepeaks)
+        #self.rpeaks.to_csv(peaks_file)
+        np.savetxt(peaks_file, self.rpeaks, delimiter='\n')
+
+        # save RR intervals
+        saverr = self.metadata['file_info']['fname'].split('.')[0] + '_rr.txt'
+        rr_file = os.path.join(savedir, saverr)
+        np.savetxt(rr_file, self.rr, delimiter='\n')
+
+        # save NN intervals, if exists
+        try: 
+            self.nn
+        except AttributeError: 
+            pass
+        else:
+            savenn = self.metadata['file_info']['fname'].split('.')[0] + '_nn.txt'
+            nn_file = os.path.join(savedir, saverr)
+            np.savetxt(nn_file, self.nn, delimiter='\n')
+
+        print('Done.')
+
+
+class IBI:
+    """ Class for EKG inter-beat interval data. Can be cleaned data (nn intervals) or raw (rr intervals). """
+
+    def __init__(self, fname, fpath, s_freq, epoched=True, itype='nn'):
+        """ Initialize inter-beat interval object
+
+        Parameters
+        ----------
+        fname: str
+            filename
+        fpath: str
+            path to file
+        s_freq: float
+            sampling frequency of original EKG data
+        epoched: bool (default: True)
+            specify whether data was epoched with ioeeg.py
+        itype: str (options: 'nn' or 'rr')
+            interval type (cleaned = 'nn'; otherwise 'rr')
+
+        Returns
+        -------
+        IBI object
+        """
+
+        # set metadata
+        filepath = os.path.join(fpath, fname)
+        if epoched == False:
+            in_num, start_date, slpstage, cycle = fname.split('_')[:4]
+        elif epoched == True:
+            in_num, start_date, slpstage, cycle, epoch = fname.split('_')[:5]
+        self.metadata = {'file_info':{'in_num': in_num,
+                                    'fname': fname,
+                                    'path': filepath,
+                                    #'start_date': start_date,
+                                    'sleep_stage': slpstage,
+                                    'cycle': cycle
+                                    },
+                        'analysis_info':{'s_freq': s_freq,
+                                    'itype': itype
+                                    }
+                        }
+        if epoched == True:
+            self.metadata['file_info']['epoch'] = epoch
+
+        # load data
+        self.load_ibi(itype)
+
+
+    def load_ibi(self, itype):
+        """ Load ibi .txt file """
+        print('Loading interbeat interval data...')
+        
+        if itype == 'nn':
+            nn_full = np.loadtxt(self.metadata['file_info']['path'])
+            # remove NaNs
+            self.nn = nn_full[~np.isnan(nn_full)]
+            self.metadata['analysis_info']['rrArtifacts_rmvd'] = len(nn_full) - len(self.nn)
+        elif itype == 'rr':
+            self.rr = np.loadtxt(self.metadata['file_info']['path'])
+
+        print('Done.')
+
+
     def calc_tstats(self, itype):
         """ Calculate commonly used time domain HRV statistics. Min/max HR is determined over 5 RR intervals 
 
@@ -291,28 +441,32 @@ class EKG:
 
         if itype == 'rr':
             ii = self.rr
-            ii_diff = self.rr_diff
-            ii_diffsq = self.rr_diffsq
+            ii_diff = np.diff(self.rr)
+            ii_diffsq = ii_diff**2
+            self.rr_diff = ii_diff
+            self.rr_diffsq = ii_diffsq
+        
         elif itype == 'nn':
             ii = self.nn
-            ii_diff = self.nn_diff
-            ii_diffsq = self.nn_diffsq
-        self.metadata['analysis_info']['itype'] = itype
+            ii_diff = np.diff(self.nn)
+            ii_diffsq = ii_diff**2
+            self.nn_diff = ii_diff
+            self.nn_diffsq = ii_diffsq
 
         # heartrate in bpm
         hr_avg = 60/np.mean(ii)*1000
         
-        rollmean_rr = pd.Series(ii).rolling(5).mean()
-        mx_rr, mn_rr = np.nanmax(rollmean_rr), np.nanmin(rollmean_rr)
-        hr_max = 60/mn_rr*1000
-        hr_min = 60/mx_rr*1000
+        rollmean_ii = pd.Series(ii).rolling(5).mean()
+        mx_ii, mn_ii = np.nanmax(rollmean_ii), np.nanmin(rollmean_ii)
+        hr_max = 60/mn_ii*1000
+        hr_min = 60/mx_ii*1000
 
 
         # inter-beat interval & SD (ms)
         ibi = np.mean(ii)
         sdrr = np.std(ii)
 
-        # SD & RMS of differences between successive RR intervals (ms)
+        # SD & RMS of differences between successive II intervals (ms)
         sdsd = np.std(ii_diff)
         rmssd = np.sqrt(np.mean(ii_diffsq))
 
@@ -338,7 +492,7 @@ class EKG:
                                     'SDRR': sdrr, 'RMSSD': rmssd, 'pXX20': pxx20, 'pXX50': pxx50},
                             'geometric': {'hti':hti, 'tinn':tinn}
                             }
-        print('Time domain stats stored in ekg.time_stats\n')
+        print('Time domain stats stored in obj.time_stats\n')
 
     
     def interpolateII(self, itype):
@@ -522,7 +676,7 @@ class EKG:
         #calculate frequency domain statistics
         print('Calculating frequency domain measures...')
         self.calc_fbands(method, bands)
-        print('Frequency measures stored in ekg.freq_stats\n')
+        print('Frequency measures stored in obj.freq_stats\n')
 
     
     def calc_nlstats(self, itype, calc_dfa=False, save_plots=False):
@@ -566,31 +720,18 @@ class EKG:
                 nonlinear_stats['dfa']['plot'] = dfa[0]
 
         self.nonlinear_stats = nonlinear_stats
-        print('Nonlinear stats stored in ekg.nonlinear_stats\n')
+        print('Nonlinear stats stored in obj.nonlinear_stats\n')
 
 
-    def hrv_stats(self, mw_size = 0.08, upshift = 1.02, method='mt', bandwidth=0.01, rm_artifacts=True):
-        """ Calculate all statistics on EKG object 
+    def hrv_stats(self, method='mt', bandwidth=0.01):
+        """ Calculate all statistics on IBI object 
 
             TO DO: Add freq_stats arguments to hrv_stats params? 
                    Divide into 5-min epochs 
         """
-        # detect R peaks
-        self.set_Rthres(mw_size, upshift)
-        self.detect_Rpeaks()
 
-        # divide cycles into 5-minute epochs
-        #if self.cycle_len_secs > 60*5:
-
-        # make RR tachogram
-        self.calc_RR()
-
-        # remove artifacts
-        if rm_artifacts == True:
-            self.rm_artifacts()
-            itype = 'nn'
-        else:
-            itype = 'rr'
+        # set itype
+        itype = self.metadata['analysis_info']['itype']
 
         # calculate statistics
         self.calc_tstats(itype)
@@ -609,6 +750,7 @@ class EKG:
                 output file (new or existing)
         """
         
+        # this is from before division to two classes. 'data' and 'rpeaks' arrays shouldn't exist in IBI object.
         arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
@@ -654,6 +796,10 @@ class EKG:
             os.makedirs(savedir)
         else:
             print('Files will be saved to ' + savedir)
+
+        # set savename info
+        # save_info1 = '_'.join(data['metadata']['file_info']['fname'].split('_')[:5])
+        # save_info2 = data['metadata']['file_info']['fname'].split('_')[5].split('.')[0]
         
         # export everything that isn't a dataframe, series, or array    
         arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
@@ -661,7 +807,7 @@ class EKG:
         
         # save calculations
         if json is False:
-            savename = data['metadata']['file_info']['fname'] + '_HRVstats.txt'
+            savename = self.metadata['file_info']['fname'].split('.')[0] + 'HRVstats.txt'
             file = os.path.join(savedir, savename)
             with open(file, 'w') as f:
                 for k, v in data.items():
@@ -682,25 +828,15 @@ class EKG:
                                     line = '\t\t' + kxx + ' ' + str(vxx) + '\n'
                                     f.write(line)
         else:
-            savename = data['metadata']['file_info']['fname'] + '_HRVstats_json.txt'
+            savename = self.metadata['file_info']['fname'].split('.')[0] + '_HRVstats_json.txt'
             file = os.path.join(savedir, savename)
             with open(file, 'w') as f:
                 json.dump(data, f, indent=4)   
 
-        # save detections
-        savepeaks = data['metadata']['file_info']['fname'] + '_rpeaks.txt'
-        peaks_file = os.path.join(savedir, savepeaks)
-        self.rpeaks.to_csv(peaks_file)
-        saverr = data['metadata']['file_info']['fname'] + '_rr.txt'
-        rr_file = os.path.join(savedir, saverr)
-        np.savetxt(rr_file, self.rr, delimiter='\n')
-        # check if nn exists
-        try: self.nn
-        except NameError: pass
-        else:
-            savenn = data['metadata']['file_info']['fname'] + '_nn.txt'
-            nn_file = os.path.join(savedir, savenn)
-            np.savetxt(nn_file, self.nn, delimiter='\n')
+        # re-save nn intervals (w/o NaNs) w/ set naming convention
+        savenn = self.metadata['file_info']['fname'].split('.')[0] + '_nn.txt'
+        nn_file = os.path.join(savedir, savenn)
+        np.savetxt(nn_file, self.nn, delimiter='\n')
 
 def loadEKG_batch(path, stage=None, min_dur=True):
     """ Batch import all raw data from a given directory 
