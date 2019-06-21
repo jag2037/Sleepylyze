@@ -6,6 +6,7 @@
 """
 
 import datetime
+import json
 import math 
 import numpy as np 
 import os
@@ -428,14 +429,14 @@ class Dataset:
                         return
         
         # export hypnogram stats
-        stats_savename = d.in_num + '_SleepStats_' + d.start_date + '.txt'
+        stats_savename = self.in_num + '_SleepStats_' + self.start_date + '.txt'
         stats_save = os.path.join(savedir, stats_savename)
         with open(stats_save, 'w') as f:
             json.dump(self.hyp_stats, f, indent=4)
 
         # export the resampled hypnogram @ the original frequency (for downstream speed)
-        new_hyp = d.hyp[(d.hyp.index.microsecond == 0) & ((d.hyp.index.second == 0) | (d.hyp.index.second == 30))]
-        hyp_savename = d.in_num + '_Hypnogram_' + d.start_date + '.txt'
+        new_hyp = self.hyp[(self.hyp.index.microsecond == 0) & ((self.hyp.index.second == 0) | (self.hyp.index.second == 30))]
+        hyp_savename = self.in_num + '_Hypnogram_' + self.start_date + '.txt'
         hyp_save = os.path.join(savedir, hyp_savename)
         new_hyp.to_csv(hyp_save, header=False)
 
