@@ -29,11 +29,14 @@ class EKG:
     ----------
     """
 
-    def __init__(self, fname, fpath, min_dur=True):
+    def __init__(self, fname, fpath, min_dur=True, epoched=True):
 
         #self.filename = fname
         filepath = os.path.join(fpath, fname)
-        in_num, start_date, slpstage, cycle = fname.split('_')[:-1]
+        if epoched == False:
+            in_num, start_date, slpstage, cycle = fname.split('_')[:-1]
+        elif epoched == True:
+            in_num, start_date, slpstage, cycle, epoch = fname.split('_')[:-1]
         self.metadata = {'file_info':{'in_num': in_num,
                                 'fname': fname,
                                 'path': filepath,
@@ -42,6 +45,9 @@ class EKG:
                                 'cycle': cycle
                                 }
                     }
+        if epoched == True:
+            self.metadata['file_info']['epoch'] = epoch
+        
         self.load_ekg(min_dur)
         
         
@@ -60,7 +66,7 @@ class EKG:
         
         # Check cycle length against 5 minute duration minimum
         cycle_len_secs = (data.index[-1] - data.index[0]).total_seconds()
-        if cycle_len_secs < 60*5:
+        if cycle_len_secs < 60*5-1:
             if min_dur == True:
                 print('Data is shorter than 5 minutes. Cycle will not be loaded.')
                 print('--> To load data, set min_dur to False')
@@ -73,7 +79,7 @@ class EKG:
         
         diff = data.index.to_series().diff()[1:2]
         s_freq = 1000000/diff[0].microseconds
-        nans = len(data) - data['EKG'].count()
+        nans = len(data) - data['Raw'].count()
 
         self.metadata['file_info']['start_time'] = data.index[0]
         self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs, 
@@ -328,7 +334,7 @@ class EKG:
         tinn = 'calc not programmed'
         #print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
         #print('Call ekg.__dict__ for all statistics')
-        self.time_stats = {'linear':{'HR_avg': hr_avg, 'HR_max': hr_max, 'HR_min': hr_min, 'IBI': ibi,
+        self.time_stats = {'linear':{'HR_avg': hr_avg, 'HR_max': hr_max, 'HR_min': hr_min, 'IBI_mean': ibi,
                                     'SDRR': sdrr, 'RMSSD': rmssd, 'pXX20': pxx20, 'pXX50': pxx50},
                             'geometric': {'hti':hti, 'tinn':tinn}
                             }
@@ -563,7 +569,7 @@ class EKG:
         print('Nonlinear stats stored in ekg.nonlinear_stats\n')
 
 
-    def hrv_stats(self, mw_size = 0.2, upshift = 1.05, method='mt', bandwidth=0.01, rm_artifacts=True):
+    def hrv_stats(self, mw_size = 0.08, upshift = 1.02, method='mt', bandwidth=0.01, rm_artifacts=True):
         """ Calculate all statistics on EKG object 
 
             TO DO: Add freq_stats arguments to hrv_stats params? 
@@ -624,10 +630,30 @@ class EKG:
                 df.to_csv(f, header=True, line_terminator='\n')
             print('{} does not exist. Data saved to new spreadsheet'.format(spreadsheet))
 
-    def to_report(self, json=False):
+    def to_report(self, savedir=None, json=False):
         """ export statistics as a csv report 
             TO DO: add line to check if nn exists
         """
+        # set save directory
+        if savedir is None:
+            savedir = os.getcwd()
+            chngdir = input('Files will be saved to ' + savedir + '. Change save directory? [Y/N] ')
+            if chngdir == 'Y':
+                savedir = input('New save directory: ')
+                if not os.path.exists(savedir):
+                    createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
+                    if createdir == 'Y':
+                        os.makedirs(savedir)
+                    else:
+                        savedir = input('Try again. Save directory: ')
+                        if not os.path.exists(savedir):
+                            print(savedir + ' does not exist. Aborting. ')
+                            return
+        elif not os.path.exists(savedir):
+            print(savedir + ' does not exist. Creating directory...')
+            os.makedirs(savedir)
+        else:
+            print('Files will be saved to ' + savedir)
         
         # export everything that isn't a dataframe, series, or array    
         arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
@@ -636,7 +662,8 @@ class EKG:
         # save calculations
         if json is False:
             savename = data['metadata']['file_info']['fname'] + '_HRVstats.txt'
-            with open(savename, 'w') as f:
+            file = os.path.join(savedir, savename)
+            with open(file, 'w') as f:
                 for k, v in data.items():
                     if type(v) is not dict:
                         line = k+' '+str(v) + '\n'
@@ -656,20 +683,24 @@ class EKG:
                                     f.write(line)
         else:
             savename = data['metadata']['file_info']['fname'] + '_HRVstats_json.txt'
-            with open(savename, 'w') as f:
+            file = os.path.join(savedir, savename)
+            with open(file, 'w') as f:
                 json.dump(data, f, indent=4)   
 
         # save detections
         savepeaks = data['metadata']['file_info']['fname'] + '_rpeaks.txt'
-        self.rpeaks.to_csv(savepeaks)
+        peaks_file = os.path.join(savedir, savepeaks)
+        self.rpeaks.to_csv(peaks_file)
         saverr = data['metadata']['file_info']['fname'] + '_rr.txt'
-        np.savetxt(saverr, self.rr, delimiter='\n')
+        rr_file = os.path.join(savedir, saverr)
+        np.savetxt(rr_file, self.rr, delimiter='\n')
         # check if nn exists
         try: self.nn
         except NameError: pass
         else:
             savenn = data['metadata']['file_info']['fname'] + '_nn.txt'
-            np.savetxt(savenn, self.nn, delimiter='\n')
+            nn_file = os.path.join(savedir, savenn)
+            np.savetxt(nn_file, self.nn, delimiter='\n')
 
 def loadEKG_batch(path, stage=None, min_dur=True):
     """ Batch import all raw data from a given directory 
