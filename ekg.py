@@ -369,7 +369,7 @@ class EKG:
 class IBI:
     """ Class for EKG inter-beat interval data. Can be cleaned data (nn intervals) or raw (rr intervals). """
 
-    def __init__(self, fname, fpath, s_freq, epoched=True, itype='nn'):
+    def __init__(self, fname, fpath, s_freq, start_time, epoched=True, itype='nn'):
         """ Initialize inter-beat interval object
 
         Parameters
@@ -399,7 +399,8 @@ class IBI:
         self.metadata = {'file_info':{'in_num': in_num,
                                     'fname': fname,
                                     'path': filepath,
-                                    #'start_date': start_date,
+                                    'start_date': start_date,
+                                    'start_time': start_time,
                                     'sleep_stage': slpstage,
                                     'cycle': cycle
                                     },
@@ -739,7 +740,7 @@ class IBI:
         self.calc_nlstats(itype)
         print('Done.')
 
-    def to_spreadsheet(self, spreadsheet):
+    def to_spreadsheet(self, spreadsheet, savedir):
         """ Append calculations as a row in master spreadsheet. Creates new spreadsheet
             if output file does not exist. 
             
@@ -761,7 +762,7 @@ class IBI:
         
         df = pd.DataFrame(reform, index=[0])
         df.set_index([('metadata', 'file_info', 'in_num'), ('metadata', 'file_info', 'start_time')], inplace=True)
-        savename = spreadsheet
+        savename = os.path.join(savedir, spreadsheet)
         
         if os.path.exists(spreadsheet):
             with open(savename, 'a') as f:
@@ -805,9 +806,15 @@ class IBI:
         arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
+        # set savename info
+        if 'epoch' in self.metadata['file_info'].keys():
+            saveinfo = '_'.join((self.metadata['file_info']['fname'].split('_')[:6]))
+        else:
+            saveinfo = '_'.join((self.metadata['file_info']['fname'].split('_')[:5]))
+
         # save calculations
         if json is False:
-            savename = self.metadata['file_info']['fname'].split('.')[0] + 'HRVstats.txt'
+            savename = saveinfo + '_HRVstats.txt'
             file = os.path.join(savedir, savename)
             with open(file, 'w') as f:
                 for k, v in data.items():
@@ -828,13 +835,13 @@ class IBI:
                                     line = '\t\t' + kxx + ' ' + str(vxx) + '\n'
                                     f.write(line)
         else:
-            savename = self.metadata['file_info']['fname'].split('.')[0] + '_HRVstats_json.txt'
+            savename = saveinfo + '_HRVstats_json.txt'
             file = os.path.join(savedir, savename)
             with open(file, 'w') as f:
                 json.dump(data, f, indent=4)   
 
         # re-save nn intervals (w/o NaNs) w/ set naming convention
-        savenn = self.metadata['file_info']['fname'].split('.')[0] + '_nn.txt'
+        savenn = saveinfo + '_nn.txt'
         nn_file = os.path.join(savedir, savenn)
         np.savetxt(nn_file, self.nn, delimiter='\n')
 
