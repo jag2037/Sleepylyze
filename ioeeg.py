@@ -1,20 +1,23 @@
-""" import this class by using the __init__.py file 'from .ioeeg import Dataset' 
-
+""" 
     To Do:
-        Remove spindle detection functions --> to be moved to new class for cut segments 
-        Add modified calculate_transitions code
+        Add support for earlier headboxes
 """
 
 import datetime
+from datetime import timedelta
+from io import StringIO
 import json
 import math 
 import numpy as np 
 import os
 import pandas as pd
+import psycopg2
 import re
 import scipy.io as io
 from scipy.signal import buttord, butter, sosfiltfilt, sosfreqz
 import statistics
+from sqlalchemy import *
+
 
 class Dataset:
     """ General class containing EEG recordings
@@ -59,7 +62,9 @@ class Dataset:
         raw EEG/EKG data
     """
     
-    def __init__(self, fname, fpath=None, trim=True, start='22:00:00', end='07:00:00', noise_log=None, rm_chans=None):
+    def __init__(self, fname, fpath=None, trim=True, start='22:00:00', end='07:00:00', noise_log=None, rm_chans=None, 
+                psql=True, data_dir='D:\Jackie\RawEEG'):
+        
         if fpath is not None:
             filepath = os.path.join(fpath, fname)
             #filepath = fpath + fname
@@ -76,9 +81,15 @@ class Dataset:
         
         if trim == True:
             self.trim_eeg(start, end)
+
+        if psql == True:
+            self.to_psql(data_dir)
         
-        if noise_log is not None or rm_chans is not None: 
-            self.clean_eeg(noise_log, rm_chans)
+        if noise_log is not None or rm_chans is not None:
+            if psql == True:
+                self.clean_eeg_psql(noise_log, rm_chans, data_dir)
+            else:
+                self.clean_eeg(noise_log, rm_chans)
 
         print('\nDone.')
 
@@ -200,8 +211,138 @@ class Dataset:
         
         print('Data trimmed to {} (inclusive) - {} (exclusive).'.format(start, end))
 
+    def to_psql(self, data_dir):
+        """ Upload raw EEG data to postgreSQL server & save out to condensed csv file"""
+        
+        print('Uploading dataframe to postgreSQL database...')
+        
+        # create StringIO object
+        in_memory_csv = StringIO()
+        
+        # write dataframe to stringio object without headers & reset pointer
+        self.data.to_csv(in_memory_csv, header=False)
+        in_memory_csv.seek(0)
+        
+        # create column names string for SQL table creation
+        cols = [x.lower() for x in self.channels]
+        column_str = []
+        for col in cols:
+            column_str.append(f'{col} NUMERIC(9,6),')
+        column_str = "".join(column_str)
+        
+        # create string for SQL table creation (this overwrites if exists)
+        table_name = self.fname.split('.')[0].lower()
+        table_name = re.sub('-', '_', table_name)
+        self.psql_tablename = table_name
+        base_table = f"""
+        DROP TABLE IF EXISTS {table_name};
+        CREATE TABLE {table_name} (
+            time TIMESTAMP WITHOUT TIME ZONE,
+            {column_str}
+            PRIMARY KEY (time)
+        );
+        """
+        # create a link to the psql database
+        engine = create_engine('postgresql://postgres:schifflab@localhost/raw_eeg')
+        conn = engine.connect()
+        conn.execute(base_table)
+        
+        # create table
+        meta = MetaData(engine)
+        data_table = Table(table_name, meta, autoload=True)
+        
+        # load data
+        with engine.begin() as conn2:
+            cur = conn2.connection.cursor()
+            cur.copy_from(in_memory_csv, table_name, sep=',', columns= ['time'] + cols, null='')
+        
+        # save to condensed csv file
+        print('Saving condensed csv file..')
+        raw_csv = os.path.join(data_dir, (table_name + '_raw.csv'))
+        copy = f"""COPY {table_name} TO '{raw_csv}' WITH CSV HEADER;"""
+        conn.execute(copy)
+        
+        print('PostgreSQL upload complete.')
+
+    def clean_eeg_psql(self, noise_log, rm_chans, data_dir):
+        """ Replace artifact with NaN in the postgreSQL raw EEG table """
+    
+        # create a link to the sql database
+        engine = create_engine('postgresql://postgres:schifflab@localhost/raw_eeg')
+        conn = engine.connect()    
+        
+        # specify the table
+        meta = MetaData(engine)
+        table_name = self.psql_tablename
+        data_table = Table(table_name, meta, autoload=True)
+        
+        # set channel list
+        channel_list = [col[0] for col in self.data.columns]
+            
+        # remove noisy channels
+        if rm_chans is not None:
+            print('Removing noisy channels...')
+            # check chans against data channel list (case insensitive) & convert str to list
+            if type(rm_chans) == str:
+                rm_chans_list = [x.lower() for x in channel_list if rm_chans.casefold() == x.casefold()]
+            elif type(rm_chans) == list:
+                rm_chans_list = [x.lower() for x in channel_list for r in rm_chans if r.casefold() == x.casefold()]
+            
+            # create dict of chans to remove
+            noise_chans = {}
+            for col in rm_chans_list:
+                noise_chans[col] = None
+            # replace noise channels w/ null values
+            data_table.update().values(**noise_chans).execute()
+            print('Noisy channels removed.')
+        
+        # remove noisy indices
+        if noise_log is not None:
+            print('Removing noisy indices...')
+            noise = pd.read_csv(noise_log, header=None, names=[0, 1, 'channels'], sep = '\t', index_col=0, parse_dates=[[0, 1]])
+            noise.index.name = 'time'
+            # split channel strings into lists
+            noise['channels'] = [re.findall(r"[\w'\*]+", n.lower()) for n in noise['channels']]
+            
+            # convert noise df to dictionary
+            noise_dict = noise.to_dict()
+            # create lowercase & eeg channel lists
+            channels_lower = [col[0].lower() for col in self.data.columns]
+            eeg_chans = [x for x in channels_lower if x != 'ekg']
+
+            for t, chans in noise_dict['channels'].items():
+                # create dictionary for channel:value updating
+                chan_noise_dict = {}
+                for c in chans:
+                    if c == '*':
+                        for cx in eeg_chans:
+                            chan_noise_dict[cx] = None
+                    else:
+                        chan_noise_dict[c] = None
+
+                # update values
+                data_table.update().values(**chan_noise_dict).where(and_(
+                    data_table.c.time >= t,
+                    data_table.c.time < t + timedelta(seconds=1)
+                )).execute()
+            print('Noisy indices removed.')
+            
+        # save to csv file
+        print('Saving cleaned EEG file...')
+        clean_csv = os.path.join(data_dir, (table_name + '_clean.csv'))
+        copy = f"""COPY {table_name} TO '{clean_csv}' WITH CSV HEADER;"""
+        conn.execute(copy)
+                
+        # load back in & reformat column names
+        print('Reloading pandas dataframe...')
+        self.data = pd.read_csv(clean_csv, index_col=0, parse_dates=True)
+        self.data.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Raw'), len(self.channels))],names=['Channel','datatype'])
+        self.data.index.name = None
+        
+        print('EEG cleaning complete.')
+
     def clean_eeg(self, noise_log, rm_chans):
-        """ Replace artifact with NaN 
+        """ Replace artifact with NaN in the pandas df
         
         Parameters
         ----------
