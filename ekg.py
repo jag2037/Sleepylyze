@@ -763,7 +763,7 @@ class IBI:
         df.set_index([('metadata', 'file_info', 'in_num'), ('metadata', 'file_info', 'start_time')], inplace=True)
         savename = os.path.join(savedir, spreadsheet)
         
-        if os.path.exists(spreadsheet):
+        if os.path.exists(savename):
             with open(savename, 'a') as f:
                 df.to_csv(f, header=False, line_terminator='\n')
             print('Data added to {}'.format(spreadsheet))
