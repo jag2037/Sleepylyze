@@ -1,7 +1,6 @@
 """ This file contains the EKG class and helper functions for batch loading 
 
-    TO DO: Update stats calculation to run on NN intervals instead of RR intervals
-        -- add artifact_auto to __init__ call
+    TO DO: Update batch loading
 """
 
 import datetime
@@ -773,9 +772,12 @@ class IBI:
                 df.to_csv(f, header=True, line_terminator='\n')
             print('{} does not exist. Data saved to new spreadsheet'.format(spreadsheet))
 
-    def to_report(self, savedir=None, json=False):
+    def to_report(self, savedir=None, fmt='txt'):
         """ export statistics as a csv report 
             TO DO: add line to check if nn exists
+
+            fmt: str (default: 'txt')
+                output format (options: 'txt', 'json')
         """
         # set save directory
         if savedir is None:
@@ -813,7 +815,7 @@ class IBI:
             saveinfo = '_'.join((self.metadata['file_info']['fname'].split('_')[:5]))
 
         # save calculations
-        if json is False:
+        if fmt == 'txt':
             savename = saveinfo + '_HRVstats.txt'
             file = os.path.join(savedir, savename)
             with open(file, 'w') as f:
@@ -834,7 +836,7 @@ class IBI:
                                 for kxx, vxx in vx.items():
                                     line = '\t\t' + kxx + ' ' + str(vxx) + '\n'
                                     f.write(line)
-        else:
+        elif fmt == 'json':
             savename = saveinfo + '_HRVstats_json.txt'
             file = os.path.join(savedir, savename)
             with open(file, 'w') as f:
@@ -844,6 +846,16 @@ class IBI:
         savenn = saveinfo + '_nn.txt'
         nn_file = os.path.join(savedir, savenn)
         np.savetxt(nn_file, self.nn, delimiter='\n')
+        # save power spectra for later plotting
+        try: 
+            self.psd_mt
+        except AttributeError: 
+            pass
+        else:
+            savepsd = saveinfo + '_psd.txt'
+            psdfile = os.path.join(savedir, savepsd)
+            psd_mt_df = pd.DataFrame(self.psd_mt)
+            psd_mt_df.to_csv(psdfile, index=False)
 
 def loadEKG_batch(path, stage=None, min_dur=True):
     """ Batch import all raw data from a given directory 
