@@ -1,6 +1,7 @@
-""" This file contains the EKG class and helper functions for batch loading 
+""" This file contains the EKG class 
 
-    TO DO: Update batch loading
+    All R peak detections should be manually inspected with sleepyplot function plot_ekgibi
+    and false detections manually removed with rm_peaks function
 """
 
 import datetime
@@ -198,6 +199,58 @@ class EKG:
         self.rpeaks_df = rpeaks_df
 
         print('R-R intervals calculated')
+
+    def rm_peaks(self, time):
+        """ 
+        Examine a second of interest and manually remove artifact peaks
+        
+        Parameters
+        ----------
+        time: str format 'hh:mm:ss'
+        
+        Returns
+        -------
+        Modified self.rpeaks and self.rpeaks_df attributes. Removed peaks added to 
+        self.rpeak_artifacts attribute.
+        """
+        
+        # print all rpeaks in the second of interest
+        peak_idxlist = {}
+        h, m, s = time.split(':')
+        print('id', '\t', 'time', '\t\t\t\t', 'ibi_ms')
+        for i, x in enumerate(self.rpeaks_df.index):
+            peak_idxlist[i] = x
+            if x.hour == int(h) and x.minute == int(m) and x.second == int(s):
+                print(i, '\t', x, '\t', self.rpeaks_df['ibi_ms'].loc[x])
+        
+        # specify the peak to remove
+        rm_peak = input('Rpeaks to remove [list ids or None]: ')
+        print('\n')
+        if rm_peak == 'None':
+            print('No peaks removed.')
+            return
+        else:
+            rm_peaks = rm_peak.split(',')
+            rm_peaks = [int(x) for x in rm_peaks]
+            for p in rm_peaks:
+                peak_to_rm = pd.Series(self.rpeaks[peak_idxlist[p]])
+                peak_to_rm.index = [peak_idxlist[p]]
+
+                # add peak to rpeak_artifacts list
+                self.rpeak_artifacts = self.rpeak_artifacts.append(peak_to_rm)
+                self.rpeak_artifacts.sort_values(inplace=True)
+
+                # remove peak from rpeaks list & rpeaks dataframe
+                self.rpeaks.drop(peak_idxlist[p], inplace=True)
+                self.rpeaks_df.drop(peak_idxlist[p], inplace=True)
+                print('R peak at ', peak_to_rm.index, ' successfully removed.')
+                
+            # recalculate ibi values
+            self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
+            ibi = np.insert(self.rr, 0, np.NaN)
+            self.rpeaks_df['ibi_ms'] = ibi
+            print('ibi values recalculated.')
+
 
 
     def rm_artifacts(self):
