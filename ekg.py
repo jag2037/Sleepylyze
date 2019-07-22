@@ -28,7 +28,7 @@ class EKG:
     ----------
     """
 
-    def __init__(self, fname, fpath, min_dur=True, epoched=True, mw_size=0.08, upshift=1.02, rm_artifacts=False):
+    def __init__(self, fname, fpath, min_dur=True, epoched=True, smooth=False, sm_wn=0.03, mw_size=0.2, upshift=1.03, rm_artifacts=False, detect_peaks=True):
         """ Initialize raw EKG object
 
         Parameters
@@ -41,6 +41,11 @@ class EKG:
             only load files that are >= 5 minutes long
         epoched: bool (default: True)
             Whether file was epoched using ioeeg
+        smooth: BOOL (default: False)
+            Whether raw signal should be smoothed before peak detections. Set True if raw data has consistent high frequency noise
+            preventing accurate peak detection
+        sm_wn: float (default: 0.03)
+            Size of moving window for rms smoothing preprocessing
         mw_size: float (default: 0.08)
             Moving window size for R peak detection (seconds)
         upshift: float (default: 1.02)
@@ -73,8 +78,13 @@ class EKG:
         # load the ekg
         self.load_ekg(min_dur)
 
-        # detect R peaks & calculate inter-beat intevals
-        self.calc_RR(mw_size, upshift, rm_artifacts)
+        if smooth == True:
+            self.rms_smooth(sm_wn)
+
+        # detect R peaks
+        if detect_peaks == True:
+            # detect R peaks & calculate inter-beat intevals
+            self.calc_RR(smooth, mw_size, upshift, rm_artifacts)
         
         
     def load_ekg(self, min_dur):
@@ -112,16 +122,29 @@ class EKG:
 
         print('EKG successfully imported.')
 
-    def set_Rthres(self, mw_size, upshift):
+    def rms_smooth(self, sm_wn):
+        """ Smooth raw data with RMS moving window """
+        self.metadata['analysis_info']['smooth'] = True
+        self.metadata['analysis_info']['rms_smooth_wn'] = sm_wn
+        
+        mw = int(sm_wn*self.metadata['analysis_info']['s_freq'])
+        self.data['raw_smooth'] = self.data.Raw.rolling(mw, center=True).mean()
+
+
+    def set_Rthres(self, smooth, mw_size, upshift):
         """ set R peak detection threshold based on moving average + %signal upshift """
         print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
         
         # convert moving window to sample & calc moving average over window
         mw = int(mw_size*self.metadata['analysis_info']['s_freq'])
-        mavg = self.data.Raw.rolling(mw).mean()
+        if smooth == False:
+            mavg = self.data.Raw.rolling(mw).mean()
+            ekg_avg = np.mean(self.data['Raw'])
+        elif smooth == True:
+            mavg = self.data.raw_smooth.rolling(mw).mean()
+            ekg_avg = np.mean(self.data['raw_smooth'])
 
         # replace edge nans with overall average
-        ekg_avg = np.mean(self.data['Raw'])
         mavg = mavg.fillna(ekg_avg)
 
         # set detection threshold as +5% of moving average
@@ -131,20 +154,26 @@ class EKG:
         self.metadata['analysis_info']['mw_size'] = mw_size
         self.metadata['analysis_info']['upshift'] = upshift
 
-    def detect_Rpeaks(self):
+        self.rpeak_artifacts = pd.Series()
+
+    def detect_Rpeaks(self, smooth):
         """ detect R peaks from raw signal """
         print('Detecting R peaks...')
 
-        raw = pd.Series(self.data['Raw'])
+        if smooth == False:
+            raw = pd.Series(self.data['Raw'])
+        elif smooth == True:
+            raw = pd.Series(self.data['raw_smooth'])
+        
         thres = pd.Series(self.data['EKG_thres'])
         
         peaks = []
         x = 0
-        while x < len(self.data):
+        while x < len(raw):
             if raw[x] > thres[x]:
                 roi_start = x
                 # count forwards to find down-crossing
-                for h in range(x, len(self.data), 1):
+                for h in range(x, len(raw), 1):
                     if raw[h] < thres[h]:
                         roi_end = h
                         break
@@ -161,6 +190,13 @@ class EKG:
 
         # get time between peaks and convert to mseconds
         self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
+        
+        # create rpeaks dataframe and add ibi columm
+        rpeaks_df = pd.DataFrame(self.rpeaks)
+        ibi = np.insert(self.rr, 0, np.NaN)
+        rpeaks_df['ibi_ms'] = ibi
+        self.rpeaks_df = rpeaks_df
+
         print('R-R intervals calculated')
 
 
@@ -302,13 +338,13 @@ class EKG:
         self.rr_arts = np.array(arts)
 
 
-    def calc_RR(self, mw_size, upshift, rm_artifacts):
+    def calc_RR(self, smooth, mw_size, upshift, rm_artifacts):
         """ Detect R peaks and calculate R-R intervals """
         
         # set R peak detection parameters
-        self.set_Rthres(mw_size, upshift)
+        self.set_Rthres(smooth, mw_size, upshift)
         # detect R peaks & make RR tachogram
-        self.detect_Rpeaks()
+        self.detect_Rpeaks(smooth)
         # remove artifacts
         if rm_artifacts == True:
             self.rm_artifacts()
@@ -723,7 +759,7 @@ class IBI:
         print('Nonlinear stats stored in obj.nonlinear_stats\n')
 
 
-    def hrv_stats(self, method='mt', bandwidth=0.01):
+    def hrv_stats(self, method='mt', bandwidth=0.01, nl=True):
         """ Calculate all statistics on IBI object 
 
             TO DO: Add freq_stats arguments to hrv_stats params? 
@@ -736,7 +772,11 @@ class IBI:
         # calculate statistics
         self.calc_tstats(itype)
         self.calc_fstats(itype, method, bandwidth)
-        self.calc_nlstats(itype)
+        
+        if nl == True:
+            # NOTE: pyhrv package must be successfully downloaded and imported
+            # before using non-linear stats
+            self.calc_nlstats(itype)
         print('Done.')
 
     def to_spreadsheet(self, spreadsheet, savedir):
@@ -889,4 +929,3 @@ def loadEKG_batch(path, stage=None, min_dur=True):
 
     print('\nDone.')
     return ekg_set
-
