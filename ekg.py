@@ -2,6 +2,10 @@
 
     All R peak detections should be manually inspected with sleepyplot function plot_ekgibi
     and false detections manually removed with rm_peaks function
+
+    TO DO: 
+        Fill in placeholder for total artifacts removed and false ibis removed
+        Update metadata analysis info for artifact total & breakdown of rpeak and ibi artifacts
 """
 
 import datetime
@@ -216,18 +220,22 @@ class EKG:
         
         # print all rpeaks in the second of interest
         peak_idxlist = {}
+        peak_num = 1
         h, m, s = time.split(':')
         print('id', '\t', 'time', '\t\t\t\t', 'ibi_ms')
         for i, x in enumerate(self.rpeaks_df.index):
-            peak_idxlist[i] = x
             if x.hour == int(h) and x.minute == int(m) and x.second == int(s):
-                print(i, '\t', x, '\t', self.rpeaks_df['ibi_ms'].loc[x])
+                peak_idxlist[peak_num] = x
+                print(peak_num, '\t', x, '\t', self.rpeaks_df['ibi_ms'].loc[x])
+                peak_num += 1
         
         # specify the peak to remove
         rm_peak = input('Rpeaks to remove [list ids or None]: ')
         print('\n')
         if rm_peak == 'None':
             print('No peaks removed.')
+            # create nn attribute
+            self.nn = self.rr
             return
         else:
             rm_peaks = rm_peak.split(',')
@@ -251,144 +259,8 @@ class EKG:
             self.rpeaks_df['ibi_ms'] = ibi
             print('ibi values recalculated.')
 
-
-
-    def rm_artifacts(self):
-        """ Replace ectopic and misplaced beats with NaNs. Based on Kubios automatic artefact correction algorithm 
-            Note: This function does not interpolate RR intervals or R peaks to replace detected artifacts.
-
-            *IMPORTANT: This algorithm assumes normal distribution of RR intervals. It will wash out datasets
-            that are not normally distributed (NOT for use with ultra-short recordings)
-
-            *NOTE: Not reliable as of 6-20-19. Exit pipeline w/ exported IBI list & rm artificacts using 
-            Artiifact IBI module
-
-            Returns
-            -------
-            self.nn: np.array
-                nn-intervals after artifact rejection, including NaNs
-            self.arts: list of tuple (index, rr_int, rejection type)
-                detected artifacts 
-        """
-        print('Removing ectopic and misplaced beats...')
-
-        th_wn_len = 91
-        md_wn_len = 11
-        nn = []
-        arts = []
-
-        for i, r in enumerate(self.rr):
-
-            # if i is on left edge, keep first time threshold window stationary
-            if i < (0.5 * th_wn_len):
-                # set window for th calculation & remove i from comparison
-                th_wn = self.rr[0:th_wn_len]
-                th_wn = th_wn[np.arange(len(th_wn))!= i]
-
-                # get quartile deviation & time varying threshold
-                qd = stats.iqr(th_wn, nan_policy='omit')/2
-                th = qd * 5.2
-
-                # make median window
-                if i > 0.5 * md_wn_len:
-                    # if i is not on left edge, make moving median window
-                    md_wn_start = int(i-md_wn_len/2)
-                    md_wn_stop = int(i+md_wn_len/2)
-                    md_wn = self.rr[md_wn_start:md_wn_stop]
-                    md_wn = md_wn[np.arange(len(md_wn)) != i]
-                else:
-                    # if i is on left edge, keep first median window stationary
-                    md_wn = self.rr[0:md_wn_len]
-                    md_wn = md_wn[np.arange(len(md_wn)) != i]
-
-                md = statistics.median(md_wn)
-                # check for missed beats
-                if np.abs(r/2 - md) < 2*th == True:
-                    nn.append(np.NaN)
-                    arts.append(i, r, 'missed')
-                # check for extra beats
-                elif i < len(self.rr) - 1 == True:
-                    if np.abs(r + self.rr[i+1] - md) < 2*th == True:
-                        nn.append(np.NaN)
-                        arts.append(i, r, 'extra')
-                else:
-                    # if none detected, add r to nn array
-                    nn.append(r)
-            
-            # use moving window for center of array
-            elif (0.5 * th_wn_len) <= i < (len(self.rr) - (0.5 * th_wn_len)):
-                #print('hit middle')
-                th_wn_start = int(i-th_wn_len/2)
-                th_wn_stop = int(i+th_wn_len/2)
-                th_wn = self.rr[th_wn_start:th_wn_stop]
-                th_wn = th_wn[np.arange(len(th_wn)) != i]
-
-                # get quartile deviation & time varying threshold
-                qd = stats.iqr(th_wn, nan_policy='omit')/2
-                th = qd * 5.2
-
-                # make median moving window
-                wn_start = int(i-md_wn_len/2)
-                wn_stop = int(i+md_wn_len/2)
-                md_wn = self.rr[wn_start:wn_stop]
-                md_wn = md_wn[np.arange(len(md_wn)) != i]
-
-                md = statistics.median(md_wn)
-                # check for missed beats
-                if np.abs(r/2 - md) < 2*th == True:
-                    nn.append(np.NaN)
-                    arts.append(i, r, 'missed')
-                # check for extra beats
-                elif i < len(self.rr) - 1 == True:
-                    if np.abs(r + self.rr[i+1] - md) < 2*th == True:
-                        nn.append(np.NaN)
-                        arts.append(i, r, 'extra')
-                else:
-                    # if none detected, add r to nn array
-                    nn.append(r)
-
-            # if i is on right edge, keep last time threshold window stationary
-            elif i >= (len(self.rr) - (0.5 * th_wn_len)):
-                # set window for th calculation & remove i from comparison
-                th_wn = self.rr[-th_wn_len:]
-                th_wn = th_wn[np.arange(len(th_wn))!= i]
-
-                # get quartile deviation & time varying threshold
-                qd = stats.iqr(th_wn, nan_policy='omit')/2
-                th = qd * 5.2
-
-                # if i is on right edge, keep last median window stationary
-                if i > len(self.rr) - (0.5 * md_wn_len):
-                    md_wn = self.rr[-md_wn_len:]
-                    md_wn = md_wn[np.arange(len(md_wn)) != i]
-                    md = statistics.median(md_wn)
-
-                else:
-                    # else make median moving window
-                    wn_start = int(i-md_wn_len/2)
-                    wn_stop = int(i+md_wn_len/2)
-                    md_wn = self.rr[wn_start:wn_stop]
-                    md_wn = md_wn[np.arange(len(md_wn)) != i]
-
-                md = statistics.median(md_wn)
-                # check for missed beats
-                if np.abs(r/2 - md) < 2*th == True:
-                    nn.append(np.NaN)
-                    arts.append(i, r, 'missed')
-                # check for extra beats
-                elif i < len(self.rr) - 1 == True:
-                    if np.abs(r + self.rr[i+1] - md) < 2*th == True:
-                        nn.append(np.NaN)
-                        arts.append(i, r, 'extra')
-                else:
-                    # if none detected, add r to nn array
-                    nn.append(r)
-                
-        self.nn = np.array(nn)
-        self.nn_diff = np.diff(self.nn)
-        self.nn_diffsq = self.nn_diff**2
-
-        self.rr_arts = np.array(arts)
+        # refresh nn values
+        self.nn = self.rr
 
 
     def calc_RR(self, smooth, mw_size, upshift, rm_artifacts):
@@ -426,96 +298,122 @@ class EKG:
         else:
             print('Files will be saved to ' + savedir)
         
-        # set savename info
-        # f_info1 = self.metadata['file_info']['fname'].split('_')[:5]
-        # f_info2 = data['metadata']['file_info']['fname'].split('_')[5].split('.')[0]
+        # save artifact list
+        try:
+            self.rpeak_artifacts
+        except AttributeError:
+            cont = input('EKG object has no artifacts attribute. Continue save without cleaning? [y/n]: ')
+            if cont == 'y': 
+                pass
+            elif cont == 'n':
+                print('Save aborted.')
+                return
+        else:
+            savearts = self.metadata['file_info']['fname'].split('.')[0] + '_artifacts.txt'
+            art_file = os.path.join(savedir, savearts)
+            self.rpeak_artifacts.to_csv(art_file)
+            print('R peak artifacts exported.')
 
         # save R peak detections
         savepeaks = self.metadata['file_info']['fname'].split('.')[0] + '_rpeaks.txt'
         peaks_file = os.path.join(savedir, savepeaks)
         #self.rpeaks.to_csv(peaks_file)
-        np.savetxt(peaks_file, self.rpeaks, delimiter='\n')
+        self.rpeaks.to_csv(peaks_file)
+        print('R peaks exported.')
 
         # save RR intervals
+        rr_header = 'R peak detection mw_size = {} & upshift = {}'.format(self.metadata['analysis_info']['mw_size'], self.metadata['analysis_info']['upshift'])
         saverr = self.metadata['file_info']['fname'].split('.')[0] + '_rr.txt'
         rr_file = os.path.join(savedir, saverr)
-        np.savetxt(rr_file, self.rr, delimiter='\n')
+        np.savetxt(rr_file, self.rr, header=rr_header, fmt='%.0d', delimiter='\n')
+        print('rr intervals exported.')
 
         # save NN intervals, if exists
         try: 
             self.nn
-        except AttributeError: 
+        except AttributeError:
+            print('EKG object has no nn attribute. Only exporting r peaks and rr intervals.')
             pass
         else:
+            # set # of artifacts removed for header
+            try:
+                self.rpeak_artifacts
+            except AttributeError:
+                arts_len = 0
+            else:
+                arts_len = len(self.rpeak_artifacts)
+                placeholder = 30000
+            nn_header = 'R peak detection mw_size = {} & upshift = {}.\nTotal artifacts removed = {} ( {} false peaks + {} false ibis).'.format(self.metadata['analysis_info']['mw_size'], self.metadata['analysis_info']['upshift'], placeholder, arts_len, placeholder)
             savenn = self.metadata['file_info']['fname'].split('.')[0] + '_nn.txt'
-            nn_file = os.path.join(savedir, saverr)
-            np.savetxt(nn_file, self.nn, delimiter='\n')
+            nn_file = os.path.join(savedir, savenn)
+            np.savetxt(nn_file, self.nn, header=nn_header, fmt='%.0d', delimiter='\n')
+            print('nn intervals exported.')
 
         print('Done.')
 
 
-class IBI:
-    """ Class for EKG inter-beat interval data. Can be cleaned data (nn intervals) or raw (rr intervals). """
+# class IBI:
+#     """ Class for EKG inter-beat interval data. Can be cleaned data (nn intervals) or raw (rr intervals). """
 
-    def __init__(self, fname, fpath, s_freq, start_time, epoched=True, itype='nn'):
-        """ Initialize inter-beat interval object
+#     def __init__(self, fname, fpath, s_freq, start_time, epoched=True, itype='nn'):
+#         """ Initialize inter-beat interval object
 
-        Parameters
-        ----------
-        fname: str
-            filename
-        fpath: str
-            path to file
-        s_freq: float
-            sampling frequency of original EKG data
-        epoched: bool (default: True)
-            specify whether data was epoched with ioeeg.py
-        itype: str (options: 'nn' or 'rr')
-            interval type (cleaned = 'nn'; otherwise 'rr')
+#         Parameters
+#         ----------
+#         fname: str
+#             filename
+#         fpath: str
+#             path to file
+#         s_freq: float
+#             sampling frequency of original EKG data
+#         epoched: bool (default: True)
+#             specify whether data was epoched with ioeeg.py
+#         itype: str (options: 'nn' or 'rr')
+#             interval type (cleaned = 'nn'; otherwise 'rr')
 
-        Returns
-        -------
-        IBI object
-        """
+#         Returns
+#         -------
+#         IBI object
+#         """
 
-        # set metadata
-        filepath = os.path.join(fpath, fname)
-        if epoched == False:
-            in_num, start_date, slpstage, cycle = fname.split('_')[:4]
-        elif epoched == True:
-            in_num, start_date, slpstage, cycle, epoch = fname.split('_')[:5]
-        self.metadata = {'file_info':{'in_num': in_num,
-                                    'fname': fname,
-                                    'path': filepath,
-                                    'start_date': start_date,
-                                    'start_time': start_time,
-                                    'sleep_stage': slpstage,
-                                    'cycle': cycle
-                                    },
-                        'analysis_info':{'s_freq': s_freq,
-                                    'itype': itype
-                                    }
-                        }
-        if epoched == True:
-            self.metadata['file_info']['epoch'] = epoch
+#         # set metadata
+#         filepath = os.path.join(fpath, fname)
+#         if epoched == False:
+#             in_num, start_date, slpstage, cycle = fname.split('_')[:4]
+#         elif epoched == True:
+#             in_num, start_date, slpstage, cycle, epoch = fname.split('_')[:5]
+#         self.metadata = {'file_info':{'in_num': in_num,
+#                                     'fname': fname,
+#                                     'path': filepath,
+#                                     'start_date': start_date,
+#                                     'start_time': start_time,
+#                                     'sleep_stage': slpstage,
+#                                     'cycle': cycle
+#                                     },
+#                         'analysis_info':{'s_freq': s_freq,
+#                                     'itype': itype
+#                                     }
+#                         }
+#         if epoched == True:
+#             self.metadata['file_info']['epoch'] = epoch
 
-        # load data
-        self.load_ibi(itype)
+#         # load data
+#         self.load_ibi(itype)
 
 
-    def load_ibi(self, itype):
-        """ Load ibi .txt file """
-        print('Loading interbeat interval data...')
+    # def load_ibi(self, itype):
+    #     """ Load ibi .txt file """
+    #     print('Loading interbeat interval data...')
         
-        if itype == 'nn':
-            nn_full = np.loadtxt(self.metadata['file_info']['path'])
-            # remove NaNs
-            self.nn = nn_full[~np.isnan(nn_full)]
-            self.metadata['analysis_info']['rrArtifacts_rmvd'] = len(nn_full) - len(self.nn)
-        elif itype == 'rr':
-            self.rr = np.loadtxt(self.metadata['file_info']['path'])
+    #     if itype == 'nn':
+    #         nn_full = np.loadtxt(self.metadata['file_info']['path'])
+    #         # remove NaNs
+    #         self.nn = nn_full[~np.isnan(nn_full)]
+    #         self.metadata['analysis_info']['rrArtifacts_rmvd'] = len(nn_full) - len(self.nn)
+    #     elif itype == 'rr':
+    #         self.rr = np.loadtxt(self.metadata['file_info']['path'])
 
-        print('Done.')
+    #     print('Done.')
 
 
     def calc_tstats(self, itype):
@@ -524,7 +422,7 @@ class IBI:
             Params
             ------
             itype: str, 
-                Interval type (Options:'rr', 'nn')
+                Interval type (Options:'rr', 'nn'). 'rr' is uncleaned data. 'nn' is normal intervals (cleaned)
         """   
         print('Calculating time domain statistics...')
 
@@ -812,15 +710,35 @@ class IBI:
         print('Nonlinear stats stored in obj.nonlinear_stats\n')
 
 
-    def hrv_stats(self, method='mt', bandwidth=0.01, nl=True):
+    def hrv_stats(self, itype='nn', nn_file=None, method='mt', bandwidth=0.01, nl=True):
         """ Calculate all statistics on IBI object 
 
             TO DO: Add freq_stats arguments to hrv_stats params? 
-                   Divide into 5-min epochs 
+
+            Parameters
+            ----------
+            nn_file: str
+                path to csv file containing cleaned nn values, if nn values were
+                previously exported
         """
 
-        # set itype
-        itype = self.metadata['analysis_info']['itype']
+        self.metadata['analysis_info']['itype'] = itype
+        
+        # load nn attribute if data was cleaned previously
+        if itype == 'nn' and nn_file is not None:
+            # read in metadata
+            with open(nn_file, 'r') as f:
+                line1 = [x for x in f.readline().split(' ')]
+                line2 = [x for x in f.readline().split(' ')]
+                self.metadata['analysis_info']['mw_size'] = float(line1[6])
+                self.metadata['analysis_info']['upshift'] = float(line1[10].split('.\n')[0])
+                self.metadata['analysis_info']['artifacts_rmvd'] = int(line2[5])
+            # load nn intervals
+            self.nn = np.loadtxt(nn_file)
+
+        else:
+            # NOTE: Once ibi artifact removal is implemented this will be inaccurate
+            self.metadata['analysis_info']['artifacts_rmvd'] = len(self.rpeak_artifacts)
 
         # calculate statistics
         self.calc_tstats(itype)
@@ -844,7 +762,7 @@ class IBI:
         """
         
         # this is from before division to two classes. 'data' and 'rpeaks' arrays shouldn't exist in IBI object.
-        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
+        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
         reform = {(level1_key, level2_key, level3_key): values
@@ -892,20 +810,16 @@ class IBI:
             os.makedirs(savedir)
         else:
             print('Files will be saved to ' + savedir)
-
-        # set savename info
-        # save_info1 = '_'.join(data['metadata']['file_info']['fname'].split('_')[:5])
-        # save_info2 = data['metadata']['file_info']['fname'].split('_')[5].split('.')[0]
         
         # export everything that isn't a dataframe, series, or array    
-        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
+        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
         # set savename info
         if 'epoch' in self.metadata['file_info'].keys():
-            saveinfo = '_'.join((self.metadata['file_info']['fname'].split('_')[:6]))
+            saveinfo = ('_'.join((self.metadata['file_info']['fname'].split('_')[:6]))).split('.')[0]
         else:
-            saveinfo = '_'.join((self.metadata['file_info']['fname'].split('_')[:5]))
+            saveinfo = ('_'.join((self.metadata['file_info']['fname'].split('_')[:5]))).split('.')[0]
 
         # save calculations
         if fmt == 'txt':
@@ -934,11 +848,7 @@ class IBI:
             file = os.path.join(savedir, savename)
             with open(file, 'w') as f:
                 json.dump(data, f, indent=4)   
-
-        # re-save nn intervals (w/o NaNs) w/ set naming convention
-        savenn = saveinfo + '_nn.txt'
-        nn_file = os.path.join(savedir, savenn)
-        np.savetxt(nn_file, self.nn, delimiter='\n')
+        
         # save power spectra for later plotting
         try: 
             self.psd_mt
