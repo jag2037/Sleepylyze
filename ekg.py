@@ -1,11 +1,9 @@
 """ This file contains the EKG class 
 
     All R peak detections should be manually inspected with sleepyplot function plot_ekgibi
-    and false detections manually removed with rm_peaks function
+    and false detections manually removed with rm_peaks method. After rpeak examination, 
+    NaN data can be accounted for by removing false IBIs with rm_ibi method.
 
-    TO DO: 
-        Fill in placeholder for total artifacts removed and false ibis removed
-        Update metadata analysis info for artifact total & breakdown of rpeak and ibi artifacts
 """
 
 import datetime
@@ -159,7 +157,10 @@ class EKG:
         self.metadata['analysis_info']['mw_size'] = mw_size
         self.metadata['analysis_info']['upshift'] = upshift
 
+        # create empy series for false detections removed and missed peaks added
         self.rpeak_artifacts = pd.Series()
+        self.rpeaks_added = pd.Series()
+        self.ibi_artifacts = pd.Series()
 
     def detect_Rpeaks(self, smooth):
         """ detect R peaks from raw signal """
@@ -246,7 +247,7 @@ class EKG:
 
                 # add peak to rpeak_artifacts list
                 self.rpeak_artifacts = self.rpeak_artifacts.append(peak_to_rm)
-                self.rpeak_artifacts.sort_values(inplace=True)
+                self.rpeak_artifacts.sort_index(inplace=True)
 
                 # remove peak from rpeaks list & rpeaks dataframe
                 self.rpeaks.drop(peak_idxlist[p], inplace=True)
@@ -261,6 +262,130 @@ class EKG:
 
         # refresh nn values
         self.nn = self.rr
+
+    def add_peak(self, time):
+        """ manually add missed peaks 
+
+        Parameters
+        ----------
+        time: str format 'hh:mm:ss'
+        
+        Returns
+        -------
+        Modified self.rpeaks, self.rpeaks_df, self.rr, and self.nn attributes. Added peaks stored in 
+        self.rpeaks_added attribute.
+        """
+        
+        # specify time range of missed peak
+        h, m, s = time.split(':')
+        us_rng = input('Millisecond range of missed peak [min:max]: ').split(':')
+        # add zeros bc datetime microsecond precision goes to 6 figures
+        us_min, us_max = us_rng[0] + '000', us_rng[1] + '000'
+        
+        # set region of interest for new peak
+        ## can modify this to include smoothing if needed
+        roi = []
+        for x in self.data.index:
+            if x.hour == int(h) and x.minute == int(m) and x.second == int(s) and x.microsecond >= int(us_min) and x.microsecond <= int(us_max):
+                roi.append(x)
+
+        # define new rpeak
+        peak_idx = self.data.loc[roi]['Raw'].idxmax()
+        peak_val = self.data['Raw'].loc[peak_idx]
+        new_peak = pd.Series(peak_val, [peak_idx])
+
+        # add peak to rpeaks list
+        self.rpeaks = self.rpeaks.append(new_peak)
+        self.rpeaks.sort_index(inplace=True)
+
+        # add peak to rpeaks_df
+        self.rpeaks_df.loc[peak_idx] = [peak_val, np.NaN]
+        self.rpeaks_df.sort_index(inplace=True)
+
+        # add peak to rpeaks_added list
+        self.rpeaks_added = self.rpeaks_added.append(new_peak)
+        self.rpeaks_added.sort_index(inplace=True)
+        print('New peak added.')
+
+        # recalculate ibi values
+        self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
+        ibi = np.insert(self.rr, 0, np.NaN)
+        self.rpeaks_df['ibi_ms'] = ibi
+        print('ibi values recalculated.')
+
+        # refresh nn values
+        self.nn = self.rr
+
+    def rm_ibi(self, thres = 3000):
+        """ Manually remove IBI's corresponding to missing data (due to cleaning) or missed beats that can't be
+            manually added with ekg.add_peak() method
+            NOTE: This step must be completed LAST, after removing any false peaks and adding any missed peaks
+        
+            Parameters
+            ----------
+            thres: int
+                threshold in milliseconds for automatic IBI removal
+        """
+        
+        # check for extra-long IBIs & option to auto-remove
+        if any(self.rpeaks_df['ibi_ms'] > thres):
+            print(f'IBIs greater than {thres} milliseconds detected')
+            rm = input('Automatically remove? [y/n]: ')
+            
+            if rm.casefold() == 'y':
+                # get indices of ibis greater than threshold
+                rm_idx = [i for i, x in enumerate(self.nn) if x > thres]
+                # replace ibis w/ NaN
+                self.nn[rm_idx] = np.NaN
+                print('{} IBIs removed.'.format(len(rm_idx), thres))
+                
+                # add ibi to ibi_artifacts list
+                df_idx = [x+1 for x in rm_idx] # shift indices by 1 to correspond with df indices
+                ibis_rmvd = pd.Series(self.rpeaks_df['ibi_ms'].iloc[df_idx])
+                self.ibi_artifacts = self.ibi_artifacts.append(ibis_rmvd)
+                self.ibi_artifacts.sort_index(inplace=True)
+                print('ibi_artifacts series updated.') 
+
+                # update rpeaks_df
+                ibi = np.insert(self.nn, 0, np.NaN)
+                self.rpeaks_df['ibi_ms'] = ibi
+                print('R peaks dataframe updated.\n')    
+        
+        else:
+            print(f'All ibis are less than {thres} milliseconds.')
+
+        # option to specify which IBIs to remove
+        rm = input('Manually remove IBIs? [y/n]: ')
+        if rm.casefold() == 'n':
+            print('Done.')
+            return
+        elif rm.casefold() == 'y':
+            # print IBI list w/ IDs
+            print('Printing IBI list...\n')
+            print('ID', '\t', 'ibi end time', '\t', 'ibi_ms')
+            for i, x in enumerate(self.rpeaks_df.index[1:]):
+                    print(i, '\t',str(x)[11:-3], '\t', self.rpeaks_df['ibi_ms'].loc[x])
+            rm_ids = input('IDs to remove [list or None]: ')
+            if rm_ids.casefold() == 'none':
+                print('No ibis removed.')
+                return
+            else:
+                # replace IBIs in nn array
+                rm_ids = [int(x) for x in rm_ids.split(',')]
+                self.nn[rm_ids] = np.NaN
+                print('{} IBIs removed.'.format(len(rm_ids)))
+
+                # add ibi to ibi_artifacts list
+                df_idx = [x+1 for x in rm_ids] # shift indices by 1 to correspond with df indices
+                ibis_rmvd = pd.Series(self.rpeaks_df['ibi_ms'].iloc[df_idx])
+                self.ibi_artifacts = self.ibi_artifacts.append(ibis_rmvd)
+                self.ibi_artifacts.sort_index(inplace=True)
+                print('ibi_artifacts series updated.')
+                
+                # update self.rpeaks_df
+                ibi = np.insert(self.nn, 0, np.NaN)
+                self.rpeaks_df['ibi_ms'] = ibi
+                print('R peaks dataframe updated.\nDone.')
 
 
     def calc_RR(self, smooth, mw_size, upshift, rm_artifacts):
@@ -298,7 +423,7 @@ class EKG:
         else:
             print('Files will be saved to ' + savedir)
         
-        # save artifact list
+        # save rpeak_artifacts list
         try:
             self.rpeak_artifacts
         except AttributeError:
@@ -309,10 +434,16 @@ class EKG:
                 print('Save aborted.')
                 return
         else:
-            savearts = self.metadata['file_info']['fname'].split('.')[0] + '_artifacts.txt'
+            savearts = self.metadata['file_info']['fname'].split('.')[0] + '_rpeak_artifacts.txt'
             art_file = os.path.join(savedir, savearts)
             self.rpeak_artifacts.to_csv(art_file)
             print('R peak artifacts exported.')
+
+        # save rpeaks_added list
+        savename = self.metadata['file_info']['fname'].split('.')[0] + '_rpeaks_added.txt'
+        savefile = os.path.join(savedir, savename)
+        self.rpeaks_added.to_csv(savefile)
+        print('R peak additions exported.')
 
         # save R peak detections
         savepeaks = self.metadata['file_info']['fname'].split('.')[0] + '_rpeaks.txt'
@@ -321,11 +452,17 @@ class EKG:
         self.rpeaks.to_csv(peaks_file)
         print('R peaks exported.')
 
+        # save ibi_artifact list
+        savename = self.metadata['file_info']['fname'].split('.')[0] + '_ibi_artifacts.txt'
+        savefile = os.path.join(savedir, savename)
+        self.ibi_artifacts.to_csv(savefile)
+        print('IBI artifacts exported.')
+
         # save RR intervals
         rr_header = 'R peak detection mw_size = {} & upshift = {}'.format(self.metadata['analysis_info']['mw_size'], self.metadata['analysis_info']['upshift'])
         saverr = self.metadata['file_info']['fname'].split('.')[0] + '_rr.txt'
         rr_file = os.path.join(savedir, saverr)
-        np.savetxt(rr_file, self.rr, header=rr_header, fmt='%.0d', delimiter='\n')
+        np.savetxt(rr_file, self.rr, header=rr_header, fmt='%.0f', delimiter='\n')
         print('rr intervals exported.')
 
         # save NN intervals, if exists
@@ -341,12 +478,11 @@ class EKG:
             except AttributeError:
                 arts_len = 0
             else:
-                arts_len = len(self.rpeak_artifacts)
-                placeholder = 30000
-            nn_header = 'R peak detection mw_size = {} & upshift = {}.\nTotal artifacts removed = {} ( {} false peaks + {} false ibis).'.format(self.metadata['analysis_info']['mw_size'], self.metadata['analysis_info']['upshift'], placeholder, arts_len, placeholder)
+                arts_len = len(self.rpeak_artifacts) + len(self.ibi_artifacts)
+            nn_header = 'R peak detection mw_size = {} & upshift = {}.\nTotal artifacts removed = {} ( {} false peaks + {} false ibis).'.format(self.metadata['analysis_info']['mw_size'], self.metadata['analysis_info']['upshift'], arts_len, len(self.rpeak_artifacts), len(self.ibi_artifacts))
             savenn = self.metadata['file_info']['fname'].split('.')[0] + '_nn.txt'
             nn_file = os.path.join(savedir, savenn)
-            np.savetxt(nn_file, self.nn, header=nn_header, fmt='%.0d', delimiter='\n')
+            np.savetxt(nn_file, self.nn, header=nn_header, fmt='%.0f', delimiter='\n')
             print('nn intervals exported.')
 
         print('Done.')
@@ -434,8 +570,9 @@ class EKG:
             self.rr_diffsq = ii_diffsq
         
         elif itype == 'nn':
-            ii = self.nn
-            ii_diff = np.diff(self.nn)
+            # remove np.NaNs for calculations
+            ii = self.nn[~np.isnan(self.nn)]
+            ii_diff = np.diff(ii)
             ii_diffsq = ii_diff**2
             self.nn_diff = ii_diff
             self.nn_diffsq = ii_diffsq
@@ -496,7 +633,8 @@ class EKG:
         if itype == 'rr':
             ii = self.rr
         elif itype == 'nn':
-            ii = self.nn
+            # remove np.NaNs for calculations
+            ii = self.nn[~np.isnan(self.nn)]
 
         # interpolate
         fs = self.metadata['analysis_info']['s_freq']
@@ -526,7 +664,7 @@ class EKG:
         if itype == 'rr':
             ii = self.rr
         elif itype == 'nn':
-            ii = self.nn
+            ii = self.nn[~np.isnan(self.nn)]
         
         # set nfft to guidelines of power of 2 above len(data), min 256 (based on MATLAB guidelines)
         nfft = max(256, 2**(int(np.log2(len(self.ii_interp))) + 1))
@@ -683,7 +821,7 @@ class EKG:
         if itype == 'rr':
             ii = self.rr
         elif itype == 'nn':
-            ii = self.nn
+            ii = self.nn[~np.isnan(self.nn)]
 
         print('Calculating nonlinear statistics...')
         nonlinear_stats = {}
@@ -737,8 +875,7 @@ class EKG:
             self.nn = np.loadtxt(nn_file)
 
         else:
-            # NOTE: Once ibi artifact removal is implemented this will be inaccurate
-            self.metadata['analysis_info']['artifacts_rmvd'] = len(self.rpeak_artifacts)
+            self.metadata['analysis_info']['artifacts_rmvd'] = str(str(len(self.rpeak_artifacts)) + ' false peaks (removed); ' + str(len(self.rpeaks_added)) + ' missed peaks (added); ' + str(len(self.ibi_artifacts)) + ' ibis removed (from NaN data)')
 
         # calculate statistics
         self.calc_tstats(itype)
@@ -762,7 +899,7 @@ class EKG:
         """
         
         # this is from before division to two classes. 'data' and 'rpeaks' arrays shouldn't exist in IBI object.
-        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
+        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_added', 'ibi_artifacts','rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
         reform = {(level1_key, level2_key, level3_key): values
@@ -812,7 +949,7 @@ class EKG:
             print('Files will be saved to ' + savedir)
         
         # export everything that isn't a dataframe, series, or array    
-        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
+        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_added', 'ibi_artifacts', 'rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
         # set savename info
