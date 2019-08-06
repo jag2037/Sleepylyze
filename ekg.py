@@ -49,9 +49,9 @@ class EKG:
             preventing accurate peak detection
         sm_wn: float (default: 0.03)
             Size of moving window for rms smoothing preprocessing
-        mw_size: float (default: 0.08)
+        mw_size: float (default: 0.2)
             Moving window size for R peak detection (seconds)
-        upshift: float (default: 1.02)
+        upshift: float (default: 1.03)
             Detection threshold upshift for R peak detection (% of signal)
         rm_artifacts: bool (default: False)
             Apply IBI artifact removal algorithm
@@ -315,6 +315,67 @@ class EKG:
 
         # refresh nn values
         self.nn = self.rr
+
+    def undo_add_peak(self, time):
+        """ remove an incorrect peak from add_peaks() method
+            NOTE: This is strictly an "undo" method. It is NOT equivalent to rm_peaks().
+            
+            Parameters
+            ----------
+            time: str (format 'hh:mm:ss')
+                second of incorrectly added peak
+            
+            Returns
+            -------
+            Modified self.rpeaks, self.rpeaks_df, self.rr, self.nn, and self.rpeaks_added attributes
+        """
+        
+        if len(self.rpeaks_added) == 0:
+            print('No rpeaks have been added.')
+            return
+        
+        # print all rpeaks in the second of interest
+        peak_idxlist = {}
+        peak_num = 1
+        h, m, s = time.split(':')
+        print('id', '\t', 'time')
+        for i, x in enumerate(self.rpeaks_added.index):
+            if x.hour == int(h) and x.minute == int(m) and x.second == int(s):
+                peak_idxlist[peak_num] = x
+                print(peak_num, '\t', x)
+                peak_num += 1
+
+        # specify the peak to remove
+        rm_peak = input('Added Rpeaks to remove [list ids or None]: ')
+        print('\n')
+        if rm_peak == 'None':
+            print('No peaks removed.')
+            # create nn attribute
+            self.nn = self.rr
+            return
+        else:
+            rm_peaks = rm_peak.split(',')
+            rm_peaks = [int(x) for x in rm_peaks]
+            for p in rm_peaks:
+                peak_to_rm = pd.Series(self.rpeaks_added[peak_idxlist[p]])
+                peak_to_rm.index = [peak_idxlist[p]]
+        
+                # remove peak from rpeaks_added list
+                self.rpeaks_added.drop(labels=peak_to_rm.index, inplace=True)
+                
+                # remove peak from rpeaks list & rpeaks dataframe
+                self.rpeaks.drop(peak_idxlist[p], inplace=True)
+                self.rpeaks_df.drop(peak_idxlist[p], inplace=True)
+                print('R peak at ', peak_to_rm.index, ' successfully removed.')
+
+            # recalculate ibi values
+            self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
+            ibi = np.insert(self.rr, 0, np.NaN)
+            self.rpeaks_df['ibi_ms'] = ibi
+            print('ibi values recalculated.')
+
+        # refresh nn values
+        self.nn = self.rr    
 
     def rm_ibi(self, thres = 3000):
         """ Manually remove IBI's corresponding to missing data (due to cleaning) or missed beats that can't be
