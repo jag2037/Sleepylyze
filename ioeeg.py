@@ -1,19 +1,22 @@
-""" import this class by using the __init__.py file 'from .ioeeg import Dataset' 
-
+""" 
     To Do:
-        Remove spindle detection functions --> to be moved to new class for cut segments 
-        Add modified calculate_transitions code
+        Add support for earlier headboxes
 """
 
 import datetime
+from datetime import timedelta
+from io import StringIO
 import json
 import math 
 import numpy as np 
 import os
 import pandas as pd
+import psycopg2
 import re
 #import scipy.io as io # necessary?
 import statistics
+from sqlalchemy import *
+
 
 class Dataset:
     """ General class containing EEG recordings
@@ -58,26 +61,35 @@ class Dataset:
         raw EEG/EKG data
     """
     
-    def __init__(self, fname, fpath=None, trim=True, start='22:00:00', end='07:00:00', noise_log=None, rm_chans=None):
+    def __init__(self, fname, fpath=None, trim=True, start='22:00:00', end='07:00:00', noise_log=None, rm_chans=None, 
+                psql=True, data_dir='D:\Jackie\RawEEG'):
+        """ """
+        
         if fpath is not None:
             filepath = os.path.join(fpath, fname)
             #filepath = fpath + fname
         else:
             filepath = fname
         
-        self.fname = fname
-        self.fpath = fpath
-        self.filepath = filepath
-        
+        self.metadata = {'in_num': fname.split("_")[0],
+                        'fname': fname,
+                        'filepath': filepath}
+
         self.get_info()
         self.get_chans()
         self.load_eeg()
         
         if trim == True:
             self.trim_eeg(start, end)
+
+        if psql == True:
+            self.to_psql(data_dir)
         
-        if noise_log is not None or rm_chans is not None: 
-            self.clean_eeg(noise_log, rm_chans)
+        if noise_log is not None or rm_chans is not None:
+            if psql == True:
+                self.clean_eeg_psql(noise_log, rm_chans, data_dir)
+            else:
+                self.clean_eeg(noise_log, rm_chans)
 
         print('\nDone.')
 
@@ -85,34 +97,35 @@ class Dataset:
     # io methods #
     def get_info(self):
         """ Read in the header block and extract useful info """
-        # extract IN
-        self.in_num = self.fname.split("_")[0]
-        print("Patient identifier:", self.in_num)
+
+        print("Patient identifier:", self.metadata['in_num'])
         
         # extract sampling freq, # of channels, headbox sn
-        with open(self.filepath, 'r') as f: # pull out the header w/ first recording
+        with open(self.metadata['filepath'], 'r') as f: # pull out the header w/ first recording
             header = []
             for i in range(1, 267): # this assumes s_freq<=250
                 header.append(f.readline()) # use readline (NOT READLINES) here to save memory for large files
-        self.s_freq = int(float(header[7].split()[3])) # extract sampling frequency
-        self.chans = int(header[8].split()[2]) # extract number of channels as integer
-        self.hbsn = int(header[10].split()[3]) # extract headbox serial number
-        self.start_date = (header[15].split()[0]).replace('/', '-')
-        self.start_time = header[15].split()[1] # extract start time in hh:mm:ss
+        self.metadata['s_freq'] = int(float(header[7].split()[3])) # extract sampling frequency
+        self.metadata['chans'] = int(header[8].split()[2]) # extract number of channels as integer
+        self.metadata['hbsn'] = int(header[10].split()[3]) # extract headbox serial number
+        self.metadata['start_date'] = (header[15].split()[0]).replace('/', '-')
+        self.metadata['start_time'] = header[15].split()[1] # extract start time in hh:mm:ss
         
         # Get starting time in usec for index
+        s_freq = self.metadata['s_freq']
+        start_time = self.metadata['start_time']
         firstsec = []
         for i in range(15, len(header)):
             firstsec.append(header[i].split()[1])
         firstsec = pd.Series(firstsec)
         # Find the timestamp cut between seconds 1 & 2, convert to usec
-        first_read = self.s_freq - (firstsec.eq(self.start_time).sum())
-        self.start_us = 1/self.s_freq*first_read
+        first_read = s_freq - (firstsec.eq(start_time).sum())
+        self.metadata['start_us'] = 1/s_freq*first_read
          
     def get_chans(self):
         """ Define the channel list for the detected headbox """
-        chans = self.chans
-        hbsn = self.hbsn
+        chans = self.metadata['chans']
+        hbsn = self.metadata['hbsn']
         
         def check_chans(chans, expected_chans):
             print(chans, ' of ', expected_chans, ' expected channels found')
@@ -131,7 +144,7 @@ class Dataset:
             channels_rmvd = channels_all[-2:]
             print('Removed the following channels: \n', channels_rmvd)
 
-        elif hbsn == 65535 and self.chans == 40: # for IN346B. need to adjust this for other EMU40s
+        elif hbsn == 65535 and self.metadata['chans'] == 40: # for IN346B. need to adjust this for other EMU40s
             hbid = "EMU40 DB+18"
             print('Headbox:', hbid)
             expected_chans = 40 
@@ -152,29 +165,27 @@ class Dataset:
                 # remove any chans here?
             channels = channels_all
 
-        self.hbsn = hbsn
-        self.hbid = hbid
-        self.channels = channels
-        self.eeg_channels = [e for e in self.channels if e not in ('EOG_L', 'EOG_R', 'EKG')]
-    
+        self.metadata['hbid'] = hbid
+        self.metadata['channels'] = channels
+            
     def load_eeg(self):
         """ docstring here """
         # set the last column of data to import
-        end_col = len(self.channels) + 3 # works for MOBEE32, check for other headboxes
+        end_col = len(self.metadata['channels']) + 3 # works for MOBEE32, check for other headboxes
         
         # read in only the data
         print('Importing EEG data...')
         # setting dtype to float will speed up load, but crashes if there is anything wrong with the record
-        data = pd.read_csv(self.filepath, delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
+        data = pd.read_csv(self.metadata['filepath'], delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
                                dtype = float, na_values = ['AMPSAT', 'SHORT'])
         
         # create DateTimeIndex
-        ind_freq = str(int(1/self.s_freq*1000000))+'us'
-        ind_start = self.start_date + ' ' + self.start_time + str(self.start_us)[1:]
+        ind_freq = str(int(1/self.metadata['s_freq']*1000000))+'us'
+        ind_start = self.metadata['start_date'] + ' ' + self.metadata['start_time'] + str(self.metadata['start_us'])[1:]
         ind = pd.date_range(start = ind_start, periods=len(data), freq=ind_freq)
 
         # make a new dataframe with the proper index & column names
-        data.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Raw'), len(self.channels))],names=['Channel','datatype'])
+        data.columns = pd.MultiIndex.from_arrays([self.metadata['channels'], np.repeat(('Raw'), len(self.metadata['channels']))],names=['Channel','datatype'])
         data.index = ind
 
         self.data = data
@@ -199,8 +210,138 @@ class Dataset:
         
         print('Data trimmed to {} (inclusive) - {} (exclusive).'.format(start, end))
 
+    def to_psql(self, data_dir):
+        """ Upload raw EEG data to postgreSQL server & save out to condensed csv file"""
+        
+        print('Uploading dataframe to postgreSQL database...')
+        
+        # create StringIO object
+        in_memory_csv = StringIO()
+        
+        # write dataframe to stringio object without headers & reset pointer
+        self.data.to_csv(in_memory_csv, header=False)
+        in_memory_csv.seek(0)
+        
+        # create column names string for SQL table creation
+        cols = [x.lower() for x in self.metadata['channels']]
+        column_str = []
+        for col in cols:
+            column_str.append(f'{col} NUMERIC(9,6),')
+        column_str = "".join(column_str)
+        
+        # create string for SQL table creation (this overwrites if exists)
+        table_name = self.metadata['fname'].split('.')[0].lower()
+        table_name = re.sub('-', '_', table_name)
+        self.psql_tablename = table_name
+        base_table = f"""
+        DROP TABLE IF EXISTS {table_name};
+        CREATE TABLE {table_name} (
+            time TIMESTAMP WITHOUT TIME ZONE,
+            {column_str}
+            PRIMARY KEY (time)
+        );
+        """
+        # create a link to the psql database
+        engine = create_engine('postgresql://postgres:schifflab@localhost/raw_eeg')
+        conn = engine.connect()
+        conn.execute(base_table)
+        
+        # create table
+        meta = MetaData(engine)
+        data_table = Table(table_name, meta, autoload=True)
+        
+        # load data
+        with engine.begin() as conn2:
+            cur = conn2.connection.cursor()
+            cur.copy_from(in_memory_csv, table_name, sep=',', columns= ['time'] + cols, null='')
+        
+        # save to condensed csv file
+        print('Saving condensed csv file..')
+        raw_csv = os.path.join(data_dir, (table_name + '_raw.csv'))
+        copy = f"""COPY {table_name} TO '{raw_csv}' WITH CSV HEADER;"""
+        conn.execute(copy)
+        
+        print('PostgreSQL upload complete.')
+
+    def clean_eeg_psql(self, noise_log, rm_chans, data_dir):
+        """ Replace artifact with NaN in the postgreSQL raw EEG table """
+    
+        # create a link to the sql database
+        engine = create_engine('postgresql://postgres:schifflab@localhost/raw_eeg')
+        conn = engine.connect()    
+        
+        # specify the table
+        meta = MetaData(engine)
+        table_name = self.psql_tablename
+        data_table = Table(table_name, meta, autoload=True)
+        
+        # set channel list
+        channel_list = [col[0] for col in self.data.columns]
+            
+        # remove noisy channels
+        if rm_chans is not None:
+            print('Removing noisy channels...')
+            # check chans against data channel list (case insensitive) & convert str to list
+            if type(rm_chans) == str:
+                rm_chans_list = [x.lower() for x in channel_list if rm_chans.casefold() == x.casefold()]
+            elif type(rm_chans) == list:
+                rm_chans_list = [x.lower() for x in channel_list for r in rm_chans if r.casefold() == x.casefold()]
+            
+            # create dict of chans to remove
+            noise_chans = {}
+            for col in rm_chans_list:
+                noise_chans[col] = None
+            # replace noise channels w/ null values
+            data_table.update().values(**noise_chans).execute()
+            print('Noisy channels removed.')
+        
+        # remove noisy indices
+        if noise_log is not None:
+            print('Removing noisy indices...')
+            noise = pd.read_csv(noise_log, header=None, names=[0, 1, 'channels'], sep = '\t', index_col=0, parse_dates=[[0, 1]])
+            noise.index.name = 'time'
+            # split channel strings into lists
+            noise['channels'] = [re.findall(r"[\w'\*]+", n.lower()) for n in noise['channels']]
+            
+            # convert noise df to dictionary
+            noise_dict = noise.to_dict()
+            # create lowercase & eeg channel lists
+            channels_lower = [col[0].lower() for col in self.data.columns]
+            eeg_chans = [x for x in channels_lower if x != 'ekg']
+
+            for t, chans in noise_dict['channels'].items():
+                # create dictionary for channel:value updating
+                chan_noise_dict = {}
+                for c in chans:
+                    if c == '*':
+                        for cx in eeg_chans:
+                            chan_noise_dict[cx] = None
+                    else:
+                        chan_noise_dict[c] = None
+
+                # update values
+                data_table.update().values(**chan_noise_dict).where(and_(
+                    data_table.c.time >= t,
+                    data_table.c.time < t + timedelta(seconds=1)
+                )).execute()
+            print('Noisy indices removed.')
+            
+        # save to csv file
+        print('Saving cleaned EEG file...')
+        clean_csv = os.path.join(data_dir, (table_name + '_clean.csv'))
+        copy = f"""COPY {table_name} TO '{clean_csv}' WITH CSV HEADER;"""
+        conn.execute(copy)
+                
+        # load back in & reformat column names
+        print('Reloading pandas dataframe...')
+        self.data = pd.read_csv(clean_csv, index_col=0, parse_dates=True)
+        self.data.columns = pd.MultiIndex.from_arrays([self.metadata['channels'], np.repeat(('Raw'), len(self.metadata['channels']))],names=['Channel','datatype'])
+        self.data.index.name = None
+        
+        print('EEG cleaning complete.')
+
     def clean_eeg(self, noise_log, rm_chans):
-        """ Replace artifact with NaN 
+        """ Replace artifact with NaN in the pandas df
         
         Parameters
         ----------
@@ -262,10 +403,11 @@ class Dataset:
 
             # replace noise with NaNs
             print('Removing noisy time points...')
+            eeg_channels = [e for e in self.metadata['channels'] if e not in ('EOG_L', 'EOG_R', 'EKG')]
             for t, c in noise_idx.items():
                 for cx in c:
                     if cx == '*':
-                        for x in self.eeg_channels:
+                        for x in eeg_channels:
                             #self.data[(x, 'Raw')].loc[t] = np.NaN # much slower
                             #self.data.at[t, (x, 'Raw')] = np.NaN # not depricated, slightly slower
                             self.data.set_value(t, (x, 'Raw'), np.NaN)
@@ -304,11 +446,11 @@ class Dataset:
         # read in sleep scores & resample to EEG/EKG frequency
         print('Importing sleep scores...')
         hyp = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
-        scores = pd.DataFrame(np.repeat(hyp.values, self.s_freq*30,axis=0), columns=hyp.columns)
+        scores = pd.DataFrame(np.repeat(hyp.values, self.metadata['s_freq']*30,axis=0), columns=hyp.columns)
 
         # reindex to match EEG/EKG data
         ## --> add warning here if index start date isn't found in EEG data
-        ind_freq = str(int(1/self.s_freq*1000000))+'us'
+        ind_freq = str(int(1/self.metadata['s_freq']*1000000))+'us'
         ind_start = start_date + ' ' + start_sec + '.000'
         ind = pd.date_range(start = ind_start, periods=len(scores), freq=ind_freq)
         scores.index = ind
@@ -331,7 +473,7 @@ class Dataset:
 
         # get cycle blocks for each stage (detect non-consecutive indices & assign cycles)
         stages = {'awake': 0.0, 'rem': 1.0, 's1': 2.0, 's2': 3.0, 'ads': 4.0, 'sws': 5.0, 'rbrk': 6.0}
-        ms = pd.Timedelta(1/self.s_freq*1000, 'ms')
+        ms = pd.Timedelta(1/self.metadata['s_freq']*1000, 'ms')
         self.sleepstages = stages
 
         print('Assigning sleep stages & cycles...')
@@ -428,14 +570,14 @@ class Dataset:
                         return
         
         # export hypnogram stats
-        stats_savename = self.in_num + '_SleepStats_' + self.start_date + '.txt'
+        stats_savename = self.metadata['in_num'] + '_SleepStats_' + self.metadata['start_date'] + '.txt'
         stats_save = os.path.join(savedir, stats_savename)
         with open(stats_save, 'w') as f:
             json.dump(self.hyp_stats, f, indent=4)
 
         # export the resampled hypnogram @ the original frequency (for downstream speed)
         new_hyp = self.hyp[(self.hyp.index.microsecond == 0) & ((self.hyp.index.second == 0) | (self.hyp.index.second == 30))]
-        hyp_savename = self.in_num + '_Hypnogram_' + self.start_date + '.txt'
+        hyp_savename = self.metadata['in_num'] + '_Hypnogram_' + self.metadata['start_date'] + '.txt'
         hyp_save = os.path.join(savedir, hyp_savename)
         new_hyp.to_csv(hyp_save, header=False)
 
@@ -476,7 +618,7 @@ class Dataset:
                             epoch_cuts[stage][cycle] = {}
                             epochs = range(int(cycle_len/epoch_len))
                             for e in epochs:
-                                epoch_cuts[stage][cycle][e] = idx[epoch_len*self.s_freq*e : epoch_len*self.s_freq*(e+1)]
+                                epoch_cuts[stage][cycle][e] = idx[epoch_len*self.metadata['s_freq']*e : epoch_len*self.metadata['s_freq']*(e+1)]
                     # cut epoch data
                     if len(epoch_cuts[stage]) >0:
                         epoch_data[stage] = {}
@@ -551,7 +693,7 @@ class Dataset:
                 return
             # set savename base & elements for modification
             df = data
-            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
             savename_elems = savename_base.split('_')
             spec_stg =  input('Specify sleep stage? [Y/N] ')
             if spec_stg == 'N':
@@ -576,7 +718,7 @@ class Dataset:
                 for stg in self.cut_data.keys():
                     for cyc in self.cut_data[stg].keys():
                         df = self.cut_data[stg][cyc]
-                        savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
@@ -589,7 +731,7 @@ class Dataset:
                         continue
                     for cyc in self.cut_data[stg].keys():
                         df = self.cut_data[stg][cyc]
-                        savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
@@ -602,7 +744,7 @@ class Dataset:
                     return
                 for cyc in self.cut_data[stg].keys():
                     df = self.cut_data[stg][cyc]
-                    savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                    savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                     savename_elems = savename_base.split('_')
                     savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                     df.to_csv(os.path.join(savedir, savename))
@@ -617,7 +759,7 @@ class Dataset:
                     for cyc in self.epoch_data[stg].keys():
                         for epoch in self.epoch_data[stg][cyc].keys():
                             df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
@@ -631,7 +773,7 @@ class Dataset:
                     for cyc in self.cut_data[stg].keys():
                         for epoch in self.epoch_data[stg][cyc].keys():
                             df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
@@ -645,7 +787,7 @@ class Dataset:
                 for cyc in self.cut_data[stg].keys():
                     for epoch in self.epoch_data[stg][cyc].keys():
                             df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.in_num + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))

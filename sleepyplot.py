@@ -204,7 +204,7 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
         ax.spines['right'].set_visible(False)
        
     # set overall parameters
-    fig.suptitle(d.in_num)
+    fig.suptitle(d.metadata['file_info']['in_num'])
     plt.xlabel('Time')
     
     return fig
@@ -473,24 +473,51 @@ def plotEKG(ekg, rpeaks=False):
 
     return fig
 
+def plot_ekgibi(ekg, rpeaks=True, ibi=True):
+    """ plot EKG class instance """
+    # set number of panels
+    if ibi == True:
+        plots = ['ekg', 'ibi']
+        data = [ekg.data, ekg.rpeaks_df['ibi_ms']]
+        
+    else:
+        plots = ['ekg']
+        data = [ekg.data]
+
+    fig, axs = plt.subplots(len(plots), 1, sharex=True, figsize = [9.5, 6])
+    
+    for dat, ax, plot in zip(data, axs, plots):
+        if plot == 'ekg' and rpeaks == True:
+            ax.plot(dat)
+            ax.scatter(ekg.rpeaks.index, ekg.rpeaks.values, color='red')
+        elif plot == 'ibi':
+            ax.plot(dat, color='grey', marker='.', markersize=8, markerfacecolor=(0, 0, 0, 0.8), markeredgecolor='None')
+        ax.margins(x=0)
+        # show microseconds for mouse-over
+        ax.format_xdata = lambda d: mdates.num2date(d).strftime('%H:%M:%S.%f')[:-3]
+
+
 def plotHTI(ekg):
     """ plot histogram of HRV Triangular Index (bin size 1/128sec) 
         Note: 1/128 bin size is used for consistency with literature """
     fig = plt.figure()
     # may have to remove histtype or change to 'step' if plotting multiple overlaid datasets
-    plt.hist(ekg.rr_int, bins=np.arange(min(ekg.rr_int), max(ekg.rr_int) + 7.8125, 7.8125), histtype='stepfilled')
+    plt.hist(ekg.rr, bins=np.arange(min(ekg.rr), max(ekg.rr) + 7.8125, 7.8125), histtype='stepfilled')
     return fig
 
 
 def plotPS(ekg, method, dB=False, bands=False):
     """ Plot power spectrum """
     
+     # set title
+    title = ekg.metadata['file_info']['in_num'] + ' ' + ekg.metadata['file_info']['start_date'] + '\n' + ekg.metadata['file_info']['sleep_stage'] + ' ' + ekg.metadata['file_info']['cycle'] + ' ' + ekg.metadata['file_info']['epoch']
+
     # set data to plot
     if method == 'mt':
-        title = 'Multitaper'
+        #title = 'Multitaper'
         psd = ekg.psd_mt
     elif method == 'welch':
-        title = 'Welch'
+        #title = 'Welch'
         psd = ekg.psd_welch
     
     # transform units
@@ -510,23 +537,23 @@ def plotPS(ekg, method, dB=False, bands=False):
     # or plot spectrum colored by frequency band
     elif bands == True:
         # use matplotlib.patches.Patch to make objects for legend w/ data
-        ax.plot(psd['freqs'], pwr, color='grey')
+        ax.plot(psd['freqs'], pwr, color='black')
         
         yline = SG.LineString(list(zip(psd['freqs'],pwr)))
         #ax.plot(yline, color='black')
         
-        colors = [None, 'blue', 'purple', 'green']
+        colors = [None, 'yellow', 'orange', 'tomato']
         for (key, value), color in zip(ekg.psd_fband_vals.items(), colors):
             if value['idx'] is not None:
                 # get intercepts & plot vertical lines for bands
                 xrange = [float(x) for x in ekg.freq_stats[key]['freq_range'][1:-1].split(",")] 
                 xline = SG.LineString([(xrange[1], min(pwr)), (xrange[1], max(pwr))])
                 coords = np.array(xline.intersection(yline))            
-                ax.vlines(coords[0], 0, coords[1], colors='grey', linestyles='dotted')
+                ax.vlines(coords[0], 0, coords[1], colors='black', linestyles='dotted')
                 
                 # fill spectra by band
                 ax.fill_between(psd['freqs'], pwr, where = [xrange[0] <= x <=xrange[1] for x in psd['freqs']], 
-                                facecolor=color, alpha=.09)    
+                                facecolor=color, alpha=.6)    
         
     ax.set_xlim(0, 0.4)
     ax.margins(y=0)
