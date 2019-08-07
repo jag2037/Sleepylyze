@@ -252,7 +252,7 @@ class EKG:
                 # remove peak from rpeaks list & rpeaks dataframe
                 self.rpeaks.drop(peak_idxlist[p], inplace=True)
                 self.rpeaks_df.drop(peak_idxlist[p], inplace=True)
-                print('R peak at ', peak_to_rm.index, ' successfully removed.')
+                print('R peak at ', peak_to_rm.index[0], ' successfully removed.')
                 
             # recalculate ibi values
             self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
@@ -262,6 +262,72 @@ class EKG:
 
         # refresh nn values
         self.nn = self.rr
+
+
+    def undo_rm_peaks(self, time):
+        """ add back incorrectly removed peaks from rm_peaks() method
+            NOTE: This is strictly an "undo" method. It is NOT equivalent to add_peaks().
+            
+            Parameters
+            ----------
+            time: str (format 'hh:mm:ss')
+                second of incorrectly removed peak
+            
+            Returns
+            -------
+            Modified self.rpeaks, self.rpeaks_df, self.rr, self.nn, and self.rpeaks_artifacts attributes
+        """
+        
+        if len(self.rpeak_artifacts) == 0:
+            print('No rpeaks have been removed.')
+            return
+        
+        # print all rpeaks in the second of interest
+        peak_idxlist = {}
+        peak_num = 1
+        h, m, s = time.split(':')
+        print('id', '\t', 'time')
+        for i, x in enumerate(self.rpeak_artifacts.index):
+            if x.hour == int(h) and x.minute == int(m) and x.second == int(s):
+                peak_idxlist[peak_num] = x
+                print(peak_num, '\t', x)
+                peak_num += 1
+
+        # specify the peak to add back
+        add_peak = input('Removed Rpeaks to add back [list ids or None]: ')
+        print('\n')
+        if add_peak == 'None':
+            print('No peaks added.')
+            # create nn attribute
+            self.nn = self.rr
+            return
+        else:
+            add_peaks = add_peak.split(',')
+            add_peaks = [int(x) for x in add_peaks]
+            for p in add_peaks:
+                peak_to_add = pd.Series(self.rpeak_artifacts[peak_idxlist[p]])
+                peak_to_add.index = [peak_idxlist[p]]
+        
+                # remove peak from rpeak_artifacts list
+                self.rpeak_artifacts.drop(labels=peak_to_add.index, inplace=True)
+                
+                # add peak back to rpeaks list
+                self.rpeaks = self.rpeaks.append(peak_to_add)
+                self.rpeaks.sort_index(inplace=True)
+
+                # add peak back to rpeaks_df
+                self.rpeaks_df.loc[peak_to_add.index[0]] = [peak_to_add[0], np.NaN]
+                self.rpeaks_df.sort_index(inplace=True)
+                print('Rpeak at ', peak_to_add.index[0], ' successfully replaced.')
+
+            # recalculate ibi values
+            self.rr = np.diff(self.rpeaks.index)/np.timedelta64(1, 'ms')
+            ibi = np.insert(self.rr, 0, np.NaN)
+            self.rpeaks_df['ibi_ms'] = ibi
+            print('ibi values recalculated.')
+
+        # refresh nn values
+        self.nn = self.rr    
 
     def add_peak(self, time):
         """ manually add missed peaks 
