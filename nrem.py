@@ -1,7 +1,9 @@
 """ This file contains a class and methods for Non-REM EEG segments 
-	
-	Notes:
-		- Analysis should output # of NaNs in the data
+    
+    Notes:
+        - Analysis should output # of NaNs in the data
+
+    TO DO: include sf in filename for metadata import
 """
 import os
 import numpy as np
@@ -9,15 +11,15 @@ import pandas as pd
 from scipy.signal import butter, sosfiltfilt, sosfreqz
 
 class NREM:
-	""" General class for nonREM EEG segments """
-	def __init__(self, fname, fpath, epoched=False):
-		filepath = os.path.join(fpath, fname)
+    """ General class for nonREM EEG segments """
+    def __init__(self, fname, fpath, epoched=False):
+        filepath = os.path.join(fpath, fname)
 
-       	in_num, start_date, slpstage, cycle = fname.split('_')[:4]
+        in_num, start_date, slpstage, cycle = fname.split('_')[:4]
         self.metadata = {'file_info':{'in_num': in_num, 'fname': fname, 'path': filepath,
-                                	'sleep_stage': slpstage,'cycle': cycle} }
+                                    'sleep_stage': slpstage,'cycle': cycle} }
         if epoched is True:
-        	self.metadata['epoch'] = fname.split('_')[4]
+            self.metadata['epoch'] = fname.split('_')[4]
 
     def load_segment(self):
         """ Load eeg segment and extract sampling frequency. """
@@ -162,7 +164,7 @@ class NREM:
         self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
         
         
-    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0]):  
+    def detect_spindles(self, s_freq, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0]):  
         """ Detect spindles by channel [Params/Returns] """
         self.sp_filtwindow = wn
         self.sp_filtorder = order
@@ -170,6 +172,7 @@ class NREM:
         self.sp_loSD = loSD
         self.sp_hiSD = hiSD
         self.sp_duration = duration
+        self.s_freq = s_freq
     
         # set attributes
         self.spindle_attributes()
@@ -177,6 +180,7 @@ class NREM:
         self.make_butter()
 
         # For each EEG channel
+        self.eeg_channels = [x[0] for x in self.data.columns if x[0] not in ['EOG_L', 'EOG_R', 'EKG']]
         for i in self.eeg_channels:
            # if i not in ['EOG_L', 'EOG_R', 'EKG']:
                 # Filter
