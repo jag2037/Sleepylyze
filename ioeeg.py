@@ -342,6 +342,7 @@ class Dataset:
 
     def clean_eeg(self, noise_log, rm_chans):
         """ Replace artifact with NaN in the pandas df
+            NOTE: this takes ~16x longer than clean_eeg_psql
         
         Parameters
         ----------
