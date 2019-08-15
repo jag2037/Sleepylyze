@@ -53,8 +53,8 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     if spindle_rejects == True:
         sp_rej_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects[i])) for i in d.spindle_rejects.keys()]   
 
-    # set channels based on dataset
-    channels = [col[0] for col in data.columns]
+    # set channels for plotting
+    channels = [x[0] for x in d.data.columns]
 
     # plot data    
     fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=(10,10), squeeze=False)
@@ -87,7 +87,7 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
         ax.spines['right'].set_visible(False)
     
     # set overall parameters
-    fig.suptitle(d.in_num)
+    fig.suptitle(d.metadata['file_info']['in_num'])
     plt.xlabel('Time')
 
     return fig, axs
