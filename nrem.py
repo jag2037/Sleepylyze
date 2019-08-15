@@ -3,7 +3,8 @@
     Notes:
         - Analysis should output # of NaNs in the data
 
-    TO DO: include sf in filename for metadata import
+    TO DO: 
+        For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
 """
 
 import os
@@ -21,6 +22,8 @@ class NREM:
                                     'sleep_stage': slpstage,'cycle': cycle} }
         if epoched is True:
             self.metadata['epoch'] = fname.split('_')[4]
+
+        self.load_segment()
 
     def load_segment(self):
         """ Load eeg segment and extract sampling frequency. """
@@ -151,21 +154,21 @@ class NREM:
     def spMultiIndex(self):
         """ combine dataframes into a multiIndex dataframe"""
         # reset column levels
-        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.eeg_channels, np.repeat(('Filtered'), len(self.eeg_channels))],names=['Channel','datatype'])
-        self.spRMS.columns = pd.MultiIndex.from_arrays([self.eeg_channels, np.repeat(('RMS'), len(self.eeg_channels))],names=['Channel','datatype'])
-        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.eeg_channels, np.repeat(('RMSmavg'), len(self.eeg_channels))],names=['Channel','datatype'])
+        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
+        self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
+        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
 
         # list df vars for index specs
         dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
         calcs = ['Filtered', 'RMS', 'RMSmavg']
-        lvl0 = np.repeat(self.eeg_channels, len(calcs))
-        lvl1 = calcs*len(self.eeg_channels)    
+        lvl0 = np.repeat(self.channels, len(calcs))
+        lvl1 = calcs*len(self.channels)    
     
         # combine & custom sort
         self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
         
         
-    def detect_spindles(self, s_freq, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0]):  
+    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0]):  
         """ Detect spindles by channel [Params/Returns] """
         self.sp_filtwindow = wn
         self.sp_filtorder = order
@@ -173,16 +176,16 @@ class NREM:
         self.sp_loSD = loSD
         self.sp_hiSD = hiSD
         self.sp_duration = duration
-        self.s_freq = s_freq
+        self.s_freq = self.metadata['analysis_info']['s_freq']
     
         # set attributes
         self.spindle_attributes()
         # Make filter
         self.make_butter()
 
-        # For each EEG channel
-        self.eeg_channels = [x[0] for x in self.data.columns if x[0] not in ['EOG_L', 'EOG_R', 'EKG']]
-        for i in self.eeg_channels:
+        # For all channels (easier for plotting purposes)
+        self.channels = [x[0] for x in self.data.columns]
+        for i in self.channels:
            # if i not in ['EOG_L', 'EOG_R', 'EKG']:
                 # Filter
                 self.filt_EEG_singlechan(i)
