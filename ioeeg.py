@@ -647,7 +647,9 @@ class Dataset:
 
 
     def export_csv(self, data=None, stages ='all', epoched=False, savedir=None):
-        """ Export data to csv 
+        """ Export data to csv (single df or cut data)
+
+        TO DO: Add 'NA' values to cycle and epoch if exporting a single df without specs
         
         Parameters
         ----------
@@ -694,17 +696,17 @@ class Dataset:
                 return
             # set savename base & elements for modification
             df = data
-            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
             savename_elems = savename_base.split('_')
             spec_stg =  input('Specify sleep stage? [Y/N] ')
-            if spec_stg == 'N':
+            if spec_stg.casefold() == 'n':
                 savename = savename_base + '.csv'
-            if spec_stg == 'Y':
+            elif spec_stg.casefold() == 'y':
                 stg = input('Sleep stage: ')
                 spec_cyc = input('Specify cycle? [Y/N] ')
-                if spec_cyc == 'N':
+                if spec_cyc.casefold() == 'n':
                     savename = '_'.join(savename_elems[:2]) + '_' + stg + '_' + savename_elems[2] + '.csv'
-                elif spec_cyc == 'Y':
+                elif spec_cyc.casefold() == 'y':
                     cyc = input('Sleep stage cycle: ')
                     savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2] + '.csv'
             
@@ -719,7 +721,7 @@ class Dataset:
                 for stg in self.cut_data.keys():
                     for cyc in self.cut_data[stg].keys():
                         df = self.cut_data[stg][cyc]
-                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
@@ -732,7 +734,7 @@ class Dataset:
                         continue
                     for cyc in self.cut_data[stg].keys():
                         df = self.cut_data[stg][cyc]
-                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
@@ -745,7 +747,7 @@ class Dataset:
                     return
                 for cyc in self.cut_data[stg].keys():
                     df = self.cut_data[stg][cyc]
-                    savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                    savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
                     savename_elems = savename_base.split('_')
                     savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                     df.to_csv(os.path.join(savedir, savename))
@@ -760,7 +762,7 @@ class Dataset:
                     for cyc in self.epoch_data[stg].keys():
                         for epoch in self.epoch_data[stg][cyc].keys():
                             df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
@@ -774,7 +776,7 @@ class Dataset:
                     for cyc in self.cut_data[stg].keys():
                         for epoch in self.epoch_data[stg][cyc].keys():
                             df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
+                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
