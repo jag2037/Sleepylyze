@@ -67,7 +67,19 @@ class NREM:
     # step 2: filter channels
     def filt_EEG_singlechan(self, i):
         """ Apply Butterworth bandpass to signal by channel """
-        filt_chan = sosfiltfilt(self.sos, self.data[i].to_numpy(), axis=0)
+
+        # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
+        data_nan = self.data[i][self.data[i]['Raw'].isna()]
+        data_notnan = self.data[i][self.data[i]['Raw'].isna() == False]
+
+        # filter notNaN data & add column to notNaN df
+        data_notnan_filt = sosfiltfilt(self.sos, data_notnan.to_numpy(), axis=0)
+        data_notnan['Filt'] = data_notnan_filt
+
+        # merge NaN & filtered notNaN values, sort on index
+        filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
+
+        # add channel to main dataframe
         self.spfiltEEG[i] = filt_chan
     
     # steps 3-4: calculate RMS & smooth   
