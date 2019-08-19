@@ -21,7 +21,7 @@ class NREM:
         self.metadata = {'file_info':{'in_num': in_num, 'fname': fname, 'path': filepath,
                                     'sleep_stage': slpstage,'cycle': cycle} }
         if epoched is True:
-            self.metadata['epoch'] = fname.split('_')[4]
+            self.metadata['file_info']['epoch'] = fname.split('_')[4]
 
         self.load_segment()
 
@@ -218,3 +218,47 @@ class NREM:
         print('Combining dataframes...')
         self.spMultiIndex()
         print('done.')
+
+
+
+    def analyze_spindles(self):
+        """ starting code for spindle statistics/visualizations 
+
+        Parameters
+        ----------
+        self.spindle_events: dict
+            dict of timestamps when spindles occur (created from self.detect_spindles())
+        self.data: pd.DataFrame
+            df containing raw EEG data
+
+        Returns
+        -------
+        self.spindles: nested dict of dfs
+            nested dict with spindle data by channel {channel: {spindle_num:spindle_data}}
+        """
+        ## create dict of dataframes for spindle analysis
+        spindles = {}
+        for chan in self.spindle_events.keys():
+            spindles[chan] = {}
+            for i, spin in enumerate(self.spindle_events[chan]):
+                # create individual df for each spindle
+                spin_data = self.data[chan]['Raw'].loc[self.spindle_events[chan][i]]
+                #spin_data_normed = (spin_data - min(spin_data))/(max(spin_data)-min(spin_data))
+                
+                # set new index so that each spindle is centered around zero
+                half_length = len(spin)/2
+                t_id = np.linspace(-half_length, half_length, int(2*half_length//1))
+                # convert from samples to ms
+                id_ms = t_id * (1/self.metadata['analysis_info']['s_freq']*1000)
+                
+                # create new dataframe
+                spindles[chan][i] = pd.DataFrame(index=id_ms)
+                spindles[chan][i].index.name='id_ms'
+                spindles[chan][i]['time'] = spin_data.index
+                spindles[chan][i]['Raw'] = spin_data.values
+                #spindles[chan][i]['Raw_normed'] = spin_data_normed.values
+        
+        self.spindles = spindles
+
+    ## Slow Oscillation Detection Methods ##
+
