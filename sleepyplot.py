@@ -568,6 +568,36 @@ def plot_transitions(h, savefig=False, savedir=None):
 
     return fig
 
+### Spindle Methods ###
+
+def plot_spins(n):
+    """ plot all spindle detections by channel """
+    
+    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
+    ncols = 6
+    nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, sharex=True, figsize=(15, 7))
+    fig.subplots_adjust(hspace=0.5)
+    
+    for chan, ax in zip(n.spindles.keys(), axs.flatten()):
+        if chan not in exclude:
+            # set color iterator -- for other colors look at ocean, gnuplot, prism
+            color=iter(cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
+            for i in n.spindles[chan]:
+                c = next(color)
+                ax.plot(spindles[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
+            # set subplot params
+            ax.set_xlim([-2000, 2000])
+            ax.set_title(chan, fontsize='medium')
+            ax.tick_params(axis='both', which='both', labelsize=8)
+              
+    # set figure params   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
+    fig.text(0.5, 0, 'Time (ms)', ha='center')
+    fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+
 
 ### EKG Methods ###
 
