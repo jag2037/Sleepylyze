@@ -209,6 +209,114 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
+def eegviz(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
+    """ vizualize multichannel EEG w/ option for double panel raw and/or filtered. Optimized for
+        inspecting spindle detections (title/axis labels removed for space)
+    
+    Parameters
+    ----------
+    d: instance of ioeeg Dataset class
+    raw: bool, optional, default: True
+        Option to plot raw EEG
+    filtered: bool, optional, default: False
+        Option to plot filtered EEG
+    spindles: bool, optional, default: False
+        Option to plot spindle detections
+    spindle_rejects: bool, optional, default: False
+        Option to plot rejected spindle detections
+        
+    Returns
+    -------
+    matplotlib.pyplot figure instance
+    """
+    
+    # Set figure size (double height if plotting both raw & filtered)
+    if raw == True & filtered == True:
+        figsize = (14, 14)
+    else:
+        figsize = (14, 7)
+        
+    data = []
+    title = []
+    
+    # import data
+    if raw == True:
+        raw = d.data
+        data.append(raw)
+        title.append('Raw')
+    if filtered == True:    
+        filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
+        data.append(filtd)
+        title.append('Filtered')
+    
+
+
+    # flatten events list by channel for plotting
+    if spindles == True:
+        sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
+    if spindle_rejects == True:
+        sp_rej_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects[i])) for i in d.spindle_rejects.keys()]   
+
+    # set channels for plotting
+    channels = [x[0] for x in d.data.columns]
+    
+    # set offset multiplier (distance between channels in plot)
+    mx = 0.1
+    
+    # plot data    
+    fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=figsize, squeeze=False)
+    fig.subplots_adjust(hspace=.1, top=.9, bottom=.1, left=.05, right=.95)
+    
+    yticks = []
+    
+    for dat, ax, t in zip(data, axs.flatten(), title):
+        for i, c in enumerate(channels):
+            # normalize each channel to [0, 1]
+            dat_ser = pd.Series(dat[(c, t)], index=dat.index)
+            norm_dat = (dat_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i*mx # subtract i for plotting offset
+            yticks.append(np.median(norm_dat))
+            ax.plot(norm_dat, linewidth=.5, color='C0')
+            
+            # plot spindles
+            if spindles == True:
+                sp_events_TS = [pd.Timestamp(x) for x in sp_eventsflat[i]]
+                spins = pd.Series(index=norm_dat.index)
+                spins[sp_events_TS] = norm_dat[sp_events_TS]
+                ax.plot(spins, color='orange', alpha=0.5)
+            if spindle_rejects == True:
+                sp_rejs_TS = [pd.Timestamp(x) for x in sp_rej_eventsflat[i]]
+                spin_rejects = pd.Series(index=norm_dat.index)
+                spin_rejects[sp_rejs_TS] = norm_dat[sp_rejs_TS]
+                ax.plot(spin_rejects, color='red', alpha=0.5)
+        
+        # remove title to maximize on-screen plot area
+        #ax.set_title(t)
+        
+        # set y axis params
+        #yticks = list(np.arange(mx, -(len(channels)*mx)+mx, -mx))
+        ax.set_yticks(yticks)
+        ax.set_yticklabels(channels)
+        ax.set_ylim(bottom = yticks[-1]-3*mx, top=yticks[0]+3*mx)
+
+        ax.margins(x=0) # remove white space margins between data and y axis
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # plot minor axes
+        seconds = mdates.SecondLocator()
+        ax.xaxis.set_minor_locator(seconds)
+        ax.grid(axis='x', which='minor', linestyle=':')
+        ax.grid(axis='x', which='major')
+    
+    # set overall parameters
+    fig.tight_layout(pad=0)  # remove figure padding
+    
+    # remove labels to maximize on-screen plot area
+    #plt.xlabel('Time')
+    #fig.suptitle(d.metadata['file_info']['in_num'])
+
+    return fig, axs
+
 def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
     """ 
         Plot cycle length for each sleep stage vs cycle # 
