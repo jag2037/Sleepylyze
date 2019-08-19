@@ -209,7 +209,7 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
-def eegviz(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
+def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     """ vizualize multichannel EEG w/ option for double panel raw and/or filtered. Optimized for
         inspecting spindle detections (title/axis labels removed for space)
     
@@ -274,7 +274,7 @@ def eegviz(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
             # normalize each channel to [0, 1]
             dat_ser = pd.Series(dat[(c, t)], index=dat.index)
             norm_dat = (dat_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i*mx # subtract i for plotting offset
-            yticks.append(np.median(norm_dat))
+            yticks.append(np.nanmedian(norm_dat))
             ax.plot(norm_dat, linewidth=.5, color='C0')
             
             # plot spindles
