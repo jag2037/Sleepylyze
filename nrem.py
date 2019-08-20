@@ -149,18 +149,15 @@ class NREM:
     # step 7: check spindle length
     def duration_check(self):
         """ Move spindles outside of set duration to reject list"""
+        print('Checking spindle duration...')
         sduration = [x*self.s_freq for x in self.sp_duration]
     
+        self.spindle_rejects = {}
         for i in self.spindle_events:
-            self.spindle_rejects[i] = []
-            for j in self.spindle_events[i]:
-                # if spindle is not within duration length range
-                if not sduration[0] <= len(j) <= sduration[1]:
-                    # add to reject list
-                    self.spindle_rejects[i].append(j) 
-                    # get index & remove from event list
-                    ind = self.spindle_events[i].index(j)
-                    del self.spindle_events[i][ind]
+            self.spindle_rejects[i] = [x for x in self.spindle_events[i] if not sduration[0] <= len(x) <= sduration[1]]
+            self.spindle_events[i] = [x for x in self.spindle_events[i] if sduration[0] <= len(x) <= sduration[1]]            
+
+        print(f'Spindles shorter than {self.sp_duration[0]}s and longer than {self.sp_duration[1]}s removed.')
                     
     # set multiIndex
     def spMultiIndex(self):
@@ -237,6 +234,8 @@ class NREM:
             nested dict with spindle data by channel {channel: {spindle_num:spindle_data}}
         """
         ## create dict of dataframes for spindle analysis
+        print('Creating individual dataframes...')
+
         spindles = {}
         for chan in self.spindle_events.keys():
             spindles[chan] = {}
@@ -259,6 +258,7 @@ class NREM:
                 #spindles[chan][i]['Raw_normed'] = spin_data_normed.values
         
         self.spindles = spindles
+        print('Dataframes created. Spindle data stored in obj.spindles.')
 
     ## Slow Oscillation Detection Methods ##
 
