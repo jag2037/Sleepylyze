@@ -13,6 +13,7 @@ import numpy as np
 import os
 import pandas as pd
 import shapely.geometry as SG
+from matplotlib.pyplot import cm
 
 
 def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
@@ -202,6 +203,12 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
         ax.margins(x=0) # remove white space margins between data and y axis
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
+
+        # plot minor axes
+        seconds = mdates.SecondLocator()
+        ax.xaxis.set_minor_locator(seconds)
+        ax.grid(axis='x', which='minor', linestyle=':')
+        ax.grid(axis='x', which='major')
        
     # set overall parameters
     fig.suptitle(d.metadata['file_info']['in_num'])
@@ -586,12 +593,17 @@ def plot_spins(n):
             color=iter(cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
             for i in n.spindles[chan]:
                 c = next(color)
-                ax.plot(spindles[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
+                ax.plot(n.spindles[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
             # set subplot params
-            ax.set_xlim([-2000, 2000])
+            ax.set_xlim([-1800, 1800])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
-              
+
+    # delete empty subplots --> this can probably be combined with previous loop
+    for i, ax in enumerate(axs.flatten()):
+        if i >= len(eeg_chans):
+            fig.delaxes(ax)
+                 
     # set figure params   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
     fig.text(0.5, 0, 'Time (ms)', ha='center')
