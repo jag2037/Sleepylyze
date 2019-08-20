@@ -13,7 +13,6 @@ import numpy as np
 import os
 import pandas as pd
 import shapely.geometry as SG
-from matplotlib.pyplot import cm
 
 
 def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
@@ -590,12 +589,12 @@ def plot_spins(n):
     for chan, ax in zip(n.spindles.keys(), axs.flatten()):
         if chan not in exclude:
             # set color iterator -- for other colors look at ocean, gnuplot, prism
-            color=iter(cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
+            color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
             for i in n.spindles[chan]:
                 c = next(color)
                 ax.plot(n.spindles[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
             # set subplot params
-            ax.set_xlim([-1800, 1800])
+            ax.set_xlim([-1750, 1750])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
 

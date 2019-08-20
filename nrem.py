@@ -57,12 +57,13 @@ class NREM:
     def make_butter(self):
         """ Make Butterworth bandpass filter [Parameters/Returns]"""
         nyquist = self.s_freq/2
-        wn=np.asarray(self.sp_filtwindow)
+        wn=np.asarray(self.metadata['spindle_analysis']['sp_filtwindow'])
         if np.any(wn <=0) or np.any(wn >=1):
             wn = wn/nyquist # must remake filter for each pt bc of differences in s_freq
    
-        self.sos = butter(self.sp_filtorder, wn, btype='bandpass', output='sos')
-        print("Zero phase butterworth filter successfully created: order =", self.sp_filtorder,"bandpass =", wn*nyquist)
+        self.sos = butter(self.metadata['spindle_analysis']['sp_filtorder'], wn, btype='bandpass', output='sos')
+        print("Zero phase butterworth filter successfully created: order =", self.metadata['spindle_analysis']['sp_filtorder'],
+            "bandpass =", wn*nyquist)
     
     # step 2: filter channels
     def filt_EEG_singlechan(self, i):
@@ -85,7 +86,7 @@ class NREM:
     # steps 3-4: calculate RMS & smooth   
     def rms_smooth(self, i):
         """ Calculate moving RMS (rectify) & smooth the EEG """
-        mw = int(self.sp_RMSmw*self.s_freq) # convert moving window size from seconds to samples
+        mw = int(self.metadata['spindle_analysis']['sp_RMSmw']*self.s_freq) # convert moving window size from seconds to samples
     
         # convolve for rolling RMS
         datsq = np.power(self.spfiltEEG[i], 2)
@@ -104,8 +105,8 @@ class NREM:
     def set_thres(self, i):
         """ set spindle detection threshold levels, in terms of multiples of RMS SD """
         mean_rms = float(np.mean(self.spRMSmavg[i]))
-        det_lo = float(mean_rms + self.sp_loSD*np.std(self.spRMSmavg[i]))
-        det_hi = float(mean_rms + self.sp_hiSD*np.std(self.spRMSmavg[i]))
+        det_lo = float(mean_rms + self.metadata['spindle_analysis']['sp_loSD']*np.std(self.spRMSmavg[i]))
+        det_hi = float(mean_rms + self.metadata['spindle_analysis']['sp_hiSD']*np.std(self.spRMSmavg[i]))
         self.spThresholds[i] = [mean_rms, det_lo, det_hi]
     
     # step 6: detect spindles
@@ -150,14 +151,15 @@ class NREM:
     def duration_check(self):
         """ Move spindles outside of set duration to reject list"""
         print('Checking spindle duration...')
-        sduration = [x*self.s_freq for x in self.sp_duration]
+        sduration = [x*self.s_freq for x in self.metadata['spindle_analysis']['sp_duration']]
     
         self.spindle_rejects = {}
         for i in self.spindle_events:
             self.spindle_rejects[i] = [x for x in self.spindle_events[i] if not sduration[0] <= len(x) <= sduration[1]]
             self.spindle_events[i] = [x for x in self.spindle_events[i] if sduration[0] <= len(x) <= sduration[1]]            
 
-        print(f'Spindles shorter than {self.sp_duration[0]}s and longer than {self.sp_duration[1]}s removed.')
+        dur = self.metadata['spindle_analysis']['sp_duration']
+        print(f'Spindles shorter than {dur[0]}s and longer than {dur[1]}s removed.')
                     
     # set multiIndex
     def spMultiIndex(self):
@@ -179,12 +181,10 @@ class NREM:
         
     def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0]):  
         """ Detect spindles by channel [Params/Returns] """
-        self.sp_filtwindow = wn
-        self.sp_filtorder = order
-        self.sp_RMSmw = sp_mw
-        self.sp_loSD = loSD
-        self.sp_hiSD = hiSD
-        self.sp_duration = duration
+
+        self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder': order, 
+            'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'sp_duration': duration}
+
         self.s_freq = self.metadata['analysis_info']['s_freq']
     
         # set attributes
