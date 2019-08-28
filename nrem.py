@@ -7,6 +7,7 @@
         For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
 """
 
+import datetime
 import os
 import numpy as np
 import pandas as pd
@@ -269,3 +270,173 @@ class NREM:
 
     ## Slow Oscillation Detection Methods ##
 
+    def so_attributes(self):
+        """ make attributes for slow oscillation detection """
+        try:
+            self.channels
+        except AttributeError:
+            # create if doesn't exist
+            self.channels = [x[0] for x in self.data.columns]
+        
+        dfs = ['sofiltEEG']
+        [setattr(self, df, pd.DataFrame(index=self.data.index)) for df in dfs]
+        self.so_events = {}
+        self.so_rejects = {}
+
+    def make_butter_so(self, wn, order):
+        """ Make Butterworth bandpass filter [Parameters/Returns]"""
+        
+        nyquist = self.s_freq/2
+        wn_arr = np.asarray(wn)
+        
+        if np.any(wn_arr <=0) or np.any(wn_arr >=1):
+            wn_arr = wn_arr/nyquist # must remake filter for each pt bc of differences in s_freq
+   
+        self.so_sos = butter(order, wn_arr, btype='bandpass', output='sos')
+        print(f"Zero phase butterworth filter successfully created: order = {order}x{order}, bandpass = {wn}")
+
+    def sofilt(self, i):
+        """ Apply Slow Oscillation Butterworth bandpass to signal by channel 
+        
+            Parameters
+            ----------
+            i : str
+                channel to filter
+            
+            Returns
+            -------
+            self.sofiltEEG: pandas.DataFrame
+                filtered EEG data
+        """
+
+        # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
+        data_nan = self.data[i][self.data[i]['Raw'].isna()]
+        data_notnan = self.data[i][self.data[i]['Raw'].isna() == False]
+
+        # filter notNaN data & add column to notNaN df
+        data_notnan_filt = sosfiltfilt(self.so_sos, data_notnan.to_numpy(), axis=0)
+        data_notnan['SOFilt'] = data_notnan_filt
+
+        # merge NaN & filtered notNaN values, sort on index
+        filt_chan = data_nan['Raw'].append(data_notnan['SOFilt']).sort_index()
+
+        # add channel to main dataframe
+        self.sofiltEEG[i] = filt_chan
+
+    def get_so(self, i, posx_thres, npeak_thres, negpos_thres):
+        """ Detect slow oscillations. Based on detection algorithm from Molle 2011 
+            
+            Parameters
+            ----------
+            posx_thres: list of float (default: [0.9, 2])
+                threshold of consecutive positive-negative zero crossings in seconds
+            npeak_thres: int (default: -80)
+                negative peak threshold in microvolts
+            negpos_thres: int (default: 140)
+                minimum amplitude threshold for negative to positive peaks
+        """
+
+        self.so_events[i] = {}
+        n = 0
+        
+        # convert thresholds (time to timedelta & uv to mv)
+        posx_thres_td = [pd.Timedelta(s, 's') for s in posx_thres]
+        npeak_mv = npeak_thres*(10**-3)
+        negpos_mv = negpos_thres*(10**-3)
+
+        # convert channel data to series
+        chan_dat = self.sofiltEEG[i]
+
+        # get zero-crossings
+        mask = chan_dat > 0
+        # shift pos/neg mask by 1 and compare
+        mask_shift = np.insert(np.array(mask), 0, None)
+        mask_shift = pd.Series(mask_shift[:-1], index=mask.index)
+        # pos-neg are True; neg-pos are False
+        so_zxings = mask[mask != mask_shift]
+        self.so_zxings = so_zxings
+
+        # get intervals between subsequent positive-negative crossings
+        pn_xings = so_zxings[so_zxings==True]
+        intvls = pn_xings.index.to_series().diff()
+
+        # loop through intervals
+        for e, v in enumerate(intvls):
+            # if interval is between >=0.9sec and <=2sec
+            if e != 0 and posx_thres_td[0] <= v <= posx_thres_td[1]:
+                # find negative & positive peaks
+                npeak_time = chan_dat.loc[intvls.index[e-1]:intvls.index[e]].idxmin()
+                npeak_val = chan_dat.loc[npeak_time]
+                ppeak_time = chan_dat.loc[intvls.index[e-1]:intvls.index[e]].idxmax()
+                ppeak_val = chan_dat.loc[ppeak_time]
+                # if negative peak is < than threshold
+                if npeak_val < npeak_mv:
+                    # if negative-positive peak amplitude is >= than threshold
+                    if np.abs(npeak_val) + np.abs(ppeak_val) >= negpos_mv:
+                        self.so_events[i][n] = {'zcross1': intvls.index[e-1], 'zcross2': intvls.index[e], 'npeak': npeak_time, 
+                                           'ppeak': ppeak_time, 'npeak_minus2s': npeak_time - datetime.timedelta(seconds=2), 
+                                           'npeak_plus2s': npeak_time + datetime.timedelta(seconds=2)}
+                        n += 1
+
+    def soMultiIndex(self):
+        """ combine dataframes into a multiIndex dataframe"""
+        # reset column levels
+        self.sofiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
+        #self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
+        #self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
+
+        # list df vars for index specs
+        dfs =[self.sofiltEEG] # for > speed, don't store spinfilt_RMS as an attribute
+        calcs = ['Filtered']
+        lvl0 = np.repeat(self.channels, len(calcs))
+        lvl1 = calcs*len(self.channels)    
+    
+        # combine & custom sort
+        self.so_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
+
+    def detect_so(self, wn=[0.1, 4], order=2, posx_thres = [0.9, 2], npeak_thres = -80, negpos_thres = 140):
+        """ Detect slow oscillations by channel
+        
+            Parameters
+            ----------
+            wn: list (default: [0.1, 4])
+                Butterworth filter window
+            order: int (default: 2)
+                Butterworth filter order (default of 2x2 from Massimini et al., 2004)
+            posx_thres: list of float (default: [0.9, 2])
+                threshold of consecutive positive-negative zero crossings in seconds
+            npeak_thres: int (default: -80)
+                negative peak threshold in microvolts
+            negpos_thres: int (default: 140)
+                minimum amplitude threshold for negative to positive peaks
+            
+            Returns
+            -------
+            self.so_sos
+            self.so_filtEEG
+            self.so_calcs
+            self.so_zxings
+            self.so_events
+            self.so_rejects
+        """
+        
+        self.metadata['so_analysis'] = {'so_filtwindow': wn, 'so_filtorder': order, 'posx_thres': posx_thres,
+                                        'npeak_thres': npeak_thres, 'negpos_thres': negpos_thres}
+        
+        # set attributes
+        self.so_attributes()
+        
+        # make butterworth filter
+        self.make_butter_so(wn, order)
+        
+        # loop through channels (all channels for plotting ease)
+        for i in self.channels:
+                # Filter
+                self.sofilt(i)
+                # Detect SO
+                self.get_so(i, posx_thres, npeak_thres, negpos_thres)
+                
+        # combine dataframes
+        print('Combining dataframes...')
+        self.soMultiIndex()
+        print('done.')
