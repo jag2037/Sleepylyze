@@ -39,6 +39,7 @@ class NREM:
 
         self.metadata['file_info']['start_time'] = data.index[0]
         self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
+        self.s_freq = s_freq
 
         print('EEG successfully imported.')
 
@@ -46,7 +47,14 @@ class NREM:
     ## Spindle Detection Methods ##
 
     # make attributes
-    def spindle_attributes(self):    
+    def spindle_attributes(self):
+        """ create attributes for spindle detection """
+        try:
+            self.channels
+        except AttributeError:
+            # create if doesn't exist
+            self.channels = [x[0] for x in self.data.columns]
+
         dfs =['spfiltEEG', 'spRMS', 'spRMSmavg'] # for > speed, don't store spRMS as an attribute
         [setattr(self, df, pd.DataFrame(index=self.data.index)) for df in dfs]
         self.spThresholds = pd.DataFrame(index=['Mean RMS', 'Low Threshold', 'High Threshold'])
@@ -54,19 +62,18 @@ class NREM:
         self.spindle_rejects = {}
     
     # step 1: make filter
-    def make_butter(self):
+    def make_butter_sp(self, wn, order):
         """ Make Butterworth bandpass filter [Parameters/Returns]"""
         nyquist = self.s_freq/2
-        wn=np.asarray(self.metadata['spindle_analysis']['sp_filtwindow'])
-        if np.any(wn <=0) or np.any(wn >=1):
-            wn = wn/nyquist # must remake filter for each pt bc of differences in s_freq
+        wn_arr=np.asarray(wn)
+        if np.any(wn_arr <=0) or np.any(wn_arr >=1):
+            wn_arr = wn_arr/nyquist # must remake filter for each pt bc of differences in s_freq
    
-        self.sos = butter(self.metadata['spindle_analysis']['sp_filtorder'], wn, btype='bandpass', output='sos')
-        print("Zero phase butterworth filter successfully created: order =", self.metadata['spindle_analysis']['sp_filtorder'],
-            "bandpass =", wn*nyquist)
+        self.sp_sos = butter(order, wn_arr, btype='bandpass', output='sos')
+        print(f"Zero phase butterworth filter successfully created: order = {order}x{order} bandpass = {wn}")
     
     # step 2: filter channels
-    def filt_EEG_singlechan(self, i):
+    def spfilt(self, i):
         """ Apply Butterworth bandpass to signal by channel """
 
         # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
@@ -74,7 +81,7 @@ class NREM:
         data_notnan = self.data[i][self.data[i]['Raw'].isna() == False]
 
         # filter notNaN data & add column to notNaN df
-        data_notnan_filt = sosfiltfilt(self.sos, data_notnan.to_numpy(), axis=0)
+        data_notnan_filt = sosfiltfilt(self.sp_sos, data_notnan.to_numpy(), axis=0)
         data_notnan['Filt'] = data_notnan_filt
 
         # merge NaN & filtered notNaN values, sort on index
@@ -84,9 +91,9 @@ class NREM:
         self.spfiltEEG[i] = filt_chan
     
     # steps 3-4: calculate RMS & smooth   
-    def rms_smooth(self, i):
+    def rms_smooth(self, i, sp_mw):
         """ Calculate moving RMS (rectify) & smooth the EEG """
-        mw = int(self.metadata['spindle_analysis']['sp_RMSmw']*self.s_freq) # convert moving window size from seconds to samples
+        mw = int(sp_mw*self.s_freq) # convert moving window size from seconds to samples
     
         # convolve for rolling RMS
         datsq = np.power(self.spfiltEEG[i], 2)
@@ -110,7 +117,12 @@ class NREM:
         self.spThresholds[i] = [mean_rms, det_lo, det_hi]
     
     # step 6: detect spindles
-    def get_spindles(self, i, lo, hi, mavg_varr, mavg_iarr):
+    def get_spindles(self, i):
+
+        # vectorize data for detection looping
+        lo, hi = self.spThresholds[i]['Low Threshold'], self.spThresholds[i]['High Threshold'] 
+        mavg_varr, mavg_iarr = np.asarray(self.spRMSmavg[i]), np.asarray(self.spRMSmavg[i].index)
+        
         # initialize spindle event list & set pointer to 0
         self.spindle_events[i] = []
         x=0
@@ -153,7 +165,6 @@ class NREM:
         print('Checking spindle duration...')
         sduration = [x*self.s_freq for x in self.metadata['spindle_analysis']['sp_duration']]
     
-        self.spindle_rejects = {}
         for i in self.spindle_events:
             self.spindle_rejects[i] = [x for x in self.spindle_events[i] if not sduration[0] <= len(x) <= sduration[1]]
             self.spindle_events[i] = [x for x in self.spindle_events[i] if sduration[0] <= len(x) <= sduration[1]]            
@@ -185,28 +196,24 @@ class NREM:
         self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder': order, 
             'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'sp_duration': duration}
 
-        self.s_freq = self.metadata['analysis_info']['s_freq']
+        #self.s_freq = self.metadata['analysis_info']['s_freq']
     
         # set attributes
         self.spindle_attributes()
         # Make filter
-        self.make_butter()
+        self.make_butter_sp(wn, order)
 
-        # For all channels (easier for plotting purposes)
-        self.channels = [x[0] for x in self.data.columns]
+        # loop through channels (all channels for plotting ease)
         for i in self.channels:
            # if i not in ['EOG_L', 'EOG_R', 'EKG']:
                 # Filter
-                self.filt_EEG_singlechan(i)
+                self.spfilt(i)
                 # Calculate RMS & smooth
-                self.rms_smooth(i)
+                self.rms_smooth(i, sp_mw)
                 # Set detection thresholds
                 self.set_thres(i)
-                # Vectorize data for detection looping
-                lo, hi = self.spThresholds[i]['Low Threshold'], self.spThresholds[i]['High Threshold'] 
-                mavg_varr, mavg_iarr = np.asarray(self.spRMSmavg[i]), np.asarray(self.spRMSmavg[i].index)
                 # Detect spindles
-                self.get_spindles(i, lo, hi, mavg_varr, mavg_iarr)
+                self.get_spindles(i)
         
         # Check spindle duration
         self.duration_check()
