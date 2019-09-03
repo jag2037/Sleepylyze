@@ -224,13 +224,14 @@ class NREM:
         self.spMultiIndex()
         print('done.')
 
-
-
-    def analyze_spindles(self):
+    def analyze_spindles(self, zmethod='trough'):
         """ starting code for spindle statistics/visualizations 
 
         Parameters
         ----------
+        zmethod: str (default: 'trough')
+            method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
+            the deepest negative trough. Middle assigns zero center to the midpoint in time.
         self.spindle_events: dict
             dict of timestamps when spindles occur (created from self.detect_spindles())
         self.data: pd.DataFrame
@@ -243,6 +244,8 @@ class NREM:
         """
         ## create dict of dataframes for spindle analysis
         print('Creating individual dataframes...')
+        
+        self.metadata['spindle_analysis']['zmethod'] = zmethod
 
         spindles = {}
         for chan in self.spindle_events.keys():
@@ -253,11 +256,15 @@ class NREM:
                 #spin_data_normed = (spin_data - min(spin_data))/(max(spin_data)-min(spin_data))
                 
                 # set new index so that each spindle is centered around zero
-                half_length = len(spin)/2
-                t_id = np.linspace(-half_length, half_length, int(2*half_length//1))
-                # convert from samples to ms
-                id_ms = t_id * (1/self.metadata['analysis_info']['s_freq']*1000)
-                
+                if zmethod == 'middle':
+                    # this method could use some work
+                    half_length = len(spin)/2
+                    t_id = np.linspace(-half_length, half_length, int(2*half_length//1))
+                    # convert from samples to ms
+                    id_ms = t_id * (1/self.metadata['analysis_info']['s_freq']*1000)
+                elif zmethod == 'trough':
+                    id_ms = (spin_data.index - spin_data.idxmin()).total_seconds()*1000
+                    
                 # create new dataframe
                 spindles[chan][i] = pd.DataFrame(index=id_ms)
                 spindles[chan][i].index.name='id_ms'
@@ -267,6 +274,7 @@ class NREM:
         
         self.spindles = spindles
         print('Dataframes created. Spindle data stored in obj.spindles.')
+
 
     ## Slow Oscillation Detection Methods ##
 
@@ -440,3 +448,54 @@ class NREM:
         print('Combining dataframes...')
         self.soMultiIndex()
         print('done.')
+
+    def analyze_so(self, zmethod='trough'):
+        """ starting code for slow oscillation statistics/visualizations """
+
+        ## create dict of dataframes for slow oscillation analysis
+        print('Creating individual dataframes...')
+
+        so = {}
+        for chan in self.so_events.keys():
+            so[chan] = {}
+            for i, s in self.so_events[chan].items():
+                # create individual df for each spindle
+                start = self.so_events[chan][i]['npeak_minus2s']
+                end = self.so_events[chan][i]['npeak_plus2s']
+                so_data = self.data[chan]['Raw'].loc[start:end]
+                
+                # set new index so that each SO is zero-centered around the negative peak
+                ms1 = list(range(-2000, 0, int(1/self.metadata['analysis_info']['s_freq']*1000)))
+                ms2 = [-x for x in ms1[::-1]]
+                id_ms = ms1 + [0] + ms2
+                
+                # create new dataframe
+                so[chan][i] = pd.DataFrame(index=id_ms)
+                so[chan][i].index.name='id_ms'
+                
+                # if the SO is not a full 2s from the beginning
+                if start < self.data.index[0]:
+                    # extend the df index to the full 2s
+                    time_freq = str(int(1/self.metadata['analysis_info']['s_freq']*1000000))+'us'
+                    time = pd.date_range(start=start, end=end, freq=time_freq)
+                    so[chan][i]['time'] = time
+                    # append NaNs onto the end of the EEG data
+                    nans = np.repeat(np.NaN, len(time)-len(so_data))
+                    data_extended = list(nans) + list(so_data.values)
+                    so[chan][i]['Raw'] = data_extended
+                # if the SO is not a full 2s from the end
+                elif end > self.data.index[-1]:
+                    # extend the df index to the full 2s
+                    time_freq = str(int(1/self.metadata['analysis_info']['s_freq']*1000000))+'us'
+                    time = pd.date_range(start=start, end=end, freq=time_freq)
+                    so[chan][i]['time'] = time
+                    # append NaNs onto the end of the EEG data
+                    nans = np.repeat(np.NaN, len(time)-len(so_data))
+                    data_extended = list(so_data.values) + list(nans)
+                    so[chan][i]['Raw'] = data_extended
+                else:
+                    so[chan][i]['time'] = so_data.index
+                    so[chan][i]['Raw'] = so_data.values
+        
+        self.so = so
+        print('Dataframes created. Slow oscillation data stored in obj.so.')
