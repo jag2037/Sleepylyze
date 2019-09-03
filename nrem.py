@@ -134,8 +134,11 @@ class NREM:
                 spindle = []
 
                 # count backwards to find previous low threshold crossing
-                for h in range(x, -1, -1): 
-                    if mavg_varr[h] >= lo:
+                for h in range(x, -1, -1):
+                    # if an nan is encountered before the previous low crossing, break
+                    if np.isnan(mavg_varr[h]):
+                        break
+                    elif mavg_varr[h] >= lo:
                         spindle.insert(0, mavg_iarr[h]) # add value to the beginning of the spindle
                     else:
                         break
@@ -145,8 +148,8 @@ class NREM:
                     # if above low threshold, add to current spindle
                     if mavg_varr[h] >= lo and x < (len(self.data)-1):
                         spindle.append(mavg_iarr[h])
-                    # if above low threshold and last value, add to current spindle and add spindle to events list
-                    elif mavg_varr[h] >= lo and x == (len(self.data)-1): ## untested
+                    # if above low threshold and last value OR if nan, add to current spindle and add spindle to events list
+                    elif (mavg_varr[h] >= lo and x == (len(self.data)-1)) or np.isnan(mavg_varr[h]): ## untested
                         spindle.append(mavg_iarr[h])
                         self.spindle_events[i].append(spindle)
                     # otherwise finish spindle & add to spindle events list
