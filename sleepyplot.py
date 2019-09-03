@@ -594,7 +594,7 @@ def plot_spins(n):
                 c = next(color)
                 ax.plot(n.spindles[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
             # set subplot params
-            ax.set_xlim([-1750, 1750])
+            ax.set_xlim([-2800, 2800])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
 
@@ -608,6 +608,42 @@ def plot_spins(n):
     fig.text(0.5, 0, 'Time (ms)', ha='center')
     fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+
+
+### Slow Oscillation Methods ###
+def plot_so(n):
+    """ plot all slow oscillation detections by channel """
+    
+    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
+    ncols = 6
+    nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, sharex=True, figsize=(15, 7))
+    fig.subplots_adjust(hspace=0.5)
+    
+    for chan, ax in zip(n.so.keys(), axs.flatten()):
+        if chan not in exclude:
+            # set color iterator -- for other colors look at ocean, gnuplot, prism
+            color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
+            for i in n.so[chan]:
+                c = next(color)
+                ax.plot(n.so[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
+            # set subplot params
+            ax.set_xlim([-2500, 2500])
+            ax.set_title(chan, fontsize='medium')
+            ax.tick_params(axis='both', which='both', labelsize=8)
+
+    # delete empty subplots --> this can probably be combined with previous loop
+    for i, ax in enumerate(axs.flatten()):
+        if i >= len(eeg_chans):
+            fig.delaxes(ax)
+                 
+    # set figure params   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
+    fig.text(0.5, 0, 'Time (ms)', ha='center')
+    fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+
 
 
 ### EKG Methods ###
