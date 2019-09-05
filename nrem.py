@@ -144,7 +144,7 @@ class NREM:
                         break
        
                 # count forwards to find next low threshold crossing
-                for h in range(x, len(self.data), 1):
+                for h in range(x+1, len(self.data), 1):
                     # if above low threshold, add to current spindle
                     if mavg_varr[h] >= lo and x < (len(self.data)-1):
                         spindle.append(mavg_iarr[h])
@@ -270,6 +270,7 @@ class NREM:
                     
                 # create new dataframe
                 spindles[chan][i] = pd.DataFrame(index=id_ms)
+                spindles[chan][i].index = [int(x) for x in spindles[chan][i].index]
                 spindles[chan][i].index.name='id_ms'
                 spindles[chan][i]['time'] = spin_data.index
                 spindles[chan][i]['Raw'] = spin_data.values
