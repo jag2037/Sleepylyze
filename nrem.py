@@ -227,26 +227,31 @@ class NREM:
         self.spMultiIndex()
         print('done.')
 
-    def analyze_spindles(self, zmethod='trough'):
-        """ starting code for spindle statistics/visualizations 
+    def create_spindfs(self, zmethod, buffer_len):
+        """ Create individual dataframes for individual spindles +/- a timedelta buffer 
 
-        Parameters
-        ----------
-        zmethod: str (default: 'trough')
-            method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
-            the deepest negative trough. Middle assigns zero center to the midpoint in time.
-        self.spindle_events: dict
-            dict of timestamps when spindles occur (created from self.detect_spindles())
-        self.data: pd.DataFrame
-            df containing raw EEG data
+            Parameters
+            ----------
+            zmethod: str (default: 'trough')
+                method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
+                the deepest negative trough. Middle assigns zero center to the midpoint in time.
+            buffer_len: int
+                length in seconds of buffer to calculate around 0-center of spindle
+            self.spindle_events: dict
+                dict of timestamps when spindles occur (created from self.detect_spindles())
+            self.data: pd.DataFrame
+                df containing raw EEG data
 
-        Returns
-        -------
-        self.spindles: nested dict of dfs
-            nested dict with spindle data by channel {channel: {spindle_num:spindle_data}}
+            Returns
+            -------
+            self.spindles: nested dict of dfs
+                nested dict with spindle data by channel {channel: {spindle_num:spindle_data}}
+            self.spindles_wbuffer: nested dict of dfs
+                nested dict with spindle data w/ timedelta buffer by channel {channel: {spindle_num:spindle_data}}
         """
+
         ## create dict of dataframes for spindle analysis
-        print('Creating individual dataframes...')
+        print('Creating individual spindle dataframes...')
         
         self.metadata['spindle_analysis']['zmethod'] = zmethod
 
@@ -277,7 +282,134 @@ class NREM:
                 #spindles[chan][i]['Raw_normed'] = spin_data_normed.values
         
         self.spindles = spindles
-        print('Dataframes created. Spindle data stored in obj.spindles.')
+        print('Spindle dataframes created. Spindle data stored in obj.spindles.')
+
+        # now make buffered dataframes
+        print(f'Creating spindle dataframes with {buffer_len}s buffer...')
+
+        spindles_wbuffer = {}
+        for chan in self.spindles.keys():
+            spindles_wbuffer[chan] = {}
+            for i in self.spindles[chan].keys():
+                # get +/- buffer length from zero-center of spindle
+                start = self.spindles[chan][i]['time'].loc[0] - pd.Timedelta(seconds=buffer_len)
+                end = self.spindles[chan][i]['time'].loc[0] + pd.Timedelta(seconds=buffer_len)
+                spin_buffer_data = self.data[chan]['Raw'].loc[start:end]
+
+                # assign the delta time index
+                id_ms = (spin_buffer_data.index - self.spindles[chan][i]['time'].loc[0]).total_seconds()*1000
+
+                # create new dataframe
+                spindles_wbuffer[chan][i] = pd.DataFrame(index=id_ms)
+                spindles_wbuffer[chan][i].index = [int(x) for x in spindles_wbuffer[chan][i].index]
+                spindles_wbuffer[chan][i].index.name='id_ms'
+                spindles_wbuffer[chan][i]['time'] = spin_buffer_data.index
+                spindles_wbuffer[chan][i]['Raw'] = spin_buffer_data.values
+        
+        self.spindles_wbuffer = spindles_wbuffer
+        print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
+
+    def spindle_means(self):
+        """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel """
+        
+        print('Aligning spindles...')
+        # align spindles accoridng to timedelta & combine into single dataframe
+        spindle_aggregates = {}
+        for chan in self.spindles.keys():
+            # only use channels that have spindles
+            if self.spindles[chan]:
+                # set the base df
+                agg_df = pd.DataFrame(self.spindles[chan][0]['Raw'])
+                rsuffix = list(range(1, len(self.spindles[chan])))
+                # join on the index for each spindle
+                for x in range(1, len(self.spindles[chan])):
+                    mean_df = agg_df.join(self.spindles[chan][x]['Raw'], how='outer', rsuffix=rsuffix[x-1])
+                spindle_aggregates[chan] = mean_df
+            
+        print('Calculating spindle statistics...')
+        # create a new multiindex dataframe for calculations
+        calcs = ['mean', 'std' ,'sem']
+        tuples = [(chan, calc) for chan in spindle_aggregates.keys() for calc in calcs]
+        columns = pd.MultiIndex.from_tuples(tuples, names=['channel', 'calc'])
+        spindle_means = pd.DataFrame(columns=columns)
+        
+        # fill the dataframe
+        for chan in spindle_aggregates.keys():
+            spindle_means[(chan, 'mean')] = spindle_aggregates[chan].mean(axis=1)
+            spindle_means[(chan, 'std')] = spindle_aggregates[chan].std(axis=1)
+            spindle_means[(chan, 'sem')] = spindle_aggregates[chan].sem(axis=1)
+            
+        self.spindle_aggregates = spindle_aggregates
+        self.spindle_means = spindle_means
+        print('Done. Spindles aggregated by channel in obj.spindle_aggregates dict. Spindle statisics stored in obj.spindle_means dataframe.')
+
+
+    def spindle_buffer_means(self):
+        """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel """
+        
+        print('Aligning spindles...')
+        # align spindles accoridng to timedelta & combine into single dataframe
+        spindle_buffer_aggregates = {}
+        for chan in self.spindles.keys():
+            # only use channels that have spindles
+            if self.spindles_wbuffer[chan]:
+                # set the base df
+                agg_df = pd.DataFrame(self.spindles_wbuffer[chan][0]['Raw'])
+                rsuffix = list(range(1, len(self.spindles_wbuffer[chan])))
+                # join on the index for each spindle
+                for x in range(1, len(self.spindles_wbuffer[chan])):
+                    mean_df = agg_df.join(self.spindles_wbuffer[chan][x]['Raw'], how='outer', rsuffix=rsuffix[x-1])
+                spindle_buffer_aggregates[chan] = mean_df
+            
+        print('Calculating statistics...')
+        # create a new multiindex dataframe for calculations
+        calcs = ['mean', 'std' ,'sem']
+        tuples = [(chan, calc) for chan in spindle_buffer_aggregates.keys() for calc in calcs]
+        columns = pd.MultiIndex.from_tuples(tuples, names=['channel', 'calc'])
+        spindle_buffer_means = pd.DataFrame(columns=columns)
+        
+        # fill the dataframe
+        for chan in spindle_buffer_aggregates.keys():
+            spindle_buffer_means[(chan, 'mean')] = spindle_buffer_aggregates[chan].mean(axis=1)
+            spindle_buffer_means[(chan, 'std')] = spindle_buffer_aggregates[chan].std(axis=1)
+            spindle_buffer_means[(chan, 'sem')] = spindle_buffer_aggregates[chan].sem(axis=1)
+            
+        self.spindle_buffer_aggregates = spindle_buffer_aggregates
+        self.spindle_buffer_means = spindle_buffer_means
+        print('Done. Spindles aggregated by channel in obj.spindle_buffer_aggregates dict. Spindle statisics stored in obj.spindle_buffer_means dataframe.')
+
+
+    def analyze_spindles(self, zmethod='trough', buffer_len=3):
+        """ starting code for spindle statistics/visualizations 
+
+        Parameters
+        ----------
+        zmethod: str (default: 'trough')
+            method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
+            the deepest negative trough. Middle assigns zero center to the midpoint in time.
+        buffer_len: int
+            length in seconds of buffer to calculate around 0-center of spindle
+        self.spindle_events: dict
+            dict of timestamps when spindles occur (created from self.detect_spindles())
+        self.data: pd.DataFrame
+            df containing raw EEG data
+
+        Returns
+        -------
+        self.spindles: nested dict of dfs
+            nested dict with spindle data by channel {channel: {spindle_num:spindle_data}}
+        self.spindles_wbuffer: nested dict of dfs
+            nested dict with spindle data w/ timedelta buffer by channel {channel: {spindle_num:spindle_data}}
+        """
+        
+        # create individual datframes for each spindle
+        self.create_spindfs(zmethod, buffer_len)
+
+        # calculate spindle & spindle buffer means
+        self.spindle_means()
+        self.spindle_buffer_means()
+
+    
 
 
     ## Slow Oscillation Detection Methods ##
