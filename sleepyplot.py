@@ -163,10 +163,10 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
             
         # plot filtered EEG w/ rms & thresholds
         if dt == 'filtd+rms':
-            ax.plot(d.spRMS[c], label='RMS')
-            ax.plot(d.spRMSmavg[c], label='RMS moving average')
+            ax.plot(d.spRMS[c], label='RMS', color='green')
+            ax.plot(d.spRMSmavg[c], label='RMS moving average', color='orange')
         if dt == 'filtd+rms' and thresholds == True:
-            ax.axhline(d.spThresholds[c].loc['Low Threshold'], linestyle='dashed', color='grey', label = 'Mean RMS + 1 SD')
+            ax.axhline(d.spThresholds[c].loc['Low Threshold'], linestyle='solid', color='grey', label = 'Mean RMS + 1 SD')
             ax.axhline(d.spThresholds[c].loc['High Threshold'], linestyle='dashed', color='grey', label = 'Mean RMS + 1.5 SD')
         
         # plot spindles
@@ -609,6 +609,63 @@ def plot_spins(n):
     fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
 
+    return fig
+
+def plot_spin_means(n, buffer=True, highlight_spins=True, err='sem', color='black'):
+    """ plot all spindle detections by channel 
+    
+    Parameters
+    ----------
+    buffer: bool (default:True)
+        plot spindle data w/ buffer
+    highlight_spins: bool (default: True)
+        plot spindles in a different color (to be used on top of buffer)
+    err: str (default:'sem')
+        type of error bars to use [options: 'std', 'sem']
+    color: str (default: 'black')
+        color for plotting background data
+    
+    """
+    
+    if buffer == True:
+        data = n.spindle_buffer_means
+    else:
+        data = n.spindle_means
+    
+    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
+    ncols = 6
+    nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, sharex=True, figsize=(18, 10))
+    fig.subplots_adjust(hspace=0.5)
+    
+    for chan, ax in zip(n.spindles.keys(), axs.flatten()):
+        if chan not in exclude:
+            #color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
+            ax.plot(data[(chan, 'mean')], alpha=1, color=color)
+            if highlight_spins == True:
+                ax.plot(n.spindle_buffer_means[chan]['mean'].loc[n.spindle_means[chan][abs(n.spindle_means[chan]['mean']) >0].index], alpha=1, color='blue')
+            #ax.errorbar(x=n.spindle_means.index, y=n.spindle_means[(chan, 'mean')], yerr=n.spindle_means[('Fp1', 'sem')], alpha=0.1, color=color)
+            ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
+                            color=color, alpha=0.2)
+            # set subplot params
+            ax.set_xlim([-1200, 1200])
+            ax.set_title(chan, fontsize='medium')
+            ax.tick_params(axis='both', which='both', labelsize=8)
+
+    # delete empty subplots --> this can probably be combined with previous loop
+    for i, ax in enumerate(axs.flatten()):
+        if i >= len(eeg_chans):
+            fig.delaxes(ax)
+                 
+    # set figure params   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
+    fig.text(0.5, 0, 'Time (ms)', ha='center')
+    fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+
+    return fig
+
 
 ### Slow Oscillation Methods ###
 def plot_so(n):
@@ -644,6 +701,7 @@ def plot_so(n):
     fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
 
+    return fig
 
 
 ### EKG Methods ###
