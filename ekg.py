@@ -14,7 +14,7 @@ import scipy as sp
 import scipy.io as io
 import scipy.stats as stats
 import statistics
-import pyhrv.nonlinear as nl
+#import pyhrv.nonlinear as nl
 
 from mne.time_frequency import psd_array_multitaper
 from scipy.signal import welch
@@ -97,7 +97,7 @@ class EKG:
         Parameters
         ----------
         min_dur: bool, default: True
-            If set to True, will not load files shorter than 5 minutes long 
+            If set to True, will not load files shorter than minimum duration in length 
         """
         
         data = pd.read_csv(self.metadata['file_info']['path'], header = [0, 1], index_col = 0, parse_dates=True)['EKG']
@@ -106,7 +106,7 @@ class EKG:
         cycle_len_secs = (data.index[-1] - data.index[0]).total_seconds()
         if cycle_len_secs < 60*5-1:
             if min_dur == True:
-                print('Data is shorter than 5 minutes. Cycle will not be loaded.')
+                print('Data is shorter than minimum duration. Cycle will not be loaded.')
                 print('--> To load data, set min_dur to False')
                 return
             else:

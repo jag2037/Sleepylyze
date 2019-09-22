@@ -135,7 +135,7 @@ class NREM:
 
                 # count backwards to find previous low threshold crossing
                 for h in range(x, -1, -1):
-                    # if an nan is encountered before the previous low crossing, break
+                    # if a nan is encountered before the previous low crossing, break
                     if np.isnan(mavg_varr[h]):
                         break
                     elif mavg_varr[h] >= lo:
@@ -145,8 +145,11 @@ class NREM:
        
                 # count forwards to find next low threshold crossing
                 for h in range(x+1, len(self.data), 1):
+                    # if a nan is encountered before the next low crossing, break
+                    if np.isnan(mavg_varr[h]):
+                        break
                     # if above low threshold, add to current spindle
-                    if mavg_varr[h] >= lo and x < (len(self.data)-1):
+                    elif mavg_varr[h] >= lo and x < (len(self.data)-1):
                         spindle.append(mavg_iarr[h])
                     # if above low threshold and last value OR if nan, add to current spindle and add spindle to events list
                     elif (mavg_varr[h] >= lo and x == (len(self.data)-1)) or np.isnan(mavg_varr[h]): ## untested
@@ -322,9 +325,9 @@ class NREM:
                 agg_df = pd.DataFrame(self.spindles[chan][0]['Raw'])
                 rsuffix = list(range(1, len(self.spindles[chan])))
                 # join on the index for each spindle
-                for x in range(1, len(self.spindles[chan])):
-                    mean_df = agg_df.join(self.spindles[chan][x]['Raw'], how='outer', rsuffix=rsuffix[x-1])
-                spindle_aggregates[chan] = mean_df
+                for x in rsuffix:
+                    agg_df = agg_df.join(self.spindles[chan][x]['Raw'], how='outer', rsuffix=rsuffix[x-1])
+                spindle_aggregates[chan] = agg_df
             
         print('Calculating spindle statistics...')
         # create a new multiindex dataframe for calculations
