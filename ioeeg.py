@@ -1,6 +1,8 @@
 """ 
     To Do:
         Add support for earlier headboxes
+        Update docstrings
+        Incorporate metadata pSQL metadata table update
 """
 
 import datetime
@@ -62,12 +64,12 @@ class Dataset:
     """
     
     def __init__(self, fname, fpath=None, trim=True, start='22:00:00', end='07:00:00', noise_log=None, rm_chans=None, 
-                psql=True, data_dir='D:\Jackie\RawEEG'):
-        """ """
+                psql=True, psql_user = 'postgres', psql_password='schifflab', psql_database='raw_eeg', 
+                data_dir='D:\Jackie\RawEEG'):
+        """ docstring """
         
         if fpath is not None:
             filepath = os.path.join(fpath, fname)
-            #filepath = fpath + fname
         else:
             filepath = fname
         
@@ -83,11 +85,11 @@ class Dataset:
             self.trim_eeg(start, end)
 
         if psql == True:
-            self.to_psql(data_dir)
+            self.to_psql(psql_user, psql_password, psql_database, data_dir)
         
         if noise_log is not None or rm_chans is not None:
             if psql == True:
-                self.clean_eeg_psql(noise_log, rm_chans, data_dir)
+                self.clean_eeg_psql(noise_log, rm_chans, psql_user, psql_password, psql_database, data_dir)
             else:
                 self.clean_eeg(noise_log, rm_chans)
 
@@ -210,8 +212,8 @@ class Dataset:
         
         print('Data trimmed to {} (inclusive) - {} (exclusive).'.format(start, end))
 
-    def to_psql(self, data_dir):
-        """ Upload raw EEG data to postgreSQL server & save out to condensed csv file"""
+    def to_psql(self, psql_user, psql_password, psql_database, data_dir):
+        """ Upload raw EEG data to local postgreSQL server & save out to condensed csv file """
         
         print('Uploading dataframe to postgreSQL database...')
         
@@ -242,7 +244,8 @@ class Dataset:
         );
         """
         # create a link to the psql database
-        engine = create_engine('postgresql://postgres:schifflab@localhost/raw_eeg')
+        database = 'postgresql://' + psql_user + ':' + psql_password + '@localhost/' + psql_database
+        engine = create_engine(database)
         conn = engine.connect()
         conn.execute(base_table)
         
@@ -263,11 +266,32 @@ class Dataset:
         
         print('PostgreSQL upload complete.')
 
-    def clean_eeg_psql(self, noise_log, rm_chans, data_dir):
-        """ Replace artifact with NaN in the postgreSQL raw EEG table """
+    def clean_eeg_psql(self, noise_log, rm_chans, psql_user, psql_password, psql_database, data_dir):
+        """ Replace artifact with NaN in the postgreSQL raw EEG table 
+
+        Parameters
+        ----------
+        noise_log: .txt file (optional)
+            file containing list of artifact seconds to remove (format: YYYY-MM-DD hh:mm:ss)
+        rm_chans: str or list of string (optional)
+            entire channels to remove
+        data_dir
+        psql_user: str
+            postgreSQL username
+        psql_password: str
+            postgreSQL password
+        psql_database: str
+            postgreSQL database where raw eeg file is located
+
+        Returns
+        -------
+
+
+        """
     
         # create a link to the sql database
-        engine = create_engine('postgresql://postgres:schifflab@localhost/raw_eeg')
+        database = 'postgresql://' + psql_user + ':' + psql_password + '@localhost/' + psql_database
+        engine = create_engine(database)
         conn = engine.connect()    
         
         # specify the table
