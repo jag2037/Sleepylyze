@@ -611,26 +611,24 @@ def plot_spins(n):
 
     return fig
 
-def plot_spin_means(n, buffer=True, highlight_spins=True, err='sem', color='black'):
+def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', buff_color='lightblue'):
     """ plot all spindle detections by channel 
     
     Parameters
     ----------
-    buffer: bool (default:True)
-        plot spindle data w/ buffer
-    highlight_spins: bool (default: True)
-        plot spindles in a different color (to be used on top of buffer)
+    spins: bool (default: True)
+        plot spindle averages
+    buffer: bool (default:False)
+        plot average data +/- 3s from zero-neg spindle peaks. 
+        Note: this has an effect of washing out spindles features due to asymmetry in spindle distribution 
+        around the negative peak and corresponding averaging of spindle with non-spindle data
     err: str (default:'sem')
         type of error bars to use [options: 'std', 'sem']
-    color: str (default: 'black')
-        color for plotting background data
-    
+    spin_color: str (default: 'black')
+        color for plotting spindles
+    buff_color: str (default:'lightblue')
+        color for plotting buffer data
     """
-    
-    if buffer == True:
-        data = n.spindle_buffer_means
-    else:
-        data = n.spindle_means
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
@@ -641,15 +639,19 @@ def plot_spin_means(n, buffer=True, highlight_spins=True, err='sem', color='blac
     
     for chan, ax in zip(n.spindles.keys(), axs.flatten()):
         if chan not in exclude:
-            #color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
-            ax.plot(data[(chan, 'mean')], alpha=1, color=color)
-            if highlight_spins == True:
-                ax.plot(n.spindle_buffer_means[chan]['mean'].loc[n.spindle_means[chan][abs(n.spindle_means[chan]['mean']) >0].index], alpha=1, color='blue')
-            #ax.errorbar(x=n.spindle_means.index, y=n.spindle_means[(chan, 'mean')], yerr=n.spindle_means[('Fp1', 'sem')], alpha=0.1, color=color)
-            ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
-                            color=color, alpha=0.2)
+            if buffer:
+                data = n.spindle_buffer_means
+                ax.plot(data[(chan, 'mean')], alpha=1, color=buff_color, label='Overall Average')
+                ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
+                                color=buff_color, alpha=0.2)
+            if spins:
+                data = n.spindle_means
+                ax.plot(data[(chan, 'mean')], alpha=1, color=spin_color, label='Spindle Average')
+                ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
+                                color=spin_color, alpha=0.2)
+
             # set subplot params
-            ax.set_xlim([-1200, 1200])
+            ax.set_xlim([-3000, 3000])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
 
@@ -657,12 +659,13 @@ def plot_spin_means(n, buffer=True, highlight_spins=True, err='sem', color='blac
     for i, ax in enumerate(axs.flatten()):
         if i >= len(eeg_chans):
             fig.delaxes(ax)
-                 
-    # set figure params   
+
+    # set figure params
+    fig.legend()   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
     fig.text(0.5, 0, 'Time (ms)', ha='center')
     fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
-    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\nSpindle Averages')
 
     return fig
 
