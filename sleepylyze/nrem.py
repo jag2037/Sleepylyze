@@ -8,9 +8,12 @@
 """
 
 import datetime
+import joblib
 import os
 import numpy as np
 import pandas as pd
+
+from mne.time_frequency import psd_array_multitaper
 from scipy.signal import butter, sosfiltfilt, sosfreqz
 
 class NREM:
@@ -381,8 +384,54 @@ class NREM:
         self.spindle_buffer_means = spindle_buffer_means
         print('Done. Spindles aggregated by channel in obj.spindle_buffer_aggregates dict. Spindle statisics stored in obj.spindle_buffer_means dataframe.')
 
+    def spindle_psd(self, psd_bandwidth):
+        """ Calculate multitaper power spectrum for all channels
 
-    def analyze_spindles(self, zmethod='trough', buffer_len=3):
+            Params
+            ------
+            bandwidth: float
+                frequency resolution in Hz
+
+            Returns
+            -------
+            self.spindle_psd: dict
+                format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
+            self.spindle_multitaper_calcs: pd.DataFrame
+                calculations used to calculated multitaper power spectral estimates for each channel
+        """
+        
+        print('Calculating power spectra (this may take a few minutes)...')
+        self.metadata['spindle_analysis']['psd_method'] = 'multitaper'
+        self.metadata['spindle_analysis']['psd_bandwidth'] = psd_bandwidth
+        sf = self.metadata['analysis_info']['s_freq']
+        
+        spindle_psd = {}
+        spindle_multitaper_calcs = pd.DataFrame(index=['data_len', 'N', 'W', 'NW', 'K'])
+        for chan in self.spindles:
+            if len(self.spindles[chan]) > 0:
+                # concatenate spindles
+                spindles = [self.spindles[chan][x].Raw.values for x in self.spindles[chan]]
+                data = np.concatenate(spindles)
+                
+                # record PS params [K = 2NW-1]
+                N = len(data)/sf
+                W = psd_bandwidth
+                K = int((2*N*W)-1)
+                spindle_multitaper_calcs[chan] = [len(data), N, W, N*W, K] 
+                
+                # calculate power spectrum
+                pwr, freqs = psd_array_multitaper(data, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
+                                                  normalization='full', verbose=0)
+                # convert to series & add to dict
+                psd = pd.Series(pwr, index=freqs)
+                spindle_psd[chan] = psd
+        
+        self.spindle_multitaper_calcs = spindle_multitaper_calcs
+        self.spindle_psd = spindle_psd
+        print('Done. Spectra stored in obj.spindle_psd. Calculations stored in obj.spindle_multitaper_calcs.')
+
+
+    def analyze_spindles(self, zmethod='trough', buff=False, buffer_len=3, psd_bandwidth=0.5):
         """ starting code for spindle statistics/visualizations 
 
         Parameters
@@ -390,12 +439,12 @@ class NREM:
         zmethod: str (default: 'trough')
             method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
             the deepest negative trough. Middle assigns zero center to the midpoint in time.
+        buff: bool (default: False)
+            calculate spindle data dataframes with a delta time buffer around center of spindle
         buffer_len: int
             length in seconds of buffer to calculate around 0-center of spindle
-        self.spindle_events: dict
-            dict of timestamps when spindles occur (created from self.detect_spindles())
-        self.data: pd.DataFrame
-            df containing raw EEG data
+        psd_bandwidth: float
+            frequency bandwidth for power spectra calculations (Hz)
 
         Returns
         -------
@@ -403,6 +452,10 @@ class NREM:
             nested dict with spindle data by channel {channel: {spindle_num:spindle_data}}
         self.spindles_wbuffer: nested dict of dfs
             nested dict with spindle data w/ timedelta buffer by channel {channel: {spindle_num:spindle_data}}
+        self.spindle_psd: dict
+                format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
+        self.spindle_multitaper_calcs: pd.DataFrame
+                calculations used to calculated multitaper power spectral estimates for each channel
         """
         
         # create individual datframes for each spindle
@@ -410,7 +463,10 @@ class NREM:
 
         # calculate spindle & spindle buffer means
         self.spindle_means()
-        self.spindle_buffer_means()
+        if buff:
+            self.spindle_buffer_means()
+
+        self.spindle_psd(psd_bandwidth)
 
     
 

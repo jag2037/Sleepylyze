@@ -670,6 +670,82 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
     return fig
 
 
+def plot_spindlepower_chan(n, chan, dB=True):
+    """ Plot spindle power spectrum for a single channel """
+
+    # transform units
+    if dB == True:
+        pwr = 10 * np.log10(n.spindle_psd[chan].values)
+        ylabel = 'Power (dB)'
+    else:
+        pwr = n.spindle_psd[chan].values
+        ylabel = 'Power (uv^2/Hz)'
+    
+    fig, ax = plt.subplots()
+    
+    # plot just spectrum
+    ax.plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+    ax.axvspan(9, 16, color='lavender', alpha=0.8)
+        
+    ax.set_xlim(0, 25)
+    ax.margins(y=0)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel(ylabel)
+    plt.title((n.metadata['file_info']['fname'].split('.')[0] + '\n\n' + chan + ' Spindle Power'), size='medium', weight='semibold')
+
+    return fig
+
+
+def plot_spindlepower(n, dB=True):
+    """ Plot spindle power spectrum for all channels """
+    
+    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    eeg_chans = [x for x in n.spindle_psd.keys() if x not in exclude]
+    ncols = 6
+    nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(16, 12))
+    fig.subplots_adjust(hspace=0.8, wspace=0.5)
+    
+    for chan, ax in zip(eeg_chans, axs.flatten()):    
+        # transform units
+        if dB == True:
+            pwr = 10 * np.log10(n.spindle_psd[chan].values)
+            ylabel = 'Power (dB)'
+        else:
+            pwr = n.spindle_psd[chan].values
+            ylabel = 'Power (uv^2/Hz)'
+
+        # plot spectrum
+        ax.plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+        # highlight spindle range. aquamarine or lavender works here too
+        ax.axvspan(9, 16, color='lavender', alpha=0.8)
+
+        # set subplot params
+        ax.set_xlim(0, 25)
+        ax.margins(y=0)
+        ax.set_xticks([5, 10, 15, 20])
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_title(chan, size='medium', weight='bold')
+    
+    # delete empty subplots --> this can probably be combined with previous loop
+    for i, ax in enumerate(axs.flatten()):
+        if i >= len(eeg_chans):
+            fig.delaxes(ax)
+    
+    # set figure params   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.93])
+    fig.text(0.5, 0, 'Frequency (Hz)', ha='center', size='large', weight='semibold')
+    fig.text(0, 0.5, ylabel, va='center', rotation='vertical', size='large', weight='semibold')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\n\nSpindle Power', size='large', weight='semibold')
+
+    return fig
+
+
+
 ### Slow Oscillation Methods ###
 def plot_so(n):
     """ plot all slow oscillation detections by channel """
