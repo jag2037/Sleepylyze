@@ -315,7 +315,7 @@ class NREM:
         self.spindles_wbuffer = spindles_wbuffer
         print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
 
-    def spindle_means(self):
+    def calc_spindle_means(self):
         """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel """
         
         print('Aligning spindles...')
@@ -350,7 +350,7 @@ class NREM:
         print('Done. Spindles aggregated by channel in obj.spindle_aggregates dict. Spindle statisics stored in obj.spindle_means dataframe.')
 
 
-    def spindle_buffer_means(self):
+    def calc_spindle_buffer_means(self):
         """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel """
         
         print('Aligning spindles...')
@@ -384,7 +384,7 @@ class NREM:
         self.spindle_buffer_means = spindle_buffer_means
         print('Done. Spindles aggregated by channel in obj.spindle_buffer_aggregates dict. Spindle statisics stored in obj.spindle_buffer_means dataframe.')
 
-    def spindle_psd(self, psd_bandwidth):
+    def calc_spindle_psd(self, psd_bandwidth):
         """ Calculate multitaper power spectrum for all channels
 
             Params
@@ -462,11 +462,11 @@ class NREM:
         self.create_spindfs(zmethod, buffer_len)
 
         # calculate spindle & spindle buffer means
-        self.spindle_means()
+        self.calc_spindle_means()
         if buff:
-            self.spindle_buffer_means()
+            self.calc_spindle_buffer_means()
 
-        self.spindle_psd(psd_bandwidth)
+        self.calc_spindle_psd(psd_bandwidth)
 
     
 
