@@ -12,9 +12,11 @@ import joblib
 import os
 import numpy as np
 import pandas as pd
+import warnings
 
 from mne.time_frequency import psd_array_multitaper
 from scipy.signal import butter, sosfiltfilt, sosfreqz
+from scipy.optimize import OptimizeWarning, curve_fit
 
 class NREM:
     """ General class for nonREM EEG segments """
@@ -430,8 +432,125 @@ class NREM:
         self.spindle_psd = spindle_psd
         print('Done. Spectra stored in obj.spindle_psd. Calculations stored in obj.spindle_multitaper_calcs.')
 
+    def calc_gottselig_norm(self, norm_range):
+        """ calculated normalized spindle power (from Gottselig et al., 2002)
+        
+            TO DO: change p0 value if optimize warning
+        
+            Parameters
+            ----------
+            norm_range: list of tuple
+                frequency ranges for gottselig normalization
+            
+            Returns
+            -------
+            self.spindle_psd_norm: nested dict
+                format {chan: pd.Series(normalized power, index=frequency)}
+        
+        """
+        
+        def exponential_func(x, a, b, c):
+            return a*np.exp(-b*x)+c
+        
+        self.metadata['spindle_analysis']['gottselig_range'] = norm_range
+        
+        spindle_psd_norm = {}
+        for chan in self.spindle_psd:
+            
+            spindle_psd_norm[chan] = {}
+            
+            # specify data to be fit (only data in norm range)
+            incl_freqs = np.logical_or(((self.spindle_psd[chan].index >= norm_range[0][0]) & (self.spindle_psd[chan].index <= norm_range[0][1])),
+                                        ((self.spindle_psd[chan].index >= norm_range[1][0]) & (self.spindle_psd[chan].index <= norm_range[1][1])))
+            pwr_fit = self.spindle_psd[chan][incl_freqs] 
 
-    def analyze_spindles(self, zmethod='trough', buff=False, buffer_len=3, psd_bandwidth=0.5):
+            # set x and y values (convert y to dB)
+            x_pwr_fit = pwr_fit.index
+            y_pwr_fit = 10 * np.log10(pwr_fit.values)
+        
+            # fit exponential -- try second fit line if first throws infinite covariance
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", OptimizeWarning)
+                try:
+                    popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 0, 1))
+                except OptimizeWarning:
+                    popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
+            
+            xx = self.spindle_psd[chan].index
+            yy = exponential_func(xx, *popt)
+            
+            # subtract the fit line
+            psd_norm = pd.Series(10*np.log10(self.spindle_psd[chan].values) - yy, index=self.spindle_psd[chan].index)
+            
+            # save the values
+            spindle_psd_norm[chan]['normed_pwr'] = psd_norm
+            spindle_psd_norm[chan]['values_to_fit'] = pd.Series(y_pwr_fit, index=x_pwr_fit)
+            spindle_psd_norm[chan]['exp_fit_line'] = pd.Series(yy, index=xx) 
+            
+        self.spindle_psd_norm = spindle_psd_norm
+
+
+    def calc_spinstats(self, spin_range):
+        """ calculate spindle feature statistics 
+        
+            Parameters
+            ----------
+            spin_range: list of int
+                spindle frequency range to be used for calculating center frequency
+            
+            Returns
+            -------
+            self.spindle_features: pd.DataFrame
+                MultiIndex dataframe with calculated spindle statistics
+        """
+        
+        print('Calculating spindle statistics...')
+        
+        # create multi-index dataframe
+        lvl1 = ['Count', 'Duration', 'Duration', 'Amplitude', 'Amplitude', 'Density', 'ISI', 'ISI', 'Power', 'Power']
+        lvl2 = ['total', 'mean', 'sd', 'rms', 'sd', 'spin_per_min', 'mean', 'sd', 'center_freq', 'total_pwr']
+        columns = pd.MultiIndex.from_arrays([lvl1, lvl2])
+        spindle_stats = pd.DataFrame(columns=columns)
+        
+        # fill dataframe
+        for chan in self.spindles:
+            # calculate spindle count
+            count = len(self.spindles[chan])
+            
+            if count == 0:
+                spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None, None, None]
+            
+            else:
+                # calculation spindle duration
+                durations = np.array([(self.spindles[chan][spin].time.iloc[-1] - self.spindles[chan][spin].time.iloc[0]).total_seconds() for spin in self.spindles[chan]])
+                duration_mean = durations.mean()
+                duration_sd = durations.std()
+
+                # calculate amplitude
+                amplitudes = np.concatenate([self.spindles[chan][x].Raw.values for x in self.spindles[chan]])
+                amp_rms = np.sqrt(np.array([x**2 for x in amplitudes]).mean())
+                amp_sd = amplitudes.std()
+
+                # calculate density
+                density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
+
+                # calculate inter-spindle-interval (ISI)
+                isi_arr = np.array([(self.spindles[chan][x+1].time.iloc[0] - self.spindles[chan][x].time.iloc[-1]).total_seconds() for x in self.spindles[chan] if x < len(self.spindles[chan])-1])
+                isi_mean = isi_arr.mean()
+                isi_sd = isi_arr.std()
+
+                # calculate center frequency & total spindle power
+                spindle_power = self.spindle_psd_norm[chan]['normed_pwr'][(self.spindle_psd[chan].index >= spin_range[0]) & (self.spindle_psd[chan].index <= spin_range[1])]
+                center_freq = spindle_power.idxmax()
+                total_pwr = spindle_power.sum()
+
+                spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms, amp_sd, density, isi_mean, isi_sd, center_freq, total_pwr]
+
+        self.spindle_stats = spindle_stats   
+        
+        print('Spindle stats stored in obj.spindle_stats.\nDone.')
+
+    def analyze_spindles(self, zmethod='trough', buff=False, buffer_len=3, psd_bandwidth=1.0, norm_range=[(4,6), (18, 25)], spin_range=[9, 16]):
         """ starting code for spindle statistics/visualizations 
 
         Parameters
@@ -445,6 +564,10 @@ class NREM:
             length in seconds of buffer to calculate around 0-center of spindle
         psd_bandwidth: float
             frequency bandwidth for power spectra calculations (Hz)
+        norm_range: list of tuple
+            frequency ranges for gottselig normalization
+        spin_range: list of int
+            spindle frequency range to be used for calculating center frequency
 
         Returns
         -------
@@ -456,6 +579,10 @@ class NREM:
                 format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
         self.spindle_multitaper_calcs: pd.DataFrame
                 calculations used to calculated multitaper power spectral estimates for each channel
+        self.spindle_psd_norm: nested dict
+            format {chan: pd.Series(normalized power, index=frequency)}
+        self.spindle_features: pd.DataFrame
+            MultiIndex dataframe with calculated spindle statistics
         """
         
         # create individual datframes for each spindle
@@ -466,9 +593,14 @@ class NREM:
         if buff:
             self.calc_spindle_buffer_means()
 
+        # calculate power spectra
         self.calc_spindle_psd(psd_bandwidth)
 
-    
+        # normalize power spectra for quantification
+        self.calc_gottselig_norm(norm_range)
+
+        # run spindle statistics by channel
+        self.calc_spinstats(spin_range)
 
 
     ## Slow Oscillation Detection Methods ##

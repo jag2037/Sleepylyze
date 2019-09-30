@@ -745,6 +745,59 @@ def plot_spindlepower(n, dB=True):
     return fig
 
 
+def plot_gottselig(n, datatype='calcs'):
+    """ plot gottselig normalization for all channels 
+    
+        Parameters
+        ----------
+        datatype: str (default: 'calcs')
+            which data to plot [options: 'calcs', 'normed_pwr']
+    """
+    
+    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    eeg_chans = [x for x in n.spindle_psd.keys() if x not in exclude]
+    ncols = 6
+    nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(20, 15))
+    fig.subplots_adjust(hspace=0.8, wspace=0.5)
+    
+    for chan, ax in zip(eeg_chans, axs.flatten()):
+        data = n.spindle_psd[chan]
+        data_normed = n.spindle_psd_norm[chan]
+        
+        if datatype == 'calcs':
+            # first plot
+            ax.scatter(data_normed['values_to_fit'].index, data_normed['values_to_fit'].values, alpha=0.8, color='mediumslateblue', linewidths=0, marker='s', label='Normalization Range')
+            ax.plot(data.index, 10*np.log10(data.values), color='black', label = 'Power Spectrum')
+            ax.plot(data_normed['exp_fit_line'], color='mediumblue', label = 'Exponential fit')
+            ax.set_title(chan)
+        
+        elif datatype == 'normed_pwr':
+            # second plot
+            ax.plot(data_normed['normed_pwr'], color='black', label='Normalized power')
+            ax.axvspan(9, 16, color='lavender', alpha=0.8, label = 'Spindle Range')
+            ax.set_title(chan)
+        
+        # set subplot params
+        ax.margins(y=0)
+        #ax.set_xticks([5, 10, 15, 20])
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_title(chan, size='medium')
+    
+    # delete empty subplots
+    for i, ax in enumerate(axs.flatten()):
+        if i >= len(eeg_chans):
+            fig.delaxes(ax)
+    
+    # set figure params   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.93])
+    fig.text(0.5, 0, 'Frequency (Hz)', ha='center', size='large')
+    fig.text(0, 0.5, 'Power (dB)', va='center', rotation='vertical', size='large')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\n\nGottselig Normalization', size='large')
+
+    return fig
+
 
 ### Slow Oscillation Methods ###
 def plot_so(n):
