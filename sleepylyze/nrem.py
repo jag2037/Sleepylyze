@@ -171,18 +171,50 @@ class NREM:
             else:
                 x += 1
                 
-    # step 7: check spindle length
-    def duration_check(self):
-        """ Move spindles outside of set duration to reject list"""
-        print('Checking spindle duration...')
-        sduration = [x*self.s_freq for x in self.metadata['spindle_analysis']['sp_duration']]
-    
-        for i in self.spindle_events:
-            self.spindle_rejects[i] = [x for x in self.spindle_events[i] if not sduration[0] <= len(x) <= sduration[1]]
-            self.spindle_events[i] = [x for x in self.spindle_events[i] if sduration[0] <= len(x) <= sduration[1]]            
-
-        dur = self.metadata['spindle_analysis']['sp_duration']
-        print(f'Spindles shorter than {dur[0]}s and longer than {dur[1]}s removed.')
+    # step 7: apply rejection criteria
+    def reject_spins(self, min_chans, duration):
+        """ Reject spindles that occur over fewer than 3 channels. Apply duration thresholding to 
+            spindles that occur over fewer than X channels. 
+            [chans < 3 = reject; 3 < chans < X = apply duration threshold; X < chans = keep]
+        
+            Parameters
+            ----------
+            min_chans: int
+                minimum number of channels for spindles to occur across concurrently in order to 
+                bypass duration criterion. performs best at 1/4 of total chans
+            duration: list of float
+                duration range (seconds) for spindle thresholding
+            
+            Returns
+            -------
+            modified self.spindle_events and self.spindle_rejects attributes
+        """
+        
+        # convert duration from seconds to samples
+        sduration = [x*self.s_freq for x in duration]
+        
+        # make boolean mask for spindle presence
+        spin_bool = pd.DataFrame(index = self.data.index)
+        for chan in self.spindle_events:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+                spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
+                spin_bool[chan] = np.isin(self.data.index.values, spins_flat)
+        spin_bool['chans_present'] = spin_bool.sum(axis=1)
+        
+        # check individual spindles
+        for chan in self.spindle_events:
+            self.spindle_rejects[chan] = []
+            for spin in self.spindle_events[chan]:
+                # reject if present over less than 3 channels
+                if not np.any(spin_bool['chans_present'].loc[spin] >= 3):
+                        self.spindle_rejects[chan].append(spin)
+                        self.spindle_events[chan].remove(spin)
+                # Apply duration threshold if not present over more than minimum # of channels
+                elif not np.any(spin_bool['chans_present'].loc[spin] >= min_chans):
+                    # apply duration thresholding
+                    if not sduration[0] <= len(spin) <= sduration[1]:
+                        self.spindle_rejects[chan].append(spin)
+                        self.spindle_events[chan].remove(spin)           
                     
     # set multiIndex
     def spMultiIndex(self):
@@ -202,11 +234,12 @@ class NREM:
         self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
         
         
-    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0]):  
+    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0], min_chans=9):  
         """ Detect spindles by channel [Params/Returns] """
 
         self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder': order, 
-            'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'sp_duration': duration}
+            'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'sp_duration': duration,
+            'sp_minchans_toskipduration': min_chans}
 
         #self.s_freq = self.metadata['analysis_info']['s_freq']
     
@@ -227,15 +260,15 @@ class NREM:
                 # Detect spindles
                 self.get_spindles(i)
         
-        # Check spindle duration
-        self.duration_check()
+        # Apply rejection criteria
+        self.reject_spins(min_chans, duration)
         print('Spindle detection complete.')
         # combine dataframes
         print('Combining dataframes...')
         self.spMultiIndex()
         print('done.')
 
-    def create_spindfs(self, zmethod, buffer_len):
+    def create_spindfs(self, zmethod, buff, buffer_len):
         """ Create individual dataframes for individual spindles +/- a timedelta buffer 
 
             Parameters
@@ -243,6 +276,8 @@ class NREM:
             zmethod: str (default: 'trough')
                 method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
                 the deepest negative trough. Middle assigns zero center to the midpoint in time.
+            buff: bool (default: False)
+                    calculate spindle dataframes with buffer
             buffer_len: int
                 length in seconds of buffer to calculate around 0-center of spindle
             self.spindle_events: dict
@@ -292,30 +327,31 @@ class NREM:
         self.spindles = spindles
         print('Spindle dataframes created. Spindle data stored in obj.spindles.')
 
-        # now make buffered dataframes
-        print(f'Creating spindle dataframes with {buffer_len}s buffer...')
+        if buff:
+            # now make buffered dataframes
+            print(f'Creating spindle dataframes with {buffer_len}s buffer...')
 
-        spindles_wbuffer = {}
-        for chan in self.spindles.keys():
-            spindles_wbuffer[chan] = {}
-            for i in self.spindles[chan].keys():
-                # get +/- buffer length from zero-center of spindle
-                start = self.spindles[chan][i]['time'].loc[0] - pd.Timedelta(seconds=buffer_len)
-                end = self.spindles[chan][i]['time'].loc[0] + pd.Timedelta(seconds=buffer_len)
-                spin_buffer_data = self.data[chan]['Raw'].loc[start:end]
+            spindles_wbuffer = {}
+            for chan in self.spindles.keys():
+                spindles_wbuffer[chan] = {}
+                for i in self.spindles[chan].keys():
+                    # get +/- buffer length from zero-center of spindle
+                    start = self.spindles[chan][i]['time'].loc[0] - pd.Timedelta(seconds=buffer_len)
+                    end = self.spindles[chan][i]['time'].loc[0] + pd.Timedelta(seconds=buffer_len)
+                    spin_buffer_data = self.data[chan]['Raw'].loc[start:end]
 
-                # assign the delta time index
-                id_ms = (spin_buffer_data.index - self.spindles[chan][i]['time'].loc[0]).total_seconds()*1000
+                    # assign the delta time index
+                    id_ms = (spin_buffer_data.index - self.spindles[chan][i]['time'].loc[0]).total_seconds()*1000
 
-                # create new dataframe
-                spindles_wbuffer[chan][i] = pd.DataFrame(index=id_ms)
-                spindles_wbuffer[chan][i].index = [int(x) for x in spindles_wbuffer[chan][i].index]
-                spindles_wbuffer[chan][i].index.name='id_ms'
-                spindles_wbuffer[chan][i]['time'] = spin_buffer_data.index
-                spindles_wbuffer[chan][i]['Raw'] = spin_buffer_data.values
-        
-        self.spindles_wbuffer = spindles_wbuffer
-        print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
+                    # create new dataframe
+                    spindles_wbuffer[chan][i] = pd.DataFrame(index=id_ms)
+                    spindles_wbuffer[chan][i].index = [int(x) for x in spindles_wbuffer[chan][i].index]
+                    spindles_wbuffer[chan][i].index.name='id_ms'
+                    spindles_wbuffer[chan][i]['time'] = spin_buffer_data.index
+                    spindles_wbuffer[chan][i]['Raw'] = spin_buffer_data.values
+            
+            self.spindles_wbuffer = spindles_wbuffer
+            print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
 
     def calc_spindle_means(self):
         """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel """
@@ -433,7 +469,7 @@ class NREM:
         print('Done. Spectra stored in obj.spindle_psd. Calculations stored in obj.spindle_multitaper_calcs.')
 
     def calc_gottselig_norm(self, norm_range):
-        """ calculated normalized spindle power (from Gottselig et al., 2002)
+        """ calculated normalized spindle power on EEG channels (from Gottselig et al., 2002)
         
             TO DO: change p0 value if optimize warning
         
@@ -453,40 +489,45 @@ class NREM:
             return a*np.exp(-b*x)+c
         
         self.metadata['spindle_analysis']['gottselig_range'] = norm_range
+        exclude = ['EOG_L', 'EOG_R', 'EKG']
         
         spindle_psd_norm = {}
         for chan in self.spindle_psd:
-            
-            spindle_psd_norm[chan] = {}
-            
-            # specify data to be fit (only data in norm range)
-            incl_freqs = np.logical_or(((self.spindle_psd[chan].index >= norm_range[0][0]) & (self.spindle_psd[chan].index <= norm_range[0][1])),
-                                        ((self.spindle_psd[chan].index >= norm_range[1][0]) & (self.spindle_psd[chan].index <= norm_range[1][1])))
-            pwr_fit = self.spindle_psd[chan][incl_freqs] 
+            if chan not in exclude:
+                spindle_psd_norm[chan] = {}
 
-            # set x and y values (convert y to dB)
-            x_pwr_fit = pwr_fit.index
-            y_pwr_fit = 10 * np.log10(pwr_fit.values)
-        
-            # fit exponential -- try second fit line if first throws infinite covariance
-            with warnings.catch_warnings():
-                warnings.simplefilter("error", OptimizeWarning)
-                try:
-                    popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 0, 1))
-                except OptimizeWarning:
-                    popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
-            
-            xx = self.spindle_psd[chan].index
-            yy = exponential_func(xx, *popt)
-            
-            # subtract the fit line
-            psd_norm = pd.Series(10*np.log10(self.spindle_psd[chan].values) - yy, index=self.spindle_psd[chan].index)
-            
-            # save the values
-            spindle_psd_norm[chan]['normed_pwr'] = psd_norm
-            spindle_psd_norm[chan]['values_to_fit'] = pd.Series(y_pwr_fit, index=x_pwr_fit)
-            spindle_psd_norm[chan]['exp_fit_line'] = pd.Series(yy, index=xx) 
-            
+                # specify data to be fit (only data in norm range)
+                incl_freqs = np.logical_or(((self.spindle_psd[chan].index >= norm_range[0][0]) & (self.spindle_psd[chan].index <= norm_range[0][1])),
+                                            ((self.spindle_psd[chan].index >= norm_range[1][0]) & (self.spindle_psd[chan].index <= norm_range[1][1])))
+                pwr_fit = self.spindle_psd[chan][incl_freqs] 
+
+                # set x and y values (convert y to dB)
+                x_pwr_fit = pwr_fit.index
+                y_pwr_fit = 10 * np.log10(pwr_fit.values)
+
+                # fit exponential -- try second fit line if first throws infinite covariance
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", OptimizeWarning)
+                    try:
+                        popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 0, 1))
+                    except (OptimizeWarning, RuntimeError):
+                        try:
+                            popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
+                        except RuntimeError:
+                            print(f'scipy.optimize.curvefit encountering RuntimeError on channel {chan}')
+                            raise
+
+                xx = self.spindle_psd[chan].index
+                yy = exponential_func(xx, *popt)
+
+                # subtract the fit line
+                psd_norm = pd.Series(10*np.log10(self.spindle_psd[chan].values) - yy, index=self.spindle_psd[chan].index)
+
+                # save the values
+                spindle_psd_norm[chan]['normed_pwr'] = psd_norm
+                spindle_psd_norm[chan]['values_to_fit'] = pd.Series(y_pwr_fit, index=x_pwr_fit)
+                spindle_psd_norm[chan]['exp_fit_line'] = pd.Series(yy, index=xx) 
+
         self.spindle_psd_norm = spindle_psd_norm
 
 
@@ -512,39 +553,43 @@ class NREM:
         columns = pd.MultiIndex.from_arrays([lvl1, lvl2])
         spindle_stats = pd.DataFrame(columns=columns)
         
+        #exclude non-EEG channels
+        exclude = ['EOG_L', 'EOG_R', 'EKG']
+
         # fill dataframe
         for chan in self.spindles:
-            # calculate spindle count
-            count = len(self.spindles[chan])
-            
-            if count == 0:
-                spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None, None, None]
-            
-            else:
-                # calculation spindle duration
-                durations = np.array([(self.spindles[chan][spin].time.iloc[-1] - self.spindles[chan][spin].time.iloc[0]).total_seconds() for spin in self.spindles[chan]])
-                duration_mean = durations.mean()
-                duration_sd = durations.std()
+            if chan not in exclude:
+                # calculate spindle count
+                count = len(self.spindles[chan])
+                
+                if count == 0:
+                    spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None, None, None]
+                
+                else:
+                    # calculation spindle duration
+                    durations = np.array([(self.spindles[chan][spin].time.iloc[-1] - self.spindles[chan][spin].time.iloc[0]).total_seconds() for spin in self.spindles[chan]])
+                    duration_mean = durations.mean()
+                    duration_sd = durations.std()
 
-                # calculate amplitude
-                amplitudes = np.concatenate([self.spindles[chan][x].Raw.values for x in self.spindles[chan]])
-                amp_rms = np.sqrt(np.array([x**2 for x in amplitudes]).mean())
-                amp_sd = amplitudes.std()
+                    # calculate amplitude
+                    amplitudes = np.concatenate([self.spindles[chan][x].Raw.values for x in self.spindles[chan]])
+                    amp_rms = np.sqrt(np.array([x**2 for x in amplitudes]).mean())
+                    amp_sd = amplitudes.std()
 
-                # calculate density
-                density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
+                    # calculate density
+                    density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
 
-                # calculate inter-spindle-interval (ISI)
-                isi_arr = np.array([(self.spindles[chan][x+1].time.iloc[0] - self.spindles[chan][x].time.iloc[-1]).total_seconds() for x in self.spindles[chan] if x < len(self.spindles[chan])-1])
-                isi_mean = isi_arr.mean()
-                isi_sd = isi_arr.std()
+                    # calculate inter-spindle-interval (ISI)
+                    isi_arr = np.array([(self.spindles[chan][x+1].time.iloc[0] - self.spindles[chan][x].time.iloc[-1]).total_seconds() for x in self.spindles[chan] if x < len(self.spindles[chan])-1])
+                    isi_mean = isi_arr.mean()
+                    isi_sd = isi_arr.std()
 
-                # calculate center frequency & total spindle power
-                spindle_power = self.spindle_psd_norm[chan]['normed_pwr'][(self.spindle_psd[chan].index >= spin_range[0]) & (self.spindle_psd[chan].index <= spin_range[1])]
-                center_freq = spindle_power.idxmax()
-                total_pwr = spindle_power.sum()
+                    # calculate center frequency & total spindle power
+                    spindle_power = self.spindle_psd_norm[chan]['normed_pwr'][(self.spindle_psd[chan].index >= spin_range[0]) & (self.spindle_psd[chan].index <= spin_range[1])]
+                    center_freq = spindle_power.idxmax()
+                    total_pwr = spindle_power.sum()
 
-                spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms, amp_sd, density, isi_mean, isi_sd, center_freq, total_pwr]
+                    spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms, amp_sd, density, isi_mean, isi_sd, center_freq, total_pwr]
 
         self.spindle_stats = spindle_stats   
         
@@ -586,7 +631,7 @@ class NREM:
         """
         
         # create individual datframes for each spindle
-        self.create_spindfs(zmethod, buffer_len)
+        self.create_spindfs(zmethod, buff, buffer_len)
 
         # calculate spindle & spindle buffer means
         self.calc_spindle_means()
