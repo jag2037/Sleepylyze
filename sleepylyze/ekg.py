@@ -1,22 +1,28 @@
 """ This file contains the EKG class 
 
-    All R peak detections should be manually inspected with sleepyplot function plot_ekgibi
-    and false detections manually removed with rm_peaks method. After rpeak examination, 
+    All R peak detections should be manually inspected with EKG.plot method and
+    false detections manually removed with rm_peaks method. After rpeak examination, 
     NaN data can be accounted for by removing false IBIs with rm_ibi method.
+
+    TO DO:
+        1. Add option to extract sampling frequency & milliseconds from time column
+        2. Re-add code to import previously cleaned nn data
+        3. Add range options for indices for rm peaks and rm ibis
 
 """
 
 import datetime
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import numpy as np 
 import os
 import pandas as pd 
 import scipy as sp
-import scipy.io as io
-import scipy.stats as stats
+import shapely.geometry as SG
 import statistics
-#import pyhrv.nonlinear as nl
 
 from mne.time_frequency import psd_array_multitaper
+from pandas.plotting import register_matplotlib_converters
 from scipy.signal import welch
 
 class EKG:
@@ -25,7 +31,7 @@ class EKG:
     Parameters
     ----------
     df: pd.DataFrame
-        Dataframe containing 'EKG' column data
+        Dataframe containing 'EKG' column data. First two rows are headers [Channel, Datatype]
     
     Attributes
     ----------
@@ -88,6 +94,8 @@ class EKG:
         if detect_peaks == True:
             # detect R peaks & calculate inter-beat intevals
             self.calc_RR(smooth, mw_size, upshift, rm_artifacts)
+
+        register_matplotlib_converters()
         
         
     def load_ekg(self, min_dur):
@@ -563,26 +571,25 @@ class EKG:
         else:
             savearts = self.metadata['file_info']['fname'].split('.')[0] + '_rpeak_artifacts.txt'
             art_file = os.path.join(savedir, savearts)
-            self.rpeak_artifacts.to_csv(art_file)
+            self.rpeak_artifacts.to_csv(art_file, header=False)
             print('R peak artifacts exported.')
 
         # save rpeaks_added list
         savename = self.metadata['file_info']['fname'].split('.')[0] + '_rpeaks_added.txt'
         savefile = os.path.join(savedir, savename)
-        self.rpeaks_added.to_csv(savefile)
+        self.rpeaks_added.to_csv(savefile, header=False)
         print('R peak additions exported.')
 
         # save R peak detections
         savepeaks = self.metadata['file_info']['fname'].split('.')[0] + '_rpeaks.txt'
         peaks_file = os.path.join(savedir, savepeaks)
-        #self.rpeaks.to_csv(peaks_file)
-        self.rpeaks.to_csv(peaks_file)
+        self.rpeaks.to_csv(peaks_file, header=False)
         print('R peaks exported.')
 
         # save ibi_artifact list
         savename = self.metadata['file_info']['fname'].split('.')[0] + '_ibi_artifacts.txt'
         savefile = os.path.join(savedir, savename)
-        self.ibi_artifacts.to_csv(savefile)
+        self.ibi_artifacts.to_csv(savefile, header=False)
         print('IBI artifacts exported.')
 
         # save RR intervals
@@ -615,6 +622,7 @@ class EKG:
         print('Done.')
 
 
+
     def calc_tstats(self, itype):
         """ Calculate commonly used time domain HRV statistics. Min/max HR is determined over 5 RR intervals 
 
@@ -640,7 +648,7 @@ class EKG:
             self.nn_diff = ii_diff
             self.nn_diffsq = ii_diffsq
 
-        # heartrate in bpm
+        # heartrate in bpm 
         hr_avg = 60/np.mean(ii)*1000
         
         rollmean_ii = pd.Series(ii).rolling(5).mean()
@@ -661,23 +669,8 @@ class EKG:
         pxx20 = sum(np.abs(ii_diff) >= 20.0)/len(ii_diff)*100
         pxx50 = sum(np.abs(ii_diff) >= 50.0)/len(ii_diff)*100
 
-        # hrv triangular index
-        bin_width = 7.8125
-        stat, bin_edges, bin_num = stats.binned_statistic(ii, ii, bins = np.arange(min(ii), max(ii) + bin_width, bin_width), statistic='count')
-        hti = sum(stat)/max(stat)
-        # triangular interpolation of NN interval
-        # if 1st bin is max, can't calculatin TINN
-        #if stat[0] == max(stat):
-        #    tinn = None
-        #else:
-            # this calculation is wrong
-        #    tinn = bin_edges[-1] - bin_edges[0]
-        tinn = 'calc not programmed'
-        #print('HRV Triangular Index (HTI) = {0:.2f}.\nTriangular Interpolation of NN Interval Histogram (TINN) (ms) = {1}\n\t*WARNING: TINN calculation may be incorrect. Formula should be double-checked'.format(self.hti, self.tinn))
-        #print('Call ekg.__dict__ for all statistics')
         self.time_stats = {'linear':{'HR_avg': hr_avg, 'HR_max': hr_max, 'HR_min': hr_min, 'IBI_mean': ibi,
                                     'SDRR': sdrr, 'RMSSD': rmssd, 'pXX20': pxx20, 'pXX50': pxx50},
-                            'geometric': {'hti':hti, 'tinn':tinn}
                             }
         print('Time domain stats stored in obj.time_stats\n')
 
@@ -866,52 +859,9 @@ class EKG:
         self.calc_fbands(method, bands)
         print('Frequency measures stored in obj.freq_stats\n')
 
-    
-    def calc_nlstats(self, itype, calc_dfa=False, save_plots=False):
-        """ calculate nonlinear dynamics poincare & sample entropy 
-            Note: From pyhrv non-linear module 
-
-            Params
-            ------
-            itype: str
-                Interval type (options: 'rr', 'nn')
-            calc_dfa: bool (default: False)
-                Option to calculate detrended fluctuation analysis. Appropriate
-                for data several hours long
-        """
-        
-        # specify data
-        if itype == 'rr':
-            ii = self.rr
-        elif itype == 'nn':
-            ii = self.nn[~np.isnan(self.nn)]
-
-        print('Calculating nonlinear statistics...')
-        nonlinear_stats = {}
-
-        # poincare
-        pc = nl.poincare(ii)
-        nonlinear_stats['poincare'] = {'sd1': pc[1], 'sd2': pc[2], 'sd_ratio':pc[3], 'ellipse_area':pc[4]}
-        
-        # sample entropy (tolerance and dim set to match Riganello et al. 2018)
-        sampEN = nl.sample_entropy(ii, dim=2, tolerance=0.15)
-        nonlinear_stats['entropy'] = {'sampEN':sampEN[0]}
-
-        # detrended fluctuation analysis
-        if calc_dfa is True:
-            dfa = nl.dfa(ii)
-            nonlinear_stats['dfa'] = {'alpha1': dfa[1], 'alpha2': dfa[2]}
-
-        if save_plots == True:
-            nonlinear_stats['poincare']['plot'] = pc[0]
-            if calc_dfa is True:
-                nonlinear_stats['dfa']['plot'] = dfa[0]
-
-        self.nonlinear_stats = nonlinear_stats
-        print('Nonlinear stats stored in obj.nonlinear_stats\n')
 
 
-    def hrv_stats(self, itype='nn', nn_file=None, method='mt', bandwidth=0.01, nl=True):
+    def hrv_stats(self, itype='nn', nn_file=None, method='mt', bandwidth=0.01):
         """ Calculate all statistics on IBI object 
 
             TO DO: Add freq_stats arguments to hrv_stats params? 
@@ -944,10 +894,6 @@ class EKG:
         self.calc_tstats(itype)
         self.calc_fstats(itype, method, bandwidth)
         
-        if nl == True:
-            # NOTE: pyhrv package must be successfully downloaded and imported
-            # before using non-linear stats
-            self.calc_nlstats(itype)
         print('Done.')
 
     def to_spreadsheet(self, spreadsheet, savedir):
@@ -962,7 +908,8 @@ class EKG:
         """
         
         # this is from before division to two classes. 'data' and 'rpeaks' arrays shouldn't exist in IBI object.
-        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_added', 'ibi_artifacts','rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_fband_vals']
+        arrays = ['data', 'rpeaks', 'rr', 'rr_diff', 'rr_diffsq', 'rpeak_artifacts', 'rpeaks_added', 'ibi_artifacts',
+        'rpeaks_df', 'nn', 'nn_diff', 'nn_diffsq', 'rr_arts', 'ii_interp', 'psd_mt', 'psd_welch', 'psd_fband_vals']
         data = {k:v for k,v in vars(self).items() if k not in arrays}
         
         reform = {(level1_key, level2_key, level3_key): values
@@ -1055,40 +1002,118 @@ class EKG:
         except AttributeError: 
             pass
         else:
-            savepsd = saveinfo + '_psd.txt'
+            savepsd = saveinfo + '_psd_mt.txt'
+            psdfile = os.path.join(savedir, savepsd)
+            psd_mt_df = pd.DataFrame(self.psd_mt)
+            psd_mt_df.to_csv(psdfile, index=False)
+        try:
+            self.psd_welch
+        except AttributeError: 
+            pass
+        else:
+            savepsd = saveinfo + '_psd_welch.txt'
             psdfile = os.path.join(savedir, savepsd)
             psd_mt_df = pd.DataFrame(self.psd_mt)
             psd_mt_df.to_csv(psdfile, index=False)
 
-def loadEKG_batch(path, stage=None, min_dur=True):
-    """ Batch import all raw data from a given directory 
-    
-    Parameters
-    ----------
-    dirc: str
-        Directory containing raw files to import
-    stage: str (Default: None)
-        Sleep stage to import [Options: awake, rem, s1, s2, ads, sws, rcbrk]
 
-    Returns
-    -------
-    List of EKG class objects
+    ## plotting methods ##
+    def plotpeaks(self, rpeaks=True, ibi=True):
+        """ plot EKG class instance """
+        # set number of panels
+        if ibi == True:
+            plots = ['ekg', 'ibi']
+            data = [self.data, self.rpeaks_df['ibi_ms']]
+            
+        else:
+            plots = ['ekg']
+            data = [self.data]
 
-    NOTE: this fails if stage not specified and folder does not contain any cycles
-    of a given sleep stage. Can write in code to pull present stages from filenames
-    to fix this.
+        fig, axs = plt.subplots(len(plots), 1, sharex=True, figsize = [9.5, 6])
+        
+        for dat, ax, plot in zip(data, axs, plots):
+            if plot == 'ekg' and rpeaks == True:
+                ax.plot(dat)
+                ax.scatter(self.rpeaks.index, self.rpeaks.values, color='red')
+                ax.set_ylabel('EKG uV')
+            elif plot == 'ibi':
+                ax.plot(dat, color='grey', marker='.', markersize=8, markerfacecolor=(0, 0, 0, 0.8), markeredgecolor='None')
+                ax.set_ylabel('Inter-beat interval (ms)')
+                ax.set_xlabel('Time')
+            ax.margins(x=0)
+            # show microseconds for mouse-over
+            ax.format_xdata = lambda d: mdates.num2date(d).strftime('%H:%M:%S.%f')[:-3]
 
-    """
 
-    files = [x for x in os.listdir(path) if stage in x]
-    if len(files) == 0:
-        print('"'+ stage +'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk. Aborting.')
 
-    names = ['ekg'+ str(n) for n, m in enumerate(files)]
-    ekg_set = []
-    for file, name in zip(files, names):
-        name = EKG(file, path, min_dur)
-        ekg_set.append(name)
 
-    print('\nDone.')
-    return ekg_set
+    def plotPS(self, method='mt', dB=False, bands=True, save=True, savedir=None):
+        """ Plot power spectrum """
+        
+         # set title
+        title = self.metadata['file_info']['in_num'] + ' ' + self.metadata['file_info']['start_date'] + '\n' + self.metadata['file_info']['sleep_stage'] + ' ' + self.metadata['file_info']['cycle']
+        try:
+            n.metadata['file_info']['epoch']
+        except:
+            pass
+        else:
+            title = title + ' ' +  n.metadata['file_info']['epoch']
+
+        # set data to plot
+        if method == 'mt':
+            psd = self.psd_mt
+        elif method == 'welch':
+            psd = self.psd_welch
+        
+        # transform units
+        if dB == True:
+            pwr = 10 * np.log10(psd['pwr'])
+            ylabel = 'Power spectral density (dB)'
+        else:
+            pwr = psd['pwr']/1e6 # convert to seconds
+            ylabel = 'Power spectral density (s^2/Hz)'
+        
+        fig, ax = plt.subplots()
+        
+        # plot just spectrum
+        if bands == False:
+            ax.plot(psd['freqs'], pwr)
+        
+        # or plot spectrum colored by frequency band
+        elif bands == True:
+            # use matplotlib.patches.Patch to make objects for legend w/ data
+            ax.plot(psd['freqs'], pwr, color='black')
+            
+            yline = SG.LineString(list(zip(psd['freqs'],pwr)))
+            #ax.plot(yline, color='black')
+            
+            colors = [None, 'yellow', 'orange', 'tomato']
+            for (key, value), color in zip(self.psd_fband_vals.items(), colors):
+                if value['idx'] is not None:
+                    # get intercepts & plot vertical lines for bands
+                    xrange = [float(x) for x in self.freq_stats[key]['freq_range'][1:-1].split(",")] 
+                    xline = SG.LineString([(xrange[1], min(pwr)), (xrange[1], max(pwr))])
+                    coords = np.array(xline.intersection(yline))            
+                    ax.vlines(coords[0], 0, coords[1], colors='black', linestyles='dotted')
+                    
+                    # fill spectra by band
+                    ax.fill_between(psd['freqs'], pwr, where = [xrange[0] <= x <=xrange[1] for x in psd['freqs']], 
+                                    facecolor=color, alpha=.6)    
+            
+        ax.set_xlim(0, 0.4)
+        ax.margins(y=0)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel(ylabel)
+        plt.suptitle(title)
+
+        if save:
+            if savedir is None:
+                print('ERROR: File not saved. Please specify savedir argument.')
+            else:
+                savename = os.path.join(savedir, fname.split('.')[0]) + '_psd.png'
+                fig.savefig(savename, dpi=300)
+
+        return fig
