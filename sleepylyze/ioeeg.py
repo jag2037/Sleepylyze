@@ -1,7 +1,10 @@
 """ 
+    This file contains a Dataset class for raw EEG files collected from the Natus XLTEK
+    clinical EEG system
+
     To Do:
-        Add support for earlier headboxes
         Update docstrings
+        Add support for earlier headboxes
         Incorporate metadata pSQL metadata table update
 """
 
@@ -15,7 +18,6 @@ import os
 import pandas as pd
 import psycopg2
 import re
-#import scipy.io as io # necessary?
 import statistics
 from sqlalchemy import *
 
@@ -26,27 +28,10 @@ class Dataset:
     NOTE: This assumes a continuous record. If record breaks are present they WILL NOT
     be detected and timestamps will be inaccurate
     
-    Parameters
-    ----------
-    fname: str
-        xltek .txt filename
-    fpath: str
-        absolute path to file
-    trim:
-    start:
-    end:
-    noise_log:
-    rm_chans:
-    
     Attributes
     ----------
-    fname: str
-        xltek .txt filename
-    fpath: str
-        absolute path to file
-    filepath: str
-        absolute path to file
-    in_num: str
+    metadata: dict
+        import import & analysis metadata
     s_freq: int
         sampling frequency
     chans: int
@@ -61,12 +46,59 @@ class Dataset:
         channel names
     data: pandas.DataFrame
         raw EEG/EKG data
+    
+    Methods
+    -------
+    get_info
+    get_chans
+    load_eeg
+    trim_eeg
+    to_psql
+    clean_eeg
+    clean_eeg_psql
+    load_hyp
+    export_hypstats
+    cut_EEG
+    export_csv
     """
     
     def __init__(self, fname, fpath=None, trim=True, start='22:00:00', end='07:00:00', noise_log=None, rm_chans=None, 
-                psql=True, psql_user = 'postgres', psql_password='schifflab', psql_database='raw_eeg', 
+                psql=True, psql_user = None, psql_password=None, psql_database='raw_eeg', 
                 data_dir='D:\Jackie\RawEEG'):
-        """ docstring """
+        """ Initialize Dataset object and scrub noise
+
+            Parameters
+            ----------
+            fname: str
+                filename
+            fpath: str
+                path to file
+            trim: bool (default: True)
+                trim EEG file
+            start: str (default: '22:00:00')
+                time to begin trim (inclusive)
+            end: str (default: '07:00:00')
+                time to end trim (exclusive)
+            noise_log: str
+                noise log file (including path)
+            rm_chans: list of str (default: None)
+                bad channels to remove
+            psql: bool (default: True)
+                upload data to local postgres server & scrub through psql
+            psql_user: str
+                local postgres server username
+            psql_pass: str
+                local postgres server password
+            psql_database: str (default: 'raw_eeg')
+                postgres database to upload to
+            data_dir: str (default: 'D:\Jackie\RawEEG')
+                directory to save cleaned and condensed raw EEG csv files
+
+        Returns
+        -------
+        ioeeg.Dataset object containing raw EEG data, optionally cleaned and trimmed
+
+        """
         
         if fpath is not None:
             filepath = os.path.join(fpath, fname)
@@ -171,7 +203,7 @@ class Dataset:
         self.metadata['channels'] = channels
             
     def load_eeg(self):
-        """ docstring here """
+        """ Import raw EEG data """
         # set the last column of data to import
         end_col = len(self.metadata['channels']) + 3 # works for MOBEE32, check for other headboxes
         
@@ -202,6 +234,10 @@ class Dataset:
             New start time of data (inclusive). Any previous times will be removed
         end: str (format: hh:mm:ss)
             New end time of data (exclusive). This second + any later seconds will be removed
+
+        Returns
+        -------
+        Dataset.data attribute trimmed to start:end times
         """
         
         print('Trimming EEG...')
@@ -285,8 +321,8 @@ class Dataset:
 
         Returns
         -------
-
-
+        self.data pd.DataFrame of raw EEG with artifact times replaced with NaNs
+        Condensed cleaned dataframe as csv output
         """
     
         # create a link to the sql database
@@ -457,9 +493,10 @@ class Dataset:
 
         Returns:
         --------
-        stage_cuts: dict
+        self.stage_cuts: dict
             Nested dict of sleep stages, cycles, and DateTimeIndex
             Ex. {'awake': {1: DateTimeIndex[(...)], 2: DateTimeIndex[(...)]}}
+        self.hyp_stats
         
         """
         # read the first line to get starting date & time
