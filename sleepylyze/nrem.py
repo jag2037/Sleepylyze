@@ -8,6 +8,7 @@
 """
 
 import datetime
+import glob
 import joblib
 import os
 import numpy as np
@@ -20,16 +21,36 @@ from scipy.optimize import OptimizeWarning, curve_fit
 
 class NREM:
     """ General class for nonREM EEG segments """
-    def __init__(self, fname, fpath, epoched=False):
-        filepath = os.path.join(fpath, fname)
+    def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=True):
+        """ Initialize NREM object
+            
+            Parameters
+            ----------
+            fname: str
+                filename (if loading a single dataframe)
+            fpath: str
+                absolute path to file(s) directory
+            match: str
+                string to match within the filename of all files to load (Ex: '_s2_')
+            in_num: str
+                IN number, for batch loading
+            epoched: bool (default: False)
+                whether data has been epoched (if loading a single dataframe)
+            batch: bool (default: True)
+                whether to load all matching files from the fpath directory
+        """
+        if batch:
+            self.load_batch(fpath, match, in_num)
+        else:
+            filepath = os.path.join(fpath, fname)
 
-        in_num, start_date, slpstage, cycle = fname.split('_')[:4]
-        self.metadata = {'file_info':{'in_num': in_num, 'fname': fname, 'path': filepath,
-                                    'sleep_stage': slpstage,'cycle': cycle} }
-        if epoched is True:
-            self.metadata['file_info']['epoch'] = fname.split('_')[4]
+            in_num, start_date, slpstage, cycle = fname.split('_')[:4]
+            self.metadata = {'file_info':{'in_num': in_num, 'fname': fname, 'path': filepath,
+                                        'sleep_stage': slpstage,'cycle': cycle} }
+            if epoched is True:
+                self.metadata['file_info']['epoch'] = fname.split('_')[4]
 
-        self.load_segment()
+            self.load_segment()
 
     def load_segment(self):
         """ Load eeg segment and extract sampling frequency. """
@@ -49,6 +70,35 @@ class NREM:
 
         print('EEG successfully imported.')
 
+    def load_batch(self, fpath, match, in_num):
+        """ Load a batch of EEG segments & reset index from absolute to relative time """
+        if in_num == None:
+            in_num = input('Please specify IN number: ')
+
+        if match == None:
+            match = input('Please specify filename string to match for batch loading (ex. \'_s2_\'): ')
+
+        # get a list of all matching files
+        glob_match = fpath+ '/*' + match + '*'
+        files = glob.glob(glob_match)
+
+        # load & concatenate files into a single dataframe
+        data = pd.concat((pd.read_csv(file,  header = [0, 1], index_col = 0, parse_dates=True, low_memory=False) for file in files)).sort_index()
+
+        # extract sampling frequency
+        s_freq = 1/(data.index[1] - data.index[0]).total_seconds()
+
+        # reset the index to continuous time
+        ind_freq = str(int(1/s_freq*1000000))+'us'
+        ind_start = '1900-01-01 00:00:00.000'
+        ind = pd.date_range(start = ind_start, periods=len(data), freq=ind_freq)
+        data.index = ind
+
+        # set metadata & attributes
+        self.metadata = {'file_info':{'in_num': in_num, 'files': files, 'dir': fpath,
+                                        'match_phrase': match} }
+        self.data = data
+        self.s_freq = s_freq
 
     ## Spindle Detection Methods ##
 
@@ -124,7 +174,6 @@ class NREM:
     
     # step 6: detect spindles
     def get_spindles(self, i):
-
         # vectorize data for detection looping
         lo, hi = self.spThresholds[i]['Low Threshold'], self.spThresholds[i]['High Threshold'] 
         mavg_varr, mavg_iarr = np.asarray(self.spRMSmavg[i]), np.asarray(self.spRMSmavg[i].index)
@@ -237,7 +286,7 @@ class NREM:
     def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0], min_chans=9):  
         """ Detect spindles by channel [Params/Returns] """
 
-        self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder': order, 
+        self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder_half': order, 
             'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'sp_duration': duration,
             'sp_minchans_toskipduration': min_chans}
 
@@ -250,6 +299,7 @@ class NREM:
 
         # loop through channels (all channels for plotting ease)
         for i in self.channels:
+            print(f'Detecting spindles on {i}...')
            # if i not in ['EOG_L', 'EOG_R', 'EKG']:
                 # Filter
                 self.spfilt(i)
@@ -261,6 +311,7 @@ class NREM:
                 self.get_spindles(i)
         
         # Apply rejection criteria
+        print('Pruning spindle detections...')
         self.reject_spins(min_chans, duration)
         print('Spindle detection complete.')
         # combine dataframes
@@ -270,6 +321,7 @@ class NREM:
 
     def create_spindfs(self, zmethod, buff, buffer_len):
         """ Create individual dataframes for individual spindles +/- a timedelta buffer 
+            ** NOTE: buffer doesn't have spinso filter incorporated
 
             Parameters
             ----------
@@ -304,7 +356,12 @@ class NREM:
             for i, spin in enumerate(self.spindle_events[chan]):
                 # create individual df for each spindle
                 spin_data = self.data[chan]['Raw'].loc[self.spindle_events[chan][i]]
-                #spin_data_normed = (spin_data - min(spin_data))/(max(spin_data)-min(spin_data))
+                spfilt_data = self.spfiltEEG[chan]['Filtered'].loc[self.spindle_events[chan][i]]
+                try:
+                    spsofilt_data = self.spsofiltEEG[chan]['Filtered'].loc[self.spindle_events[chan][i]]
+                # skip spsofilt if not yet calculated (if SO detections haven't been performed)
+                except AttributeError:
+                    pass
                 
                 # set new index so that each spindle is centered around zero
                 if zmethod == 'middle':
@@ -322,7 +379,12 @@ class NREM:
                 spindles[chan][i].index.name='id_ms'
                 spindles[chan][i]['time'] = spin_data.index
                 spindles[chan][i]['Raw'] = spin_data.values
-                #spindles[chan][i]['Raw_normed'] = spin_data_normed.values
+                spindles[chan][i]['spfilt'] = spfilt_data.values
+                try:
+                    spindle[chan][i]['spsofilt'] = spsofilt_data.values
+                # skip spsofilt if not yet calculated (if SO detections haven't been performed)
+                except NameError:
+                    pass
         
         self.spindles = spindles
         print('Spindle dataframes created. Spindle data stored in obj.spindles.')
@@ -353,8 +415,14 @@ class NREM:
             self.spindles_wbuffer = spindles_wbuffer
             print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
 
-    def calc_spindle_means(self):
-        """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel """
+    def calc_spindle_means(self, datatype):
+        """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel 
+        
+            Parameters
+            ----------
+            datatype: str (default: 'spfilt')
+                Which data to use for averaging (options: 'Raw', 'spfilt', 'spsofilt')
+        """
         
         print('Aligning spindles...')
         # align spindles accoridng to timedelta & combine into single dataframe
@@ -367,7 +435,7 @@ class NREM:
                 rsuffix = list(range(1, len(self.spindles[chan])))
                 # join on the index for each spindle
                 for x in rsuffix:
-                    agg_df = agg_df.join(self.spindles[chan][x]['Raw'], how='outer', rsuffix=rsuffix[x-1])
+                    agg_df = agg_df.join(self.spindles[chan][x][datatype], how='outer', rsuffix=rsuffix[x-1])
                 spindle_aggregates[chan] = agg_df
             
         print('Calculating spindle statistics...')
@@ -389,7 +457,9 @@ class NREM:
 
 
     def calc_spindle_buffer_means(self):
-        """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel """
+        """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel 
+            NOTE: This needs to be updated to include datatype parameter to stay aligned with calc_spin_means
+        """
         
         print('Aligning spindles...')
         # align spindles accoridng to timedelta & combine into single dataframe
@@ -595,7 +665,8 @@ class NREM:
         
         print('Spindle stats stored in obj.spindle_stats.\nDone.')
 
-    def analyze_spindles(self, zmethod='trough', buff=False, buffer_len=3, psd_bandwidth=1.0, norm_range=[(4,6), (18, 25)], spin_range=[9, 16]):
+    def analyze_spindles(self, zmethod='trough', buff=False, buffer_len=3, psd_bandwidth=1.0, 
+                        norm_range=[(4,6), (18, 25)], spin_range=[9, 16], datatype = 'spfilt'):
         """ starting code for spindle statistics/visualizations 
 
         Parameters
@@ -613,6 +684,8 @@ class NREM:
             frequency ranges for gottselig normalization
         spin_range: list of int
             spindle frequency range to be used for calculating center frequency
+        datatype: str (default: 'spfilt')
+                Which data to use for averaging (options: 'Raw', 'spfilt', 'spsofilt')
 
         Returns
         -------
@@ -634,7 +707,7 @@ class NREM:
         self.create_spindfs(zmethod, buff, buffer_len)
 
         # calculate spindle & spindle buffer means
-        self.calc_spindle_means()
+        self.calc_spindle_means(datatype)
         if buff:
             self.calc_spindle_buffer_means()
 
@@ -800,7 +873,7 @@ class NREM:
             self.so_rejects
         """
         
-        self.metadata['so_analysis'] = {'so_filtwindow': wn, 'so_filtorder': order, 'posx_thres': posx_thres,
+        self.metadata['so_analysis'] = {'so_filtwindow': wn, 'so_filtorder_half': order, 'posx_thres': posx_thres,
                                         'npeak_thres': npeak_thres, 'negpos_thres': negpos_thres}
         
         # set attributes
