@@ -5,15 +5,19 @@
 
     TO DO: 
         For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
+        Optimize self.create_spindfs() method
+        Work out memory allocation when calculating power spectra
 """
 
 import datetime
 import glob
 import joblib
+import json
 import os
 import numpy as np
 import pandas as pd
 import warnings
+import xlsxwriter
 
 from mne.time_frequency import psd_array_multitaper
 from scipy.signal import butter, sosfiltfilt, sosfreqz
@@ -21,7 +25,7 @@ from scipy.optimize import OptimizeWarning, curve_fit
 
 class NREM:
     """ General class for nonREM EEG segments """
-    def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=True):
+    def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False):
         """ Initialize NREM object
             
             Parameters
@@ -64,14 +68,16 @@ class NREM:
         diff = data.index.to_series().diff()[1:2]
         s_freq = 1000000/diff[0].microseconds
 
-        self.metadata['file_info']['start_time'] = data.index[0]
+        self.metadata['file_info']['start_time'] = str(data.index[0])
         self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
         self.s_freq = s_freq
 
         print('EEG successfully imported.')
 
     def load_batch(self, fpath, match, in_num):
-        """ Load a batch of EEG segments & reset index from absolute to relative time """
+        """ Load a batch of EEG segments & reset index from absolute to relative time 
+            TO DO: Throw error if IN doesn't match any files in folder
+        """
         if in_num == None:
             in_num = input('Please specify IN number: ')
 
@@ -79,7 +85,7 @@ class NREM:
             match = input('Please specify filename string to match for batch loading (ex. \'_s2_\'): ')
 
         # get a list of all matching files
-        glob_match = fpath+ '/*' + match + '*'
+        glob_match = f'{fpath}/*{match}*'
         files = glob.glob(glob_match)
 
         # load & concatenate files into a single dataframe
@@ -96,9 +102,11 @@ class NREM:
 
         # set metadata & attributes
         self.metadata = {'file_info':{'in_num': in_num, 'files': files, 'dir': fpath,
-                                        'match_phrase': match} }
+                                        'match_phrase': match},
+                        'analysis_info':{'s_freq': s_freq} }
         self.data = data
         self.s_freq = s_freq
+
 
     ## Spindle Detection Methods ##
 
@@ -299,8 +307,8 @@ class NREM:
 
         # loop through channels (all channels for plotting ease)
         for i in self.channels:
-            print(f'Detecting spindles on {i}...')
            # if i not in ['EOG_L', 'EOG_R', 'EKG']:
+                print(f'Detecting spindles on {i}...')
                 # Filter
                 self.spfilt(i)
                 # Calculate RMS & smooth
@@ -319,7 +327,7 @@ class NREM:
         self.spMultiIndex()
         print('done.')
 
-    def create_spindfs(self, zmethod, buff, buffer_len):
+    def create_spindfs(self, zmethod, trough_dtype, buff, buffer_len):
         """ Create individual dataframes for individual spindles +/- a timedelta buffer 
             ** NOTE: buffer doesn't have spinso filter incorporated
 
@@ -328,6 +336,8 @@ class NREM:
             zmethod: str (default: 'trough')
                 method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
                 the deepest negative trough. Middle assigns zero center to the midpoint in time.
+            trough_dtype: str (default: 'spfilt')
+                Which data to use for picking the most negative trough for centering [options: 'Raw', 'spfilt']
             buff: bool (default: False)
                     calculate spindle dataframes with buffer
             buffer_len: int
@@ -349,6 +359,7 @@ class NREM:
         print('Creating individual spindle dataframes...')
         
         self.metadata['spindle_analysis']['zmethod'] = zmethod
+        self.metadata['spindle_analysis']['trough_datatype'] = trough_datatype
 
         spindles = {}
         for chan in self.spindle_events.keys():
@@ -370,8 +381,10 @@ class NREM:
                     t_id = np.linspace(-half_length, half_length, int(2*half_length//1))
                     # convert from samples to ms
                     id_ms = t_id * (1/self.metadata['analysis_info']['s_freq']*1000)
-                elif zmethod == 'trough':
+                elif zmethod == 'trough' and trough_dtype == 'Raw':
                     id_ms = (spin_data.index - spin_data.idxmin()).total_seconds()*1000
+                elif zmethod == 'trough' and trough_dtype == 'spfilt':
+                    id_ms = (spfilt_data.index - spfilt_data.idxmin()).total_seconds()*1000
                     
                 # create new dataframe
                 spindles[chan][i] = pd.DataFrame(index=id_ms)
@@ -423,7 +436,8 @@ class NREM:
             datatype: str (default: 'spfilt')
                 Which data to use for averaging (options: 'Raw', 'spfilt', 'spsofilt')
         """
-        
+        self.metadata['analysis_info']['stats_dtype'] = datatype
+
         print('Aligning spindles...')
         # align spindles accoridng to timedelta & combine into single dataframe
         spindle_aggregates = {}
@@ -431,11 +445,11 @@ class NREM:
             # only use channels that have spindles
             if self.spindles[chan]:
                 # set the base df
-                agg_df = pd.DataFrame(self.spindles[chan][0]['Raw'])
+                agg_df = pd.DataFrame(self.spindles[chan][0][datatype])
+                agg_df = agg_df.rename(columns={datatype:'spin_0'})
                 rsuffix = list(range(1, len(self.spindles[chan])))
                 # join on the index for each spindle
-                for x in rsuffix:
-                    agg_df = agg_df.join(self.spindles[chan][x][datatype], how='outer', rsuffix=rsuffix[x-1])
+                agg_df = agg_df.join([self.spindles[chan][x][datatype].rename('spin_'+str(x)) for x in rsuffix], how='outer')
                 spindle_aggregates[chan] = agg_df
             
         print('Calculating spindle statistics...')
@@ -453,12 +467,13 @@ class NREM:
             
         self.spindle_aggregates = spindle_aggregates
         self.spindle_means = spindle_means
-        print('Done. Spindles aggregated by channel in obj.spindle_aggregates dict. Spindle statisics stored in obj.spindle_means dataframe.')
+        print('Done. Spindles aggregated by channel in obj.spindle_aggregates dict. Spindle statisics stored in obj.spindle_means dataframe.\n')
 
 
     def calc_spindle_buffer_means(self):
         """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel 
             NOTE: This needs to be updated to include datatype parameter to stay aligned with calc_spin_means
+             Also fix the join command for speed (see above)
         """
         
         print('Aligning spindles...')
@@ -509,6 +524,7 @@ class NREM:
         """
         
         print('Calculating power spectra (this may take a few minutes)...')
+        self.metadata['spindle_analysis']['psd_dtype'] = 'raw'
         self.metadata['spindle_analysis']['psd_method'] = 'multitaper'
         self.metadata['spindle_analysis']['psd_bandwidth'] = psd_bandwidth
         sf = self.metadata['analysis_info']['s_freq']
@@ -516,6 +532,7 @@ class NREM:
         spindle_psd = {}
         spindle_multitaper_calcs = pd.DataFrame(index=['data_len', 'N', 'W', 'NW', 'K'])
         for chan in self.spindles:
+            print(chan)
             if len(self.spindles[chan]) > 0:
                 # concatenate spindles
                 spindles = [self.spindles[chan][x].Raw.values for x in self.spindles[chan]]
@@ -618,8 +635,8 @@ class NREM:
         print('Calculating spindle statistics...')
         
         # create multi-index dataframe
-        lvl1 = ['Count', 'Duration', 'Duration', 'Amplitude', 'Amplitude', 'Density', 'ISI', 'ISI', 'Power', 'Power']
-        lvl2 = ['total', 'mean', 'sd', 'rms', 'sd', 'spin_per_min', 'mean', 'sd', 'center_freq', 'total_pwr']
+        lvl1 = ['Count', 'Duration', 'Duration', 'Amplitude_raw', 'Amplitude_raw', 'Amplitude_spfilt', 'Amplitude_spfilt', 'Density', 'ISI', 'ISI', 'Power', 'Power']
+        lvl2 = ['total', 'mean', 'sd', 'rms', 'sd', 'rms', 'sd', 'spin_per_min', 'mean', 'sd', 'center_freq', 'total_pwr']
         columns = pd.MultiIndex.from_arrays([lvl1, lvl2])
         spindle_stats = pd.DataFrame(columns=columns)
         
@@ -636,15 +653,18 @@ class NREM:
                     spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None, None, None]
                 
                 else:
-                    # calculation spindle duration
+                    # calculate spindle duration
                     durations = np.array([(self.spindles[chan][spin].time.iloc[-1] - self.spindles[chan][spin].time.iloc[0]).total_seconds() for spin in self.spindles[chan]])
                     duration_mean = durations.mean()
                     duration_sd = durations.std()
 
                     # calculate amplitude
-                    amplitudes = np.concatenate([self.spindles[chan][x].Raw.values for x in self.spindles[chan]])
-                    amp_rms = np.sqrt(np.array([x**2 for x in amplitudes]).mean())
-                    amp_sd = amplitudes.std()
+                    amplitudes_raw = np.concatenate([self.spindles[chan][x].Raw.values for x in self.spindles[chan]])
+                    amp_rms_raw = np.sqrt(np.array([x**2 for x in amplitudes_raw]).mean())
+                    amp_sd_raw = amplitudes_raw.std()
+                    amplitudes_spfilt = np.concatenate([self.spindles[chan][x].spfilt.values for x in self.spindles[chan]])
+                    amp_rms_spfilt = np.sqrt(np.array([x**2 for x in amplitudes_spfilt]).mean())
+                    amp_sd_spfilt = amplitudes_spfilt.std()
 
                     # calculate density
                     density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
@@ -659,7 +679,7 @@ class NREM:
                     center_freq = spindle_power.idxmax()
                     total_pwr = spindle_power.sum()
 
-                    spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms, amp_sd, density, isi_mean, isi_sd, center_freq, total_pwr]
+                    spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd, center_freq, total_pwr]
 
         self.spindle_stats = spindle_stats   
         
@@ -685,7 +705,7 @@ class NREM:
         spin_range: list of int
             spindle frequency range to be used for calculating center frequency
         datatype: str (default: 'spfilt')
-                Which data to use for averaging (options: 'Raw', 'spfilt', 'spsofilt')
+                Which data to use for aggregation & averaging (options: 'Raw', 'spfilt', 'spsofilt')
 
         Returns
         -------
