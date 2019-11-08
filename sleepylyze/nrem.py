@@ -359,7 +359,7 @@ class NREM:
         print('Creating individual spindle dataframes...')
         
         self.metadata['spindle_analysis']['zmethod'] = zmethod
-        self.metadata['spindle_analysis']['trough_datatype'] = trough_datatype
+        self.metadata['spindle_analysis']['trough_datatype'] = trough_dtype
 
         spindles = {}
         for chan in self.spindle_events.keys():
@@ -685,7 +685,7 @@ class NREM:
         
         print('Spindle stats stored in obj.spindle_stats.\nDone.')
 
-    def analyze_spindles(self, zmethod='trough', buff=False, buffer_len=3, psd_bandwidth=1.0, 
+    def analyze_spindles(self, zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, psd_bandwidth=1.0, 
                         norm_range=[(4,6), (18, 25)], spin_range=[9, 16], datatype = 'spfilt'):
         """ starting code for spindle statistics/visualizations 
 
@@ -694,6 +694,8 @@ class NREM:
         zmethod: str (default: 'trough')
             method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
             the deepest negative trough. Middle assigns zero center to the midpoint in time.
+        trough_dtype: str (default: 'spfilt')
+                Which data to use for picking the most negative trough for centering [options: 'Raw', 'spfilt']
         buff: bool (default: False)
             calculate spindle data dataframes with a delta time buffer around center of spindle
         buffer_len: int
@@ -724,7 +726,7 @@ class NREM:
         """
         
         # create individual datframes for each spindle
-        self.create_spindfs(zmethod, buff, buffer_len)
+        self.create_spindfs(zmethod, trough_dtype, buff, buffer_len)
 
         # calculate spindle & spindle buffer means
         self.calc_spindle_means(datatype)
@@ -739,6 +741,90 @@ class NREM:
 
         # run spindle statistics by channel
         self.calc_spinstats(spin_range)
+
+
+    def export_spindles(self, export_dir):
+        """ Export spindle analyses
+        
+            Parameters
+            ----------
+            export_dir: str
+                Directory to save exported files
+            
+            Returns
+            -------
+            export_dir/fname_metadata.txt: json dump file
+            export_dir/calcs/fname_multitaper_calcs.csv: csv file
+            export_dir/calcs/fname_spindle_psd.txt: json dump file
+            export_dir/calcs/fname_spindle_psd_norm.txt: json dump file
+            export_dir/fname_spindle_aggregates.csv: multi-tab excel file
+            export_dir/fname_spindle_means.csv: csv file
+            export_dir/fname_spindle_stats.csv: csv file
+              
+        """
+        
+        # make export directory if doesn't exit
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir)
+        
+        # make subdirectory for calculations
+        calc_dir = os.path.join(export_dir, 'calcs')
+        if not os.path.exists(calc_dir):
+            os.makedirs(calc_dir)
+        
+        # set base for savename
+        fname = self.metadata['file_info']['fname'].split('.')[0]
+        
+        # dump metadata
+        filename = f'{fname}_spindle_metadata.txt'
+        savename = os.path.join(export_dir, filename)
+        with open(savename, 'w') as f:
+            json.dump(self.metadata, f, indent=4)
+        
+        # export multitaper calcs
+        filename = f'{fname}_spindle_mt_calcs.csv'
+        savename = os.path.join(calc_dir, filename)
+        self.spindle_multitaper_calcs.to_csv(savename)
+        
+        # export psd
+        # convert series to dicts for json dump
+        psd_export = {}
+        for name, series in self.spindle_psd.items():
+            psd_export[name] = series.to_dict()
+        filename = f'{fname}_spindle_psd.txt'
+        savename = os.path.join(calc_dir, filename)
+        with open(savename, 'w') as f:
+            json.dump(psd_export, f, indent=4)
+        
+        # export psd norm
+        # convert series to dicts for json dump
+        psd_norm_export = {}
+        for chan in self.spindle_psd_norm.keys():
+            psd_norm_export[chan]={}
+            for name, series in self.spindle_psd_norm[chan].items():
+                psd_norm_export[chan][name] = series.to_dict()
+        filename = f'{fname}_spindle_psd_norm.txt'
+        savename = os.path.join(calc_dir, filename)
+        with open(savename, 'w') as f:
+            json.dump(psd_norm_export, f, indent=4)
+        
+        # export spindle aggregates
+        filename = f'{fname}_spindle_aggregates.xlsx'
+        savename = os.path.join(export_dir, filename)
+        writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+        for chan_tab, df in self.spindle_aggregates.items():
+            df.to_excel(writer, sheet_name=chan_tab)
+        writer.save() 
+        
+        # export spindle means
+        filename = f'{fname}_spindle_means.csv'
+        savename = os.path.join(export_dir, filename)
+        self.spindle_means.to_csv(savename)
+        
+        # export spindle stats
+        filename = f'{fname}_spindle_stats.csv'
+        savename = os.path.join(export_dir, filename)
+        self.spindle_stats.to_csv(savename)
 
 
     ## Slow Oscillation Detection Methods ##
