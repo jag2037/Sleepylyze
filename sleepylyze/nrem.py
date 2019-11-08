@@ -325,7 +325,7 @@ class NREM:
         # combine dataframes
         print('Combining dataframes...')
         self.spMultiIndex()
-        print('done.')
+        print('done.\n')
 
     def create_spindfs(self, zmethod, trough_dtype, buff, buffer_len):
         """ Create individual dataframes for individual spindles +/- a timedelta buffer 
@@ -532,7 +532,7 @@ class NREM:
         spindle_psd = {}
         spindle_multitaper_calcs = pd.DataFrame(index=['data_len', 'N', 'W', 'NW', 'K'])
         for chan in self.spindles:
-            print(chan)
+            print(f'Calculating spectra for {chan}...')
             if len(self.spindles[chan]) > 0:
                 # concatenate spindles
                 spindles = [self.spindles[chan][x].Raw.values for x in self.spindles[chan]]
@@ -553,7 +553,7 @@ class NREM:
         
         self.spindle_multitaper_calcs = spindle_multitaper_calcs
         self.spindle_psd = spindle_psd
-        print('Done. Spectra stored in obj.spindle_psd. Calculations stored in obj.spindle_multitaper_calcs.')
+        print('Done. Spectra stored in obj.spindle_psd. Calculations stored in obj.spindle_multitaper_calcs.\n')
 
     def calc_gottselig_norm(self, norm_range):
         """ calculated normalized spindle power on EEG channels (from Gottselig et al., 2002)
@@ -572,6 +572,8 @@ class NREM:
         
         """
         
+        print('Calculating Gottselig normalization...')
+
         def exponential_func(x, a, b, c):
             return a*np.exp(-b*x)+c
         
@@ -616,7 +618,7 @@ class NREM:
                 spindle_psd_norm[chan]['exp_fit_line'] = pd.Series(yy, index=xx) 
 
         self.spindle_psd_norm = spindle_psd_norm
-
+        print('Gottselig normalization data stored in obj.spindle_psd_norm.\n')
 
     def calc_spinstats(self, spin_range):
         """ calculate spindle feature statistics 
@@ -683,7 +685,7 @@ class NREM:
 
         self.spindle_stats = spindle_stats   
         
-        print('Spindle stats stored in obj.spindle_stats.\nDone.')
+        print('Spindle stats stored in obj.spindle_stats.\n')
 
     def analyze_spindles(self, zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, psd_bandwidth=1.0, 
                         norm_range=[(4,6), (18, 25)], spin_range=[9, 16], datatype = 'spfilt'):
@@ -763,6 +765,8 @@ class NREM:
               
         """
         
+        print('Exporting spindle analyses..')
+
         # make export directory if doesn't exit
         if not os.path.exists(export_dir):
             os.makedirs(export_dir)
@@ -825,6 +829,8 @@ class NREM:
         filename = f'{fname}_spindle_stats.csv'
         savename = os.path.join(export_dir, filename)
         self.spindle_stats.to_csv(savename)
+
+        print(f'Export complete. Analyses stored in {export_dir}')
 
 
     ## Slow Oscillation Detection Methods ##
