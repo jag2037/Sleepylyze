@@ -4,9 +4,10 @@
         - Analysis should output # of NaNs in the data
 
     TO DO: 
-        For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
-        Optimize self.create_spindfs() method
-        Work out memory allocation when calculating power spectra
+        - For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
+        - Optimize self.create_spindfs() method
+        - Assign NREM attributes to slots on init
+        - Update docstrings
 """
 
 import datetime
@@ -305,10 +306,11 @@ class NREM:
         # Make filter
         self.make_butter_sp(wn, order)
 
+        print('Detecting spindles...')
         # loop through channels (all channels for plotting ease)
         for i in self.channels:
            # if i not in ['EOG_L', 'EOG_R', 'EKG']:
-                print(f'Detecting spindles on {i}...')
+                #print(f'Detecting spindles on {i}...')
                 # Filter
                 self.spfilt(i)
                 # Calculate RMS & smooth
@@ -532,7 +534,7 @@ class NREM:
         spindle_psd = {}
         spindle_multitaper_calcs = pd.DataFrame(index=['data_len', 'N', 'W', 'NW', 'K'])
         for chan in self.spindles:
-            print(f'Calculating spectra for {chan}...')
+            #print(f'Calculating spectra for {chan}...')
             if len(self.spindles[chan]) > 0:
                 # concatenate spindles
                 spindles = [self.spindles[chan][x].Raw.values for x in self.spindles[chan]]
@@ -581,6 +583,7 @@ class NREM:
         exclude = ['EOG_L', 'EOG_R', 'EKG']
         
         spindle_psd_norm = {}
+        chans_norm_failed = []
         for chan in self.spindle_psd:
             if chan not in exclude:
                 spindle_psd_norm[chan] = {}
@@ -602,9 +605,11 @@ class NREM:
                     except (OptimizeWarning, RuntimeError):
                         try:
                             popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
-                        except RuntimeError:
-                            print(f'scipy.optimize.curvefit encountering RuntimeError on channel {chan}')
-                            raise
+                        except (OptimizeWarning, RuntimeError):
+                            popt = np.full(3, np.nan)
+                            chans_norm_failed.append(chan)
+                            print(f'scipy.optimize.curvefit encountered RuntimeError on channel {chan}. Normalization skipped for this channel.')
+                            pass
 
                 xx = self.spindle_psd[chan].index
                 yy = exponential_func(xx, *popt)
@@ -618,6 +623,7 @@ class NREM:
                 spindle_psd_norm[chan]['exp_fit_line'] = pd.Series(yy, index=xx) 
 
         self.spindle_psd_norm = spindle_psd_norm
+        self.metadata['spindle_analysis']['chans_norm_failed'] = chans_norm_failed
         print('Gottselig normalization data stored in obj.spindle_psd_norm.\n')
 
     def calc_spinstats(self, spin_range):
