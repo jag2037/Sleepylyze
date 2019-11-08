@@ -2,6 +2,9 @@
     
     To Do:
         Edit hyp_stats plots to take transitions.HypStats object instead of ioeeg.Dataset object
+        Remove redundant plotting fns added into EKG classs
+        Add subsetEEG function to break up concatenated NREM segments for plotting. Will require adjustments
+        to specified detections added to plot.
 """
 
 import itertools
@@ -13,6 +16,7 @@ import numpy as np
 import os
 import pandas as pd
 import shapely.geometry as SG
+
 
 
 def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
@@ -95,7 +99,7 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
 
 
 def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=False, spindles=False, spindle_rejects=False):
-    """ plot single channel EEG. Options for multipaneled calculations
+    """ plot single channel EEG. Options for multipaneled calculations. Not for concatenated datasets
     
     Parameters
     ----------
@@ -225,7 +229,7 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     raw: bool, optional, default: True
         Option to plot raw EEG
     filtered: bool, optional, default: False
-        Option to plot filtered EEG
+        Option to plot spindle filtered EEG
     spindles: bool, optional, default: False
         Option to plot spindle detections
     spindle_rejects: bool, optional, default: False
@@ -576,8 +580,14 @@ def plot_transitions(h, savefig=False, savedir=None):
 
 ### Spindle Methods ###
 
-def plot_spins(n):
-    """ plot all spindle detections by channel """
+def plot_spins(n, datatype='Raw'):
+    """ plot all spindle detections by channel 
+        
+        Params
+        ------
+        datatype: str (default: 'Raw')
+            Data to plot [Options: 'Raw', 'Spfilt']
+    """
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
@@ -592,7 +602,7 @@ def plot_spins(n):
             color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
             for i in n.spindles[chan]:
                 c = next(color)
-                ax.plot(n.spindles[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
+                ax.plot(n.spindles[chan][i][datatype], c=c, alpha=1, lw=0.8)
             # set subplot params
             ax.set_xlim([-2800, 2800])
             ax.set_title(chan, fontsize='medium')
@@ -641,7 +651,7 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
         if chan not in exclude:
             if buffer:
                 data = n.spindle_buffer_means
-                ax.plot(data[(chan, 'mean')], alpha=1, color=buff_color, label='Overall Average')
+                ax.plot(data[(chan, 'mean')], alpha=1, color=buff_color, label='Overall Average', lw=1)
                 ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
                                 color=buff_color, alpha=0.2)
             if spins:
@@ -651,7 +661,7 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
                                 color=spin_color, alpha=0.2)
 
             # set subplot params
-            ax.set_xlim([-3000, 3000])
+            ax.set_xlim([-1800, 1800])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
 
