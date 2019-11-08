@@ -272,7 +272,12 @@ class NREM:
                     # apply duration thresholding
                     if not sduration[0] <= len(spin) <= sduration[1]:
                         self.spindle_rejects[chan].append(spin)
-                        self.spindle_events[chan].remove(spin)           
+                        self.spindle_events[chan].remove(spin)
+                # Apply max duration threshold to all spindles left (regardless of # of chans)
+                else:
+                    if len(spin) > sduration[1]:
+                        self.spindle_rejects[chan].append(spin)
+                        self.spindle_events[chan].remove(spin)
                     
     # set multiIndex
     def spMultiIndex(self):
