@@ -656,12 +656,12 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
                                 color=buff_color, alpha=0.2)
             if spins:
                 data = n.spindle_means
-                ax.plot(data[(chan, 'mean')], alpha=1, color=spin_color, label='Spindle Average')
+                ax.plot(data[(chan, 'mean')], alpha=1, color=spin_color, label='Spindle Average', lw=1)
                 ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
                                 color=spin_color, alpha=0.2)
 
             # set subplot params
-            ax.set_xlim([-1800, 1800])
+            ax.set_xlim([-2000, 2000])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
 
