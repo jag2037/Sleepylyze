@@ -1,7 +1,6 @@
 """ This module contains functions for batch analyses 
 	
 	To do: 
-		- add input params for spindle_analysis modifications
 		- Fix hacky imports
 
 """
@@ -11,14 +10,17 @@ import os
 import nrem
 import sleepyplot as slp 
 
-def spindle_analysis(fname, fpath, export_dir):
+def spindle_analysis(fname, fpath, export_dir, wn, order, sp_mw, loSD, hiSD, min_sep, 
+    				duration, min_chans, zmethod, trough_dtype, buff, buffer_len, 
+    				psd_bandwidth, norm_range, spin_range, datatype):
     """ Full spindle analysis """
     
     # load data
     n = nrem.NREM(fname, fpath) #check other params
     # detect & analyze spindles
-    n.detect_spindles() # check other params
-    n.analyze_spindles() # check other params
+    n.detect_spindles(wn, order, sp_mw, loSD, hiSD, min_sep, duration, min_chans)
+    n.analyze_spindles(zmethod, trough_dtype, buff, buffer_len, psd_bandwidth, 
+    					norm_range, spin_range, datatype)
     # export data
     n.export_spindles(export_dir)
 
@@ -55,8 +57,10 @@ def spindle_analysis(fname, fpath, export_dir):
     print('Done.\n\n')
 
 
-def batch_spindle_analysis(fpath, match, export_dir):
-	""" Run spindle analysis on all matching files in a directory """
+def batch_spindle_analysis(fpath, match, export_dir, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, min_sep=0.2, 
+    				duration=[0.5, 3.0], min_chans=9, zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, 
+    				psd_bandwidth=1.0, norm_range=[(4,6), (18, 25)], spin_range=[9, 16], datatype = 'spfilt'):
+	""" Run spindle analysis on all matching files in a directory """ 
 
 	# get a list of all matching file
 	glob_match = f'{fpath}/*{match}*'
@@ -64,6 +68,8 @@ def batch_spindle_analysis(fpath, match, export_dir):
 
 	for fname in fnames:
 		print(f'Analyzing {fname}...\n')
-		spindle_analysis(fname, fpath, export_dir)
+		spindle_analysis(fname, fpath, export_dir, wn, order, sp_mw, loSD, hiSD, min_sep, 
+    				duration, min_chans, zmethod, trough_dtype, buff, buffer_len, 
+    				psd_bandwidth, norm_range, spin_range, datatype)
 
 	print('Batch complete.')
