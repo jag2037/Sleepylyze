@@ -604,7 +604,7 @@ def plot_spins(n, datatype='Raw'):
                 c = next(color)
                 ax.plot(n.spindles[chan][i][datatype], c=c, alpha=1, lw=0.8)
             # set subplot params
-            ax.set_xlim([-2800, 2800])
+            ax.set_xlim([-1800, 1800])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
 
@@ -661,7 +661,7 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
                                 color=spin_color, alpha=0.2)
 
             # set subplot params
-            ax.set_xlim([-2000, 2000])
+            ax.set_xlim([-1800, 1800])
             ax.set_title(chan, fontsize='medium')
             ax.tick_params(axis='both', which='both', labelsize=8)
 
@@ -689,7 +689,7 @@ def plot_spindlepower_chan(n, chan, dB=True):
         ylabel = 'Power (dB)'
     else:
         pwr = n.spindle_psd[chan].values
-        ylabel = 'Power (uv^2/Hz)'
+        ylabel = 'Power (uV^2/Hz)'
     
     fig, ax = plt.subplots()
     
