@@ -182,13 +182,14 @@ class NREM:
         self.spThresholds[i] = [mean_rms, det_lo, det_hi]
     
     # step 6: detect spindles
-    def get_spindles(self, i):
+    def get_spindles(self, i, min_sep):
         # vectorize data for detection looping
         lo, hi = self.spThresholds[i]['Low Threshold'], self.spThresholds[i]['High Threshold'] 
         mavg_varr, mavg_iarr = np.asarray(self.spRMSmavg[i]), np.asarray(self.spRMSmavg[i].index)
         
         # initialize spindle event list & set pointer to 0
-        self.spindle_events[i] = []
+        #self.spindle_events[i] = []
+        spindle_events = []
         x=0
 
         while x < len(self.data):
@@ -217,10 +218,12 @@ class NREM:
                     # if above low threshold and last value OR if nan, add to current spindle and add spindle to events list
                     elif (mavg_varr[h] >= lo and x == (len(self.data)-1)) or np.isnan(mavg_varr[h]): ## untested
                         spindle.append(mavg_iarr[h])
-                        self.spindle_events[i].append(spindle)
+                        spindle_events.append(spindle)
+                        #self.spindle_events[i].append(spindle)
                     # otherwise finish spindle & add to spindle events list
                     elif mavg_varr[h] < lo:
-                        self.spindle_events[i].append(spindle)
+                        spindle_events.append(spindle)
+                        #self.spindle_events[i].append(spindle)
                         break
         
                 # advance the pointer to the end of the spindle
@@ -228,7 +231,24 @@ class NREM:
             # if value doesn't cross high threshold, advance
             else:
                 x += 1
+
+        # combine spindles less than min_sep
+        spindle_events_msep = []
+        x = 0
+        while x < len(spindle_events)-1:
+            # if the following spindle is less than min_sep away
+            if (spindle_events[x+1][0] - spindle_events[x][-1])/np.timedelta64(1, 's') < min_sep:
+                # combine the two, append to list, and advance pointer by two
+                spindle_comb = spindle_events[x] + spindle_events[x+1]
+                spindle_events_msep.append(spindle_comb)
+                x += 2
+            else:
+                # otherwise, append spindle to list, advance pointer by 1
+                spindle_events_msep.append(spindle_events[x])
+                x += 1
                 
+        self.spindle_events[i] = spindle_events_msep
+
     # step 7: apply rejection criteria
     def reject_spins(self, min_chans, duration):
         """ Reject spindles that occur over fewer than 3 channels. Apply duration thresholding to 
@@ -297,11 +317,22 @@ class NREM:
         self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
         
         
-    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, duration=[0.5, 3.0], min_chans=9):  
-        """ Detect spindles by channel [Params/Returns] """
+    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, min_sep=0.2, duration=[0.5, 3.0], min_chans=9):  
+        """ Detect spindles by channel [Params/Returns] 
+            
+            Parameters
+            ----------
+
+            min_sep: float (default: 0.1)
+                minimum separation (in seconds) for spindles to be considered distinct, otherwise combine
+
+            Returns
+            -------
+
+        """
 
         self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder_half': order, 
-            'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'sp_duration': duration,
+            'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'min_sep': min_sep, 'sp_duration': duration,
             'sp_minchans_toskipduration': min_chans}
 
         #self.s_freq = self.metadata['analysis_info']['s_freq']
@@ -323,7 +354,7 @@ class NREM:
                 # Set detection thresholds
                 self.set_thres(i)
                 # Detect spindles
-                self.get_spindles(i)
+                self.get_spindles(i, min_sep)
         
         # Apply rejection criteria
         print('Pruning spindle detections...')
