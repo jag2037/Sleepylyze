@@ -586,7 +586,7 @@ def plot_spins(n, datatype='Raw'):
         Params
         ------
         datatype: str (default: 'Raw')
-            Data to plot [Options: 'Raw', 'Spfilt']
+            Data to plot [Options: 'Raw', 'spfilt']
     """
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
@@ -810,8 +810,14 @@ def plot_gottselig(n, datatype='calcs'):
 
 
 ### Slow Oscillation Methods ###
-def plot_so(n):
-    """ plot all slow oscillation detections by channel """
+def plot_so(n, datatype='Raw'):
+    """ plot all slow oscillation detections by channel 
+        
+        Params
+        ------
+        datatype: str (default: 'Raw')
+            Data to plot [Options: 'Raw', 'sofilt']
+    """
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
@@ -823,10 +829,10 @@ def plot_so(n):
     for chan, ax in zip(n.so.keys(), axs.flatten()):
         if chan not in exclude:
             # set color iterator -- for other colors look at ocean, gnuplot, prism
-            color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.spindles[chan]))))
+            color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.so[chan]))))
             for i in n.so[chan]:
                 c = next(color)
-                ax.plot(n.so[chan][i]['Raw'], c=c, alpha=1, lw=0.8)
+                ax.plot(n.so[chan][i][datatype], c=c, alpha=1, lw=0.8)
             # set subplot params
             ax.set_xlim([-2500, 2500])
             ax.set_title(chan, fontsize='medium')

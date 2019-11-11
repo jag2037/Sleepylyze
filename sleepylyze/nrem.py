@@ -1062,6 +1062,7 @@ class NREM:
                 start = self.so_events[chan][i]['npeak_minus2s']
                 end = self.so_events[chan][i]['npeak_plus2s']
                 so_data = self.data[chan]['Raw'].loc[start:end]
+                so_filtdata = self.sofiltEEG[chan]['Filtered'].loc[start:end]
                 
                 # set new index so that each SO is zero-centered around the negative peak
                 ms1 = list(range(-2000, 0, int(1/self.metadata['analysis_info']['s_freq']*1000)))
@@ -1082,6 +1083,9 @@ class NREM:
                     nans = np.repeat(np.NaN, len(time)-len(so_data))
                     data_extended = list(nans) + list(so_data.values)
                     so[chan][i]['Raw'] = data_extended
+                    filtdata_extended = list(nans) + list(so_filtdata.values)
+                    so[chan][i]['sofilt'] = filtdata_extended
+
                 # if the SO is not a full 2s from the end
                 elif end > self.data.index[-1]:
                     # extend the df index to the full 2s
@@ -1092,9 +1096,12 @@ class NREM:
                     nans = np.repeat(np.NaN, len(time)-len(so_data))
                     data_extended = list(so_data.values) + list(nans)
                     so[chan][i]['Raw'] = data_extended
+                    filtdata_extended = list(so_filtdata.values) + list(nans)
+                    so[chan][i]['sofilt'] = filtdata_extended
                 else:
                     so[chan][i]['time'] = so_data.index
                     so[chan][i]['Raw'] = so_data.values
+                    so[chan][i]['sofilt'] = so_filtdata.values
         
         self.so = so
         print('Dataframes created. Slow oscillation data stored in obj.so.')
