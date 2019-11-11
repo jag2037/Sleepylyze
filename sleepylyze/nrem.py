@@ -406,11 +406,11 @@ class NREM:
                 # create individual df for each spindle
                 spin_data = self.data[chan]['Raw'].loc[self.spindle_events[chan][i]]
                 spfilt_data = self.spfiltEEG[chan]['Filtered'].loc[self.spindle_events[chan][i]]
-                try:
-                    spsofilt_data = self.spsofiltEEG[chan]['Filtered'].loc[self.spindle_events[chan][i]]
-                # skip spsofilt if not yet calculated (if SO detections haven't been performed)
-                except AttributeError:
-                    pass
+                # try:
+                #     spsofilt_data = self.spsofiltEEG[chan]['Filtered'].loc[self.spindle_events[chan][i]]
+                # # skip spsofilt if not yet calculated (if SO detections haven't been performed)
+                # except AttributeError:
+                #     pass
                 
                 # set new index so that each spindle is centered around zero
                 if zmethod == 'middle':
@@ -885,7 +885,7 @@ class NREM:
             # create if doesn't exist
             self.channels = [x[0] for x in self.data.columns]
         
-        dfs = ['sofiltEEG']
+        dfs = ['sofiltEEG', 'spsofiltEEG']
         [setattr(self, df, pd.DataFrame(index=self.data.index)) for df in dfs]
         self.so_events = {}
         self.so_rejects = {}
@@ -901,6 +901,24 @@ class NREM:
    
         self.so_sos = butter(order, wn_arr, btype='bandpass', output='sos')
         print(f"Zero phase butterworth filter successfully created: order = {order}x{order}, bandpass = {wn}")
+
+    def make_butter_spso(self, spso_wn_pass, spso_wn_stop, spso_order):
+        """ Make Butterworth bandpass and bandstop filter [Parameters/Returns]"""
+        nyquist = self.s_freq/2
+        wn_pass_arr = np.asarray(spso_wn_pass)
+        wn_stop_arr = np.asarray(spso_wn_stop)
+        
+        # must remake filter for each pt bc of differences in s_freq
+        if np.any(wn_pass_arr <=0) or np.any(wn_pass_arr >=1):
+            wn_pass_arr = wn_pass_arr/nyquist 
+            
+        if np.any(wn_stop_arr <=0) or np.any(wn_stop_arr >=1):
+            wn_stop_arr = wn_stop_arr/nyquist
+
+        self.spso_sos_bandstop = butter(spso_order, wn_stop_arr, btype='bandstop', output='sos')
+        self.spso_sos_bandpass = butter(spso_order, wn_pass_arr, btype='bandpass', output='sos')
+        print(f"Zero phase butterworth filter successfully created: order = {spso_order}x{spso_order} bandpass = {spso_wn_pass}")
+        print(f"Zero phase butterworth filter successfully created: order = {spso_order}x{spso_order} bandstop = {spso_wn_stop}")
 
     def sofilt(self, i):
         """ Apply Slow Oscillation Butterworth bandpass to signal by channel 
@@ -929,6 +947,26 @@ class NREM:
 
         # add channel to main dataframe
         self.sofiltEEG[i] = filt_chan
+
+    def spsofilt(self, i):
+        """ Apply Butterworth bandpass-bandstop to signal by channel """
+
+        # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
+        data_nan = self.data[i][self.data[i]['Raw'].isna()]
+        data_notnan = self.data[i][self.data[i]['Raw'].isna() == False]
+
+        # filter notNaN data & add column to notNaN df
+        ## bandpass
+        data_notnan_bandpassed = sosfiltfilt(self.spso_sos_bandpass, data_notnan.to_numpy(), axis=0)
+        ## now bandstop
+        data_notnan_filt = sosfiltfilt(self.spso_sos_bandstop, data_notnan_bandpassed, axis=0)
+        data_notnan['Filt'] = data_notnan_filt
+
+        # merge NaN & filtered notNaN values, sort on index
+        filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
+
+        # add channel to main dataframe
+        self.spsofiltEEG[i] = filt_chan
 
     def get_so(self, i, posx_thres, npeak_thres, negpos_thres):
         """ Detect slow oscillations. Based on detection algorithm from Molle 2011 
@@ -989,21 +1027,23 @@ class NREM:
         """ combine dataframes into a multiIndex dataframe"""
         # reset column levels
         self.sofiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
-        #self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
-        #self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
+        self.spsofiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
 
         # list df vars for index specs
-        dfs =[self.sofiltEEG] # for > speed, don't store spinfilt_RMS as an attribute
-        calcs = ['Filtered']
-        lvl0 = np.repeat(self.channels, len(calcs))
-        lvl1 = calcs*len(self.channels)    
+        # dfs =[self.sofiltEEG] # for > speed, don't store spinfilt_RMS as an attribute
+        # calcs = ['Filtered']
+        # lvl0 = np.repeat(self.channels, len(calcs))
+        # lvl1 = calcs*len(self.channels)    
     
-        # combine & custom sort
-        self.so_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
+        # # combine & custom sort --> what was this for??
+        # self.so_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
 
-    def detect_so(self, wn=[0.1, 4], order=2, posx_thres = [0.9, 2], npeak_thres = -80, negpos_thres = 140):
+    def detect_so(self, wn=[0.1, 4], order=2, posx_thres = [0.9, 2], npeak_thres = -80, negpos_thres = 140,
+                    spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8):
         """ Detect slow oscillations by channel
         
+            TO DO: Update docstring
+
             Parameters
             ----------
             wn: list (default: [0.1, 4])
@@ -1035,11 +1075,14 @@ class NREM:
         
         # make butterworth filter
         self.make_butter_so(wn, order)
-        
+        self.make_butter_spso(spso_wn_pass, spso_wn_stop, spso_order)
+
         # loop through channels (all channels for plotting ease)
         for i in self.channels:
                 # Filter
                 self.sofilt(i)
+                self.spsofilt(i)
+
                 # Detect SO
                 self.get_so(i, posx_thres, npeak_thres, negpos_thres)
                 
@@ -1063,6 +1106,7 @@ class NREM:
                 end = self.so_events[chan][i]['npeak_plus2s']
                 so_data = self.data[chan]['Raw'].loc[start:end]
                 so_filtdata = self.sofiltEEG[chan]['Filtered'].loc[start:end]
+                spso_filtdata = self.spsofiltEEG[chan]['Filtered'].loc[start:end]
                 
                 # set new index so that each SO is zero-centered around the negative peak
                 ms1 = list(range(-2000, 0, int(1/self.metadata['analysis_info']['s_freq']*1000)))
@@ -1085,6 +1129,8 @@ class NREM:
                     so[chan][i]['Raw'] = data_extended
                     filtdata_extended = list(nans) + list(so_filtdata.values)
                     so[chan][i]['sofilt'] = filtdata_extended
+                    spsofiltdata_extended = list(nans) + list(spso_filtdata.values)
+                    so[chan][i]['spsofilt'] = spsofiltdata_extended
 
                 # if the SO is not a full 2s from the end
                 elif end > self.data.index[-1]:
@@ -1098,10 +1144,72 @@ class NREM:
                     so[chan][i]['Raw'] = data_extended
                     filtdata_extended = list(so_filtdata.values) + list(nans)
                     so[chan][i]['sofilt'] = filtdata_extended
+                    spsofiltdata_extended = list(spso_filtdata.values) + list(nans)
+                    so[chan][i]['spsofilt'] = spsofiltdata_extended
                 else:
                     so[chan][i]['time'] = so_data.index
                     so[chan][i]['Raw'] = so_data.values
                     so[chan][i]['sofilt'] = so_filtdata.values
+                    so[chan][i]['spsofilt'] = spso_filtdata.values
         
         self.so = so
         print('Dataframes created. Slow oscillation data stored in obj.so.')
+
+    def analyze_spso(self):
+        """ starter code to calculate placement of spindles on the slow oscillation """
+        
+        print('Aligning spindles to slow oscillations...')
+        # create a dictionary of SO indices
+        so_dict = {}
+        for chan in self.so:
+            so_dict[chan] = [self.so[chan][i].time.values for i in self.so[chan]]
+        
+        # flatten the dictionary into a boolean df
+        so_bool = pd.DataFrame(index = self.data.index)
+        for chan in so_dict:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+                so_flat = [time for so in so_dict[chan] for time in so]
+                so_bool[chan] = np.isin(self.data.index.values, so_flat)
+        
+        # create a spindle boolean df
+        spin_bool = pd.DataFrame(index = self.data.index)
+        for chan in self.spindle_events:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+                spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
+                spin_bool[chan] = np.isin(self.data.index.values, spins_flat)
+                
+        # create a map of slow oscillations to spindles
+        so_spin_map = {}
+        for chan in self.spindle_events:
+            so_spin_map[chan] = {}
+            so_flat = [time for so in so_dict[chan] for time in so]
+            # for each spindle
+            for e_spin, spin in enumerate(self.spindle_events[chan]):
+                spin_trough = np.datetime64(self.data[chan]['Raw'].loc[self.spindle_events[chan][e_spin]].idxmin())
+                # if spindle trough overlaps w/ SO +/- 2s:
+                if spin_trough in so_flat:
+                        for e_so, so in enumerate(so_dict[chan]):
+                            if spin_trough in so:
+                                try:
+                                    so_spin_map[chan][e_so].append(e_spin)
+                                except KeyError:
+                                    so_spin_map[chan][e_so] = [e_spin]
+
+        # Make aggregate dataframe
+        spso_aggregates = {}
+        for chan in self.so.keys():
+            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+                spso_aggregates[chan] = {}
+                for so, spins in so_spin_map[chan].items(): 
+                    spso_agg = self.so[chan][so]
+                    for s in spins:
+                        spso_agg = spso_agg.join(self.spfiltEEG[(chan, 'Filtered')].loc[self.spindle_events[chan][s]].rename('spin_'+str(s)), 
+                            on='time', how='outer')
+                    spso_aggregates[chan][so] = spso_agg
+
+        self.so_bool = so_bool
+        self.spin_bool = spin_bool
+        self.so_spin_map = so_spin_map
+        self.spso_aggregates = spso_aggregates
+
+        print('Alignment complete. Aggregate data stored in obj.spso_aggregates.')

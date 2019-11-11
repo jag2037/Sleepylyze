@@ -616,7 +616,7 @@ def plot_spins(n, datatype='Raw'):
     # set figure params   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
     fig.text(0.5, 0, 'Time (ms)', ha='center')
-    fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
+    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
 
     return fig
@@ -674,7 +674,7 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
     fig.legend()   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
     fig.text(0.5, 0, 'Time (ms)', ha='center')
-    fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
+    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\nSpindle Averages')
 
     return fig
@@ -689,7 +689,7 @@ def plot_spindlepower_chan(n, chan, dB=True):
         ylabel = 'Power (dB)'
     else:
         pwr = n.spindle_psd[chan].values
-        ylabel = 'Power (uV^2/Hz)'
+        ylabel = 'Power (mV^2/Hz)'
     
     fig, ax = plt.subplots()
     
@@ -726,7 +726,7 @@ def plot_spindlepower(n, dB=True):
             ylabel = 'Power (dB)'
         else:
             pwr = n.spindle_psd[chan].values
-            ylabel = 'Power (uv^2/Hz)'
+            ylabel = 'Power (mV^2/Hz)'
 
         # plot spectrum
         ax.plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
@@ -849,6 +849,80 @@ def plot_so(n, datatype='Raw'):
     fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
 
+    return fig
+
+
+
+### SpSO Methods ###
+
+def plot_spsomap(n):
+    """ Plot histogram mapping of spso """
+    fig, ax = plt.subplots(figsize=(14, 3))
+
+    ax.fill_between(x = n.so_bool.index, y1=0, y2=n.so_bool.T.sum(), alpha=0.5, color='blue', label='Slow Oscillations')
+    ax.fill_between(x = n.spin_bool.index, y1=0, y2=n.spin_bool.T.sum(), alpha=0.5, color='green', label='Spindles')
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Channel Count')
+    ax.margins(x=0)
+    ax.legend()
+
+
+def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spfilt'):
+    """ Plot individual slow oscillations with overriding spindle detections """
+    
+    if sp_dtype == 'spfilt':
+        spin_data = n.spfiltEEG
+    elif sp_dtype == 'spsofilt':
+        spin_data = n.spsofiltEEG
+    elif sp_dtype == 'sofilt':
+        spin_data = n.sofiltEEG
+    
+    height = 2/3 * int(len(n.so_spin_map[chan]))
+    fig, axs = plt.subplots(nrows=int(len(n.so_spin_map[chan])/3)+1, ncols=3, figsize=(10, height))
+    fig.subplots_adjust(hspace=0.4)
+    
+    for ax, (so, spins) in zip(axs.flatten(), n.so_spin_map[chan].items()):
+        ax.plot(n.so[chan][so].time, n.so[chan][so][so_dtype])
+        for spin in spins:
+            ax.plot(spin_data[(chan, 'Filtered')].loc[n.spindle_events[chan][spin]], lw=1)
+        ax.tick_params(axis='x', labelsize='small', rotation=15., pad=.1)
+    
+    # delete empty subplots --> this can probably be combined with previous loop
+    for i, ax in enumerate(axs.flatten()):
+        if i >= len(n.so_spin_map[chan]):
+            fig.delaxes(ax)
+
+    fig.text(0.5, 0, 'Time (ms)', ha='center')
+    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+    
+
+def plot_spso(n):
+    """ Plot individual slow oscillations with overriding spindle detections """
+    
+    ncols = 6
+    nrows = len(n.spso_aggregates)//ncols + (len(n.spso_aggregates) % ncols > 0) 
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, sharex=True, figsize=(15, 7))
+    
+    for ax, (chan, so_keys) in zip(axs.flatten(), n.spso_aggregates.items()):
+        
+        color_so=iter(plt.cm.winter(np.linspace(0, 1, len(so_keys))))
+        for so in so_keys:
+            ax.plot(n.spso_aggregates[chan][so]['sofilt'], c='black', alpha=0.3, lw=1)
+            for spin in n.spso_aggregates[chan][so].columns[4:]:
+                ax.plot(n.spso_aggregates[chan][so][spin], c=np.random.rand(3,), alpha=0.8, lw=1)
+        ax.set_title(chan)
+    
+    # delete extra subplots
+    for e, ax in enumerate(axs.flatten()):
+        if e >= len(n.spso_aggregates):
+            fig.delaxes(ax)
+        
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
+    fig.text(0.5, 0, 'Time (ms)', ha='center')
+    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+    
     return fig
 
 
