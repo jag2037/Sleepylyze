@@ -621,13 +621,15 @@ def plot_spins(n, datatype='Raw'):
 
     return fig
 
-def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', buff_color='lightblue'):
+def plot_spin_means(n, spins=True, count=True, buffer=False, err='sem', spin_color='black', count_color='dodgerblue', buff_color='lightblue'):
     """ plot all spindle detections by channel 
     
     Parameters
     ----------
     spins: bool (default: True)
         plot spindle averages
+    count: bool (default: True)
+        plot overlay of spindle count at each timedelta
     buffer: bool (default:False)
         plot average data +/- 3s from zero-neg spindle peaks. 
         Note: this has an effect of washing out spindles features due to asymmetry in spindle distribution 
@@ -659,6 +661,14 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
                 ax.plot(data[(chan, 'mean')], alpha=1, color=spin_color, label='Spindle Average', lw=1)
                 ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
                                 color=spin_color, alpha=0.2)
+                if count:
+                    ax1 = ax.twinx()
+                    ax1.plot(data[chan, 'count'], color=count_color, alpha=0.3)
+                    ax1.fill_between(data.index, 0, data[(chan, 'count')], color=count_color, alpha=0.3)
+                    ax1.set_ylim(0, 50)
+                    ax1.set_yticks(ticks=[0,20,40, 60])
+                    ax1.set_yticklabels(labels=[0,20,40, 60], color=count_color)
+                    ax1.tick_params(axis='y', labelsize=8) #color=count_color)
 
             # set subplot params
             ax.set_xlim([-1800, 1800])
@@ -671,10 +681,11 @@ def plot_spin_means(n, spins=True, buffer=False, err='sem', spin_color='black', 
             fig.delaxes(ax)
 
     # set figure params
-    fig.legend()   
+    #fig.legend()   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
-    fig.text(0.5, 0, 'Time (ms)', ha='center')
-    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
+    fig.text(0.5, 0, 'Time (ms)', ha='center', size='large')
+    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical', color=spin_color, size='large')
+    fig.text(1, 0.5, 'Spindle Count', va='center', rotation=270, color=count_color, size='large')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\nSpindle Averages')
 
     return fig
@@ -895,7 +906,7 @@ def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spfilt'):
     fig.text(0.5, 0, 'Time (ms)', ha='center')
     fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
-    
+
 
 def plot_spso(n):
     """ Plot individual slow oscillations with overriding spindle detections """

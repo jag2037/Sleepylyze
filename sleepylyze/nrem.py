@@ -492,13 +492,14 @@ class NREM:
             
         print('Calculating spindle statistics...')
         # create a new multiindex dataframe for calculations
-        calcs = ['mean', 'std' ,'sem']
+        calcs = ['count', 'mean', 'std' ,'sem']
         tuples = [(chan, calc) for chan in spindle_aggregates.keys() for calc in calcs]
         columns = pd.MultiIndex.from_tuples(tuples, names=['channel', 'calc'])
         spindle_means = pd.DataFrame(columns=columns)
         
         # fill the dataframe
         for chan in spindle_aggregates.keys():
+            spindle_means[(chan, 'count')] = spindle_aggregates[chan].notna().sum(axis=1)
             spindle_means[(chan, 'mean')] = spindle_aggregates[chan].mean(axis=1)
             spindle_means[(chan, 'std')] = spindle_aggregates[chan].std(axis=1)
             spindle_means[(chan, 'sem')] = spindle_aggregates[chan].sem(axis=1)
