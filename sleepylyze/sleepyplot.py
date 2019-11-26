@@ -621,25 +621,29 @@ def plot_spins(n, datatype='Raw'):
 
     return fig
 
-def plot_spin_means(n, spins=True, count=True, buffer=False, err='sem', spin_color='black', count_color='dodgerblue', buff_color='lightblue'):
+def plot_spin_means(n, datatype='Raw', spins=True, count=True, buffer=False, err='sem', spin_color='black', count_color='dodgerblue', buff_color='lightblue'):
     """ plot all spindle detections by channel 
     
-    Parameters
-    ----------
-    spins: bool (default: True)
-        plot spindle averages
-    count: bool (default: True)
-        plot overlay of spindle count at each timedelta
-    buffer: bool (default:False)
-        plot average data +/- 3s from zero-neg spindle peaks. 
-        Note: this has an effect of washing out spindles features due to asymmetry in spindle distribution 
-        around the negative peak and corresponding averaging of spindle with non-spindle data
-    err: str (default:'sem')
-        type of error bars to use [options: 'std', 'sem']
-    spin_color: str (default: 'black')
-        color for plotting spindles
-    buff_color: str (default:'lightblue')
-        color for plotting buffer data
+        Note: Removed buffer option bc buffer calculations not maintained in nrem module (11-26-19)
+
+        Parameters
+        ----------
+        datatype: str (default: 'Raw')
+            data to plot [options: 'Raw', 'spfilt']
+        spins: bool (default: True)
+            plot spindle averages
+        count: bool (default: True)
+            plot overlay of spindle count at each timedelta
+        # buffer: bool (default:False)
+        #     plot average data +/- 3s from zero-neg spindle peaks. 
+        #     Note: this has an effect of washing out spindles features due to asymmetry in spindle distribution 
+        #     around the negative peak and corresponding averaging of spindle with non-spindle data
+        err: str (default:'sem')
+            type of error bars to use [options: 'std', 'sem']
+        spin_color: str (default: 'black')
+            color for plotting spindles
+        buff_color: str (default:'lightblue')
+            color for plotting buffer data
     """
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
@@ -651,13 +655,13 @@ def plot_spin_means(n, spins=True, count=True, buffer=False, err='sem', spin_col
     
     for chan, ax in zip(n.spindles.keys(), axs.flatten()):
         if chan not in exclude:
-            if buffer:
-                data = n.spindle_buffer_means
-                ax.plot(data[(chan, 'mean')], alpha=1, color=buff_color, label='Overall Average', lw=1)
-                ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
-                                color=buff_color, alpha=0.2)
+            # if buffer:
+            #     data = n.spindle_buffer_means
+            #     ax.plot(data[(chan, 'mean')], alpha=1, color=buff_color, label='Overall Average', lw=1)
+            #     ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
+            #                     color=buff_color, alpha=0.2)
             if spins:
-                data = n.spindle_means
+                data = n.spindle_means[datatype]
                 ax.plot(data[(chan, 'mean')], alpha=1, color=spin_color, label='Spindle Average', lw=1)
                 ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
                                 color=spin_color, alpha=0.2)
@@ -686,7 +690,7 @@ def plot_spin_means(n, spins=True, count=True, buffer=False, err='sem', spin_col
     fig.text(0.5, 0, 'Time (ms)', ha='center', size='large')
     fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical', color=spin_color, size='large')
     fig.text(1, 0.5, 'Spindle Count', va='center', rotation=270, color=count_color, size='large')
-    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\nSpindle Averages')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + f'\nSpindle Averages ({datatype})')
 
     return fig
 

@@ -466,43 +466,47 @@ class NREM:
             self.spindles_wbuffer = spindles_wbuffer
             print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
 
-    def calc_spindle_means(self, datatype):
+    def calc_spindle_means(self):
         """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel 
-        
-            Parameters
-            ----------
-            datatype: str (default: 'spfilt')
-                Which data to use for averaging (options: 'Raw', 'spfilt', 'spsofilt')
+
+            Returns
+            -------
+            self.spindle_means: nested dict
+                dictionary of raw and filtered spindle means by channel 
+                format: {'Raw':{channel:pd.DataFrame}}, 'spfilt':{channel:pd.DataFrame}}
         """
-        self.metadata['analysis_info']['stats_dtype'] = datatype
 
         print('Aligning spindles...')
         # align spindles accoridng to timedelta & combine into single dataframe
         spindle_aggregates = {}
+        datatypes = ['Raw', 'spfilt']
         for chan in self.spindles.keys():
             # only use channels that have spindles
             if self.spindles[chan]:
-                # set the base df
-                agg_df = pd.DataFrame(self.spindles[chan][0][datatype])
-                agg_df = agg_df.rename(columns={datatype:'spin_0'})
-                rsuffix = list(range(1, len(self.spindles[chan])))
-                # join on the index for each spindle
-                agg_df = agg_df.join([self.spindles[chan][x][datatype].rename('spin_'+str(x)) for x in rsuffix], how='outer')
-                spindle_aggregates[chan] = agg_df
+                spindle_aggregates[chan] = {}
+                for datatype in datatypes:
+                    # set the base df
+                    agg_df = pd.DataFrame(self.spindles[chan][0][datatype])
+                    agg_df = agg_df.rename(columns={datatype:'spin_0'})
+                    rsuffix = list(range(1, len(self.spindles[chan])))
+                    # join on the index for each spindle
+                    agg_df = agg_df.join([self.spindles[chan][x][datatype].rename('spin_'+str(x)) for x in rsuffix], how='outer')
+                    spindle_aggregates[chan][datatype] = agg_df
             
         print('Calculating spindle statistics...')
         # create a new multiindex dataframe for calculations
+        spindle_means = {}
         calcs = ['count', 'mean', 'std' ,'sem']
         tuples = [(chan, calc) for chan in spindle_aggregates.keys() for calc in calcs]
         columns = pd.MultiIndex.from_tuples(tuples, names=['channel', 'calc'])
-        spindle_means = pd.DataFrame(columns=columns)
-        
-        # fill the dataframe
-        for chan in spindle_aggregates.keys():
-            spindle_means[(chan, 'count')] = spindle_aggregates[chan].notna().sum(axis=1)
-            spindle_means[(chan, 'mean')] = spindle_aggregates[chan].mean(axis=1)
-            spindle_means[(chan, 'std')] = spindle_aggregates[chan].std(axis=1)
-            spindle_means[(chan, 'sem')] = spindle_aggregates[chan].sem(axis=1)
+        for datatype in datatypes:
+            spindle_means[datatype] = pd.DataFrame(columns=columns)
+            # fill the dataframe
+            for chan in spindle_aggregates.keys():
+                spindle_means[datatype][(chan, 'count')] = spindle_aggregates[chan][datatype].notna().sum(axis=1)
+                spindle_means[datatype][(chan, 'mean')] = spindle_aggregates[chan][datatype].mean(axis=1)
+                spindle_means[datatype][(chan, 'std')] = spindle_aggregates[chan][datatype].std(axis=1)
+                spindle_means[datatype][(chan, 'sem')] = spindle_aggregates[chan][datatype].sem(axis=1)
             
         self.spindle_aggregates = spindle_aggregates
         self.spindle_means = spindle_means
@@ -790,6 +794,8 @@ class NREM:
 
     def export_spindles(self, export_dir):
         """ Export spindle analyses
+
+            **TO DO: Update this for raw/spfilt dict support of spindle_aggregates and spindle_means
         
             Parameters
             ----------
