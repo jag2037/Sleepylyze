@@ -735,7 +735,7 @@ class NREM:
         print('Spindle stats stored in obj.spindle_stats.\n')
 
     def analyze_spindles(self, zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, psd_bandwidth=1.0, 
-                        norm_range=[(4,6), (18, 25)], spin_range=[9, 16], datatype = 'spfilt'):
+                        norm_range=[(4,6), (18, 25)], spin_range=[9, 16]):
         """ starting code for spindle statistics/visualizations 
 
         Parameters
@@ -755,8 +755,6 @@ class NREM:
             frequency ranges for gottselig normalization
         spin_range: list of int
             spindle frequency range to be used for calculating center frequency
-        datatype: str (default: 'spfilt')
-                Which data to use for aggregation & averaging (options: 'Raw', 'spfilt', 'spsofilt')
 
         Returns
         -------
@@ -778,7 +776,7 @@ class NREM:
         self.create_spindfs(zmethod, trough_dtype, buff, buffer_len)
 
         # calculate spindle & spindle buffer means
-        self.calc_spindle_means(datatype)
+        self.calc_spindle_means()
         if buff:
             self.calc_spindle_buffer_means()
 
@@ -794,8 +792,6 @@ class NREM:
 
     def export_spindles(self, export_dir):
         """ Export spindle analyses
-
-            **TO DO: Update this for raw/spfilt dict support of spindle_aggregates and spindle_means
         
             Parameters
             ----------
@@ -865,14 +861,17 @@ class NREM:
         filename = f'{fname}_spindle_aggregates.xlsx'
         savename = os.path.join(export_dir, filename)
         writer = pd.ExcelWriter(savename, engine='xlsxwriter')
-        for chan_tab, df in self.spindle_aggregates.items():
-            df.to_excel(writer, sheet_name=chan_tab)
+        for chan in self.spindle_aggregates.keys():
+            for dtype in self.spindle_aggregates[chan].keys():
+                tab = '_'.join([chan, dtype])
+                self.spindle_aggregates[chan][dtype].to_excel(writer, sheet_name=tab)
         writer.save() 
         
         # export spindle means
-        filename = f'{fname}_spindle_means.csv'
-        savename = os.path.join(export_dir, filename)
-        self.spindle_means.to_csv(savename)
+        for dtype in self.spindle_means.keys():
+            filename = f'{fname}_spindle_means_{dtype}.csv'
+            savename = os.path.join(export_dir, filename)
+            self.spindle_means[dtype].to_csv(savename)
         
         # export spindle stats
         filename = f'{fname}_spindle_stats.csv'
