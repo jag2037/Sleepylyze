@@ -769,6 +769,92 @@ def plot_spindlepower(n, dB=True):
 
     return fig
 
+def plot_spindlepower_headplot(n, dB=True):
+    """ 
+        Headplot of spindle power spectrum for all channels 
+        NOTE: only for FS128 (12-11-19)
+    """
+    
+    # set channel locations
+    locs = {'FPz': [4, 0],
+             'Fp1': [3, 0],
+             'FP2': [5, 0],
+             'AF7': [1, 1],
+             'AF8': [7, 1],
+             'F7': [0, 2],
+             'F8': [8, 2],
+             'F3': [2, 2],
+             'F4': [6, 2],
+             'F1': [3, 2],
+             'F2': [5, 2],
+             'Fz': [4, 2],
+             'FC5': [1, 3],
+             'FC6': [7, 3],
+             'FC1': [3, 3],
+             'FC2': [5, 3],
+             'T3': [0, 4],
+             'T4': [8, 4],
+             'C3': [2, 4],
+             'C4': [6, 4],
+             'Cz': [4, 4],
+             'CP5': [1, 5],
+             'CP6': [7, 5],
+             'CP1': [3, 5],
+             'CP2': [5, 5],
+             'CPz': [4, 5],
+             'P3': [2, 6],
+             'P4': [6, 6],
+             'Pz': [4, 6],
+             'T5': [0, 6],
+             'T6': [8, 6],
+             'POz': [4, 7],
+             'PO7': [1, 7],
+             'PO8': [7, 7],
+             'O1': [2, 8],
+             'O2': [6, 8],
+             'Oz': [4, 8]}
+    
+    fig, ax = plt.subplots(9,9, figsize=(12, 12))
+    plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
+
+    for chan in locs.keys():    
+        # transform units
+        if dB == True:
+            pwr = 10 * np.log10(n.spindle_psd[chan].values)
+            ylabel = 'Power (dB)'
+        else:
+            pwr = n.spindle_psd[chan].values
+            ylabel = 'Power (mV^2/Hz)'
+
+        # plot spectrum
+        #ax = plt.subplot()
+        ax[locs[chan][1], locs[chan][0]].plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+        # highlight spindle range. aquamarine or lavender works here too
+        ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='lavender', alpha=0.8)
+
+        # set subplot params
+        ax[locs[chan][1], locs[chan][0]].set_xlim(0, 25)
+        ax[locs[chan][1], locs[chan][0]].margins(y=0)
+        ax[locs[chan][1], locs[chan][0]].set_xticks([5, 10, 15, 20])
+        ax[locs[chan][1], locs[chan][0]].tick_params(axis='both', labelsize=7)
+        ax[locs[chan][1], locs[chan][0]].spines['top'].set_visible(False)
+        ax[locs[chan][1], locs[chan][0]].spines['right'].set_visible(False)
+        ax[locs[chan][1], locs[chan][0]].set_title(chan, size='small', weight='semibold')
+        ax[locs[chan][1], locs[chan][0]].title.set_position([.5, 0.75])
+        #ax[locs[chan][1], locs[chan][0]].text(0.0, 0.0, chan)
+        
+    # remove unused plots
+    coords = [[x, y] for x in range(0, 9) for y in range(0,9)]
+    unused = [c for c in coords if  c not in locs.values()]
+    for u in unused:
+        fig.delaxes(ax[u[1], u[0]])
+
+    # set labels
+    fig.text(0.5, 0.08, 'Frequency (Hz)', ha='center', size='large', weight='semibold')
+    fig.text(0.08, 0.5, ylabel, va='center', rotation='vertical', size='large', weight='semibold')
+
+    return fig
+
 
 def plot_gottselig(n, datatype='calcs'):
     """ plot gottselig normalization for all channels 
@@ -820,6 +906,98 @@ def plot_gottselig(n, datatype='calcs'):
     fig.text(0.5, 0, 'Frequency (Hz)', ha='center', size='large')
     fig.text(0, 0.5, 'Power (dB)', va='center', rotation='vertical', size='large')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\n\nGottselig Normalization', size='large')
+
+    return fig
+
+def plot_gottselig_headplot(n, datatype='calcs'):
+    """ plot gottselig normalization headplot for all channels 
+        NOTE: only for FS128 (12-11-19)
+    
+        Parameters
+        ----------
+        datatype: str (default: 'calcs')
+            which data to plot [options: 'calcs', 'normed_pwr']
+    """
+    
+    # set channel locations
+    locs = {'FPz': [4, 0],
+             'Fp1': [3, 0],
+             'FP2': [5, 0],
+             'AF7': [1, 1],
+             'AF8': [7, 1],
+             'F7': [0, 2],
+             'F8': [8, 2],
+             'F3': [2, 2],
+             'F4': [6, 2],
+             'F1': [3, 2],
+             'F2': [5, 2],
+             'Fz': [4, 2],
+             'FC5': [1, 3],
+             'FC6': [7, 3],
+             'FC1': [3, 3],
+             'FC2': [5, 3],
+             'T3': [0, 4],
+             'T4': [8, 4],
+             'C3': [2, 4],
+             'C4': [6, 4],
+             'Cz': [4, 4],
+             'CP5': [1, 5],
+             'CP6': [7, 5],
+             'CP1': [3, 5],
+             'CP2': [5, 5],
+             'CPz': [4, 5],
+             'P3': [2, 6],
+             'P4': [6, 6],
+             'Pz': [4, 6],
+             'T5': [0, 6],
+             'T6': [8, 6],
+             'POz': [4, 7],
+             'PO7': [1, 7],
+             'PO8': [7, 7],
+             'O1': [2, 8],
+             'O2': [6, 8],
+             'Oz': [4, 8]}
+    
+    fig, ax = plt.subplots(9,9, figsize=(12, 12))
+    plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
+    
+    for chan in locs.keys():    
+        data = n.spindle_psd[chan]
+        data_normed = n.spindle_psd_norm[chan]
+        
+        if datatype == 'calcs':
+            # first plot
+            ax[locs[chan][1], locs[chan][0]].scatter(data_normed['values_to_fit'].index, data_normed['values_to_fit'].values, alpha=0.8, color='mediumslateblue', linewidths=0, marker='s', label='Normalization Range')
+            ax[locs[chan][1], locs[chan][0]].plot(data.index, 10*np.log10(data.values), color='black', label = 'Power Spectrum')
+            ax[locs[chan][1], locs[chan][0]].plot(data_normed['exp_fit_line'], color='mediumblue', label = 'Exponential fit')
+            ax[locs[chan][1], locs[chan][0]].set_title(chan)
+        
+        elif datatype == 'normed_pwr':
+            # second plot
+            ax[locs[chan][1], locs[chan][0]].plot(data_normed['normed_pwr'], color='black', label='Normalized power')
+            ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='lavender', alpha=0.8, label = 'Spindle Range')
+            ax[locs[chan][1], locs[chan][0]].set_title(chan)
+        
+        # set subplot params
+        ax[locs[chan][1], locs[chan][0]].margins(y=0)
+        ax[locs[chan][1], locs[chan][0]].set_xlim(0, 25)
+        ax[locs[chan][1], locs[chan][0]].margins(y=0)
+        ax[locs[chan][1], locs[chan][0]].set_xticks([5, 10, 15, 20])
+        ax[locs[chan][1], locs[chan][0]].tick_params(axis='both', labelsize=7)
+        ax[locs[chan][1], locs[chan][0]].spines['top'].set_visible(False)
+        ax[locs[chan][1], locs[chan][0]].spines['right'].set_visible(False)
+        ax[locs[chan][1], locs[chan][0]].set_title(chan, size='small', weight='semibold')
+        ax[locs[chan][1], locs[chan][0]].title.set_position([.5, 0.75])
+    
+    # remove unused plots
+    coords = [[x, y] for x in range(0, 9) for y in range(0,9)]
+    unused = [c for c in coords if  c not in locs.values()]
+    for u in unused:
+        fig.delaxes(ax[u[1], u[0]])
+    
+    # set labels
+    fig.text(0.5, 0.08, 'Frequency (Hz)', ha='center', size='large', weight='semibold')
+    fig.text(0.08, 0.5, 'Power (dB)', va='center', rotation='vertical', size='large', weight='semibold')
 
     return fig
 
