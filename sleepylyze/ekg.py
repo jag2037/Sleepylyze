@@ -1,13 +1,23 @@
 """ This file contains the EKG class 
 
-    All R peak detections should be manually inspected with EKG.plot method and
+    All R peak detections should be manually inspected with EKG.plotpeaks method and
     false detections manually removed with rm_peaks method. After rpeak examination, 
     NaN data can be accounted for by removing false IBIs with rm_ibi method.
 
     TO DO:
+    	** Update docstrings **
         1. Add option to extract sampling frequency & milliseconds from time column
-        2. Re-add code to import previously cleaned nn data
+        2. Re-add code to import previously cleaned nn data -- DONE. 11-24-19 in hrv_stats method
         3. Add range options for indices for rm peaks and rm ibis
+        4. Add more descriptive error message for ValueError encountered during
+        	add_peaks if range is outside of data
+        5. Add option for auto-determining threshold parameters (mw_size and upshift)
+        6. Add threshold statistics (sensitivity & PPV) to output
+        7. Update hrv_stats to assume NN
+        8. Add nn attribute for data that doesn't require cleanings
+        9. Fix spreadsheet alignment when smoothing used (incorp smooth & sm_wn metadata to all files)
+        10. Option for 1000Hz interpolation prior to peak detection; Option for 4Hz resampling of NN tachogram
+        	rather than original sampling frequencys
 
 """
 
@@ -37,7 +47,7 @@ class EKG:
     ----------
     """
 
-    def __init__(self, fname, fpath, min_dur=True, epoched=True, smooth=False, sm_wn=0.03, mw_size=0.2, upshift=1.03, rm_artifacts=False, detect_peaks=True):
+    def __init__(self, fname, fpath, min_dur=True, epoched=True, smooth=False, sm_wn=30, mw_size=100, upshift=3.5, rm_artifacts=False, detect_peaks=True):
         """ Initialize raw EKG object
 
         Parameters
@@ -53,11 +63,11 @@ class EKG:
         smooth: BOOL (default: False)
             Whether raw signal should be smoothed before peak detections. Set True if raw data has consistent high frequency noise
             preventing accurate peak detection
-        sm_wn: float (default: 0.03)
-            Size of moving window for rms smoothing preprocessing
-        mw_size: float (default: 0.2)
-            Moving window size for R peak detection (seconds)
-        upshift: float (default: 1.03)
+        sm_wn: float (default: 30)
+            Size of moving window for rms smoothing preprocessing (milliseconds)
+        mw_size: float (default: 100)
+            Moving window size for R peak detection (milliseconds)
+        upshift: float (default: 3.5)
             Detection threshold upshift for R peak detection (% of signal)
         rm_artifacts: bool (default: False)
             Apply IBI artifact removal algorithm
@@ -138,16 +148,16 @@ class EKG:
         self.metadata['analysis_info']['smooth'] = True
         self.metadata['analysis_info']['rms_smooth_wn'] = sm_wn
         
-        mw = int(sm_wn*self.metadata['analysis_info']['s_freq'])
+        mw = int((sm_wn/1000)*self.metadata['analysis_info']['s_freq'])
         self.data['raw_smooth'] = self.data.Raw.rolling(mw, center=True).mean()
 
 
     def set_Rthres(self, smooth, mw_size, upshift):
         """ set R peak detection threshold based on moving average + %signal upshift """
-        print('Calculating moving average with {} sec window and a {} upshift...'.format(mw_size, upshift))
+        print('Calculating moving average with {} ms window and a {}% upshift...'.format(mw_size, upshift))
         
         # convert moving window to sample & calc moving average over window
-        mw = int(mw_size*self.metadata['analysis_info']['s_freq'])
+        mw = int((mw_size/1000)*self.metadata['analysis_info']['s_freq'])
         if smooth == False:
             mavg = self.data.Raw.rolling(mw).mean()
             ekg_avg = np.mean(self.data['Raw'])
@@ -159,7 +169,8 @@ class EKG:
         mavg = mavg.fillna(ekg_avg)
 
         # set detection threshold as +5% of moving average
-        det_thres = mavg*upshift
+        upshift_mult = 1 + upshift/100
+        det_thres = mavg*upshift_mult
         self.data['EKG_thres'] = det_thres # can remove this for speed, just keep as series
 
         self.metadata['analysis_info']['mw_size'] = mw_size
@@ -659,18 +670,18 @@ class EKG:
 
         # inter-beat interval & SD (ms)
         ibi = np.mean(ii)
-        sdrr = np.std(ii)
+        sdnn = np.std(ii, ddof=1)
 
         # SD & RMS of differences between successive II intervals (ms)
         sdsd = np.std(ii_diff)
         rmssd = np.sqrt(np.mean(ii_diffsq))
 
         # pNN20 & pNN50
-        pxx20 = sum(np.abs(ii_diff) >= 20.0)/len(ii_diff)*100
-        pxx50 = sum(np.abs(ii_diff) >= 50.0)/len(ii_diff)*100
+        pxx20 = sum(np.abs(ii_diff) >= 20.0)/(len(ii_diff)-1) *100
+        pxx50 = sum(np.abs(ii_diff) >= 50.0)/(len(ii_diff)-1) *100
 
         self.time_stats = {'linear':{'HR_avg': hr_avg, 'HR_max': hr_max, 'HR_min': hr_min, 'IBI_mean': ibi,
-                                    'SDRR': sdrr, 'RMSSD': rmssd, 'pXX20': pxx20, 'pXX50': pxx50},
+                                    'SDNN': sdnn, 'RMSSD': rmssd, 'pXX20': pxx20, 'pXX50': pxx50},
                             }
         print('Time domain stats stored in obj.time_stats\n')
 
@@ -793,7 +804,8 @@ class EKG:
                 fband_vals[key]['idx'] = None
                 fband_vals[key]['pwr'] = None
             else:
-                fband_vals[key]['idx'] = np.where((freq_bands[key][0] <= psd['freqs']) & (psd['freqs'] <= freq_bands[key][1]))[0]
+                # lower limit not inclusive
+                fband_vals[key]['idx'] = np.where((freq_bands[key][0] < psd['freqs']) & (psd['freqs'] <= freq_bands[key][1]))[0]
                 fband_vals[key]['pwr'] = psd['pwr'][fband_vals[key]['idx']]
                 
         self.psd_fband_vals = fband_vals
@@ -827,7 +839,7 @@ class EKG:
         self.freq_stats = freq_stats
 
 
-    def calc_fstats(self, itype, method, bandwidth, window='hamming', bands=None):
+    def calc_fstats(self, itype, method, bandwidth, window, bands=None):
         """ Calculate frequency domain statistics 
 
         Parameters
@@ -861,7 +873,7 @@ class EKG:
 
 
 
-    def hrv_stats(self, itype='nn', nn_file=None, method='mt', bandwidth=0.01):
+    def hrv_stats(self, itype='nn', nn_file=None, method='mt', bandwidth=0.01, window='hamming'):
         """ Calculate all statistics on IBI object 
 
             TO DO: Add freq_stats arguments to hrv_stats params? 
@@ -892,7 +904,7 @@ class EKG:
 
         # calculate statistics
         self.calc_tstats(itype)
-        self.calc_fstats(itype, method, bandwidth)
+        self.calc_fstats(itype, method, bandwidth, window)
         
         print('Done.')
 
@@ -1031,18 +1043,29 @@ class EKG:
 
         fig, axs = plt.subplots(len(plots), 1, sharex=True, figsize = [9.5, 6])
         
-        for dat, ax, plot in zip(data, axs, plots):
-            if plot == 'ekg' and rpeaks == True:
-                ax.plot(dat)
-                ax.scatter(self.rpeaks.index, self.rpeaks.values, color='red')
-                ax.set_ylabel('EKG uV')
-            elif plot == 'ibi':
-                ax.plot(dat, color='grey', marker='.', markersize=8, markerfacecolor=(0, 0, 0, 0.8), markeredgecolor='None')
-                ax.set_ylabel('Inter-beat interval (ms)')
-                ax.set_xlabel('Time')
-            ax.margins(x=0)
-            # show microseconds for mouse-over
-            ax.format_xdata = lambda d: mdates.num2date(d).strftime('%H:%M:%S.%f')[:-3]
+        if len(plots) > 1:
+            for dat, ax, plot in zip(data, axs, plots):
+                if plot == 'ekg' and rpeaks == True:
+                    ax.plot(dat)
+                    ax.scatter(self.rpeaks.index, self.rpeaks.values, color='red')
+                    ax.set_ylabel('EKG (mV)')
+                elif plot == 'ibi':
+                    ax.plot(dat, color='grey', marker='.', markersize=8, markerfacecolor=(0, 0, 0, 0.8), markeredgecolor='None')
+                    ax.set_ylabel('Inter-beat interval (ms)')
+                    ax.set_xlabel('Time')
+                ax.margins(x=0)
+                # show microseconds for mouse-over
+                ax.format_xdata = lambda d: mdates.num2date(d).strftime('%H:%M:%S.%f')[:-3]
+        else:
+            for dat, plot in zip(data, plots):
+                if plot == 'ekg' and rpeaks == True:
+                    axs.plot(dat)
+                    axs.scatter(self.rpeaks.index, self.rpeaks.values, color='red')
+                    axs.set_ylabel('EKG (mV)')
+                    axs.set_xlabel('Time')
+                axs.margins(x=0)
+                # show microseconds for mouse-over
+                axs.format_xdata = lambda d: mdates.num2date(d).strftime('%H:%M:%S.%f')[:-3]
 
 
 

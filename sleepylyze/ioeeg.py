@@ -194,7 +194,7 @@ class Dataset:
             expected_chans = 128
             check_chans(chans, expected_chans) 
             channels_all = ['Fp1','F3','FC1','C3','CP1','P3','O1','AF7','F7','FC5','T3','CP5',
-                'T5','PO7','FPz','Fz','Cz','CPz','Pz','POz','Oz','FP2','F4','FC2','C4','CP2','P4','O2',
+                'T5','PO7','FPz','Fz','Cz','CPz','Pz','POz','Oz','Fp2','F4','FC2','C4','CP2','P4','O2',
                 'AF8','F8','FC6','T4','CP6','T6','PO8','F1','F2','EOG_L','EOG_R','EKG']
                 # remove any chans here?
             channels = channels_all
