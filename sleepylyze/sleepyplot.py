@@ -912,6 +912,8 @@ def plot_gottselig(n, datatype='calcs'):
 def plot_gottselig_headplot(n, datatype='calcs'):
     """ plot gottselig normalization headplot for all channels 
         NOTE: only for FS128 (12-11-19)
+
+        To Do: Change plots for consistent y-axis
     
         Parameters
         ----------
