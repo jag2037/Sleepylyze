@@ -6,10 +6,26 @@ setup(
 	author= 'J. Gottshall',
 	author_email='jackie.gottshall@gmail.com',
 	packages=['sleepylyze',],
-	url='',
+	url='https://github.com/jag2037/sleepylyze',
 	license='',
 	description= 'Python analysis of EEG sleep architecture'
 	long_description=open('README.txt').read(),
 	install_requires=[
+		'datetime',
+		'io',
+		'json',
+		'math',
+		'numpy',
+		'os',
+		'pandas',
+		'psycopg2',
+		're',
+		'statistics',
+		'sqlalchemy',
+		'glob',
+		'warnings',
+		'xlsxwriter',
+		'mne',
+		'scipy'
 	],
 	)
