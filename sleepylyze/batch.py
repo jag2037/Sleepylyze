@@ -66,7 +66,7 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
     ----------
     in_num: str
         patient identifier
-    hyp_file: *.txt
+    hyp_file: str (format: *.txt)
         file with hypnogram at 30-second intervals
     fpath: str
         path to EEG files cut by sleep stage
@@ -78,10 +78,13 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
     Returns
     -------
     .csv files with EEG data
+        OR
+    pd.dataframes blocked in two-hour chunks (according to Purcell et al. 2017)
 
     """
     
     # calculate elapsed sleep for each 30-second time interval
+    print('Loading hypnogram...')
     sleep_scores = [1, 2, 3, 4, 5] # exclude 0 and 6 for awake and record break
     hyp = pd.read_csv(hyp_file, header=None, index_col=[0], sep='\t', names=['time', 'score'], parse_dates=True)
     mins_elapsed = hyp.score.isin(sleep_scores).cumsum()/2
@@ -91,15 +94,18 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
     files = glob.glob(glob_match)
     
     # make list of dfs for concat
+    print('Reading data...')
     data = [pd.read_csv(file, header = [0, 1], index_col = 0, parse_dates=True) for file in files]
 
     # add NaN to the end of each df
     data_blocked = [df.append(pd.Series(name=df.iloc[-1].name + pd.Timedelta(milliseconds=1))) for df in data]
 
     # concatenate the dfs
+    print('Concatenating data...')
     s2_df = pd.concat(data_blocked).sort_index()
     
     # assign indices to hours elapsed sleep
+    print('Assigning minutes elapsed...')
     idx0_2 = mins_elapsed[mins_elapsed.between(0, 120)].index
     idx2_4 = mins_elapsed[mins_elapsed.between(120.5, 240)].index
     idx4_6 = mins_elapsed[mins_elapsed.between(240.5, 360)].index
@@ -111,18 +117,23 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
     df_six = s2_df[(s2_df.index > idx4_6[0]) & (s2_df.index < idx4_6[-1])]
     df_eight = s2_df[(s2_df.index > idx6_8[0]) & (s2_df.index < idx6_8[-1])]
     
-    # export blocked data
-    if not os.path.exists(savedir):
-        print(savedir + ' does not exist. Creating directory...')
-        os.makedirs(savedir)
+    if export:
+        # export blocked data
+        if not os.path.exists(savedir):
+            print(savedir + ' does not exist. Creating directory...')
+            os.makedirs(savedir)
 
-    print('Saving files...')
-    for df, hrs in zip([df_two, df_four, df_six, df_eight], ['0-2hrs', '2-4hrs', '4-6hrs', '6-8hrs']):
-        date = df.index[0].strftime('%Y-%m-%d')
-        savename = in_num + '_' + date + '_s2_' + hrs + '.csv'
-        df.to_csv(os.path.join(savedir, savename))
+        print('Saving files...')
+        for df, hrs in zip([df_two, df_four, df_six, df_eight], ['0-2hrs', '2-4hrs', '4-6hrs', '6-8hrs']):
+            date = df.index[0].strftime('%Y-%m-%d')
+            savename = in_num + '_' + date + '_s2_' + hrs + '.csv'
+            df.to_csv(os.path.join(savedir, savename))
 
-    print(f'Files saved to {savedir}')
+        print(f'Files saved to {savedir}')
+    else:
+        return df_two df_four df_six df_eight
+
+    print('Done')
 
 
 
