@@ -77,7 +77,7 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
 
     Returns
     -------
-    .csv files with EEG data
+    .csv files with EEG data blocked in two-hour chunks (according to Purcell et al. 2017)
         OR
     pd.dataframes blocked in two-hour chunks (according to Purcell et al. 2017)
 

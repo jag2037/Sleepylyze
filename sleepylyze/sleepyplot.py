@@ -10,6 +10,7 @@
 import itertools
 import igraph as ig
 import math
+import matplotlib
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np 
@@ -17,10 +18,15 @@ import os
 import pandas as pd
 import shapely.geometry as SG
 
+from matplotlib.widgets import Slider
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
+
 
 
 def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
-    """ plot multichannel EEG w/ option for double panel raw & filtered 
+    """ plot multichannel EEG w/ option for double panel raw & filtered. For short, pub-ready
+        figures. Use vizeeg for data inspection 
     
     Parameters
     ----------
@@ -219,7 +225,7 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
-def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
+def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=False, win_width=15):
     """ vizualize multichannel EEG w/ option for double panel raw and/or filtered. Optimized for
         inspecting spindle detections (title/axis labels removed for space)
     
@@ -234,6 +240,11 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
         Option to plot spindle detections
     spindle_rejects: bool, optional, default: False
         Option to plot rejected spindle detections
+    slider: bool (default: False)
+        Option to implement an X-axis slider instead of built-in matplotlib zoom. Useful
+        for inspecting long segments of EEG with a set window
+    win_width: int (default: 15)
+        If using slider option, number of seconds to set window width
         
     Returns
     -------
@@ -260,7 +271,6 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
         title.append('Filtered')
     
 
-
     # flatten events list by channel for plotting
     if spindles == True:
         sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
@@ -268,7 +278,7 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
         sp_rej_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects[i])) for i in d.spindle_rejects.keys()]   
 
     # set channels for plotting
-    channels = [x[0] for x in d.data.columns]
+    channels = [x[0] for x in d.data.columns if x[0] not in ['EKG', 'EOG_L', 'EOG_R']]
     
     # set offset multiplier (distance between channels in plot)
     mx = 0.1
@@ -303,7 +313,6 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
         #ax.set_title(t)
         
         # set y axis params
-        #yticks = list(np.arange(mx, -(len(channels)*mx)+mx, -mx))
         ax.set_yticks(yticks)
         ax.set_yticklabels(channels)
         ax.set_ylim(bottom = yticks[-1]-3*mx, top=yticks[0]+3*mx)
@@ -312,20 +321,64 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
 
-        # plot minor axes
+    # if data roughly 5 mins or less, set minor x-axes
+    if (d.data.index[-1] - d.data.index[0]).total_seconds() < 400:
         seconds = mdates.SecondLocator()
         ax.xaxis.set_minor_locator(seconds)
         ax.grid(axis='x', which='minor', linestyle=':')
         ax.grid(axis='x', which='major')
     
     # set overall parameters
-    fig.tight_layout(pad=0)  # remove figure padding
+    #fig.tight_layout(pad=0)  # remove figure padding --> this pushes slider onto fig
     
     # remove labels to maximize on-screen plot area
     #plt.xlabel('Time')
     #fig.suptitle(d.metadata['file_info']['in_num'])
 
-    return fig, axs
+    # option to use x-axis slider insted of matplotlib zoom
+    if slider:
+        # plot minor axes --> requires slider for segments longer than 5mins
+        seconds = mdates.SecondLocator()
+        ax.xaxis.set_minor_locator(seconds)
+        ax.grid(axis='x', which='minor', linestyle=':')
+        ax.grid(axis='x', which='major')
+
+        # set initial window
+        x_min_index = 0
+        x_max_index = win_width*int(d.s_freq)
+
+        x_min = d.data.index[x_min_index]
+        x_max = d.data.index[x_max_index]
+        x_dt = x_max - x_min
+        
+        y_min, y_max = plt.axis()[2], plt.axis()[3]
+
+        plt.axis([x_min, x_max, y_min, y_max])
+
+        axcolor = 'lightgoldenrodyellow'
+        axpos = plt.axes([0.2, 0.1, 0.65, 0.03], facecolor=axcolor)
+        
+        slider_max = len(d.data) - x_max_index - 1
+
+        # set slider position object
+        spos = Slider(axpos, 'Pos', matplotlib.dates.date2num(x_min), matplotlib.dates.date2num(d.data.index[slider_max]))
+
+        # format date names
+        #plt.gcf().autofmt_xdate()
+        
+        # create slider update function
+        def update(val):
+            pos = spos.val
+            xmin_time = matplotlib.dates.num2date(pos)
+            xmax_time = matplotlib.dates.num2date(pos) + x_dt
+            ax.axis([xmin_time, xmax_time, y_min, y_max])
+            fig.canvas.draw_idle()
+
+        # update slider position on click
+        spos.on_changed(update)
+
+    #return fig, axs
+    return fig
 
 def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
     """ 
