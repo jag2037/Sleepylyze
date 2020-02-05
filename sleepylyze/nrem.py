@@ -8,11 +8,12 @@
         - Optimize self.create_spindfs() method
         - Assign NREM attributes to slots on init
         - Update docstrings
+        - !! recalculate ISI for 2-hr blocks
 """
 
 import datetime
 import glob
-import joblib
+#import joblib
 import json
 import os
 import numpy as np
@@ -718,7 +719,7 @@ class NREM:
                     # calculate density
                     density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
 
-                    # calculate inter-spindle-interval (ISI)
+                    # calculate inter-spindle-interval (ISI) --> NOT ACCURATE FOR 2HR BLOCKS
                     isi_arr = np.array([(self.spindles[chan][x+1].time.iloc[0] - self.spindles[chan][x].time.iloc[-1]).total_seconds() for x in self.spindles[chan] if x < len(self.spindles[chan])-1])
                     isi_mean = isi_arr.mean()
                     isi_sd = isi_arr.std()

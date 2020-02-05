@@ -722,9 +722,10 @@ def plot_spin_means(n, datatype='Raw', spins=True, count=True, buffer=False, err
                     ax1 = ax.twinx()
                     ax1.plot(data[chan, 'count'], color=count_color, alpha=0.3)
                     ax1.fill_between(data.index, 0, data[(chan, 'count')], color=count_color, alpha=0.3)
-                    ax1.set_ylim(0, 50)
-                    ax1.set_yticks(ticks=[0,20,40, 60])
-                    ax1.set_yticklabels(labels=[0,20,40, 60], color=count_color)
+                    max_count = len(n.spindles[chan])
+                    ticks = np.linspace(0, max_count, num=5, dtype=int)
+                    ax1.set_yticks(ticks=ticks)
+                    ax1.set_yticklabels(labels=ticks, color=count_color)
                     ax1.tick_params(axis='y', labelsize=8) #color=count_color)
 
             # set subplot params
