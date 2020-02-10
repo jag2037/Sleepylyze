@@ -20,6 +20,7 @@ import shapely.geometry as SG
 
 from matplotlib.widgets import Slider
 from pandas.plotting import register_matplotlib_converters
+from scipy.signal import find_peaks
 register_matplotlib_converters()
 
 
@@ -225,7 +226,7 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
-def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=False, win_width=15):
+def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=True, win_width=15):
     """ vizualize multichannel EEG w/ option for double panel raw and/or filtered. Optimized for
         inspecting spindle detections (title/axis labels removed for space)
     
@@ -291,7 +292,8 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     
     for dat, ax, t in zip(data, axs.flatten(), title):
         for i, c in enumerate(channels):
-            # normalize each channel to [0, 1]
+            # normalize each channel to [0, 1] -> can also simply subtract the mean (cleaner looking), but
+            # normalization preserves relative differences between channels while putting them on a common scale
             dat_ser = pd.Series(dat[(c, t)], index=dat.index)
             norm_dat = (dat_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i*mx # subtract i for plotting offset
             yticks.append(np.nanmedian(norm_dat))
@@ -379,6 +381,113 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
 
     #return fig, axs
     return fig
+
+
+def plot_spindlepower_chan_i(n, chan, dB=True):
+    """ Plot individual spindle spectra for a given channel """
+    
+    ncols = int(np.sqrt(len(n.spindle_psd_i[chan])))
+    nrows = len(n.spindle_psd_i[chan])//ncols + (len(n.spindle_psd_i[chan]) % ncols > 0) 
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(16, 12))
+    fig.subplots_adjust(hspace=0.8, wspace=0.5)
+    
+    for spin, ax in zip(n.spindle_psd_i[chan], axs.flatten()):    
+        # transform units
+        if dB == True:
+            pwr = 10 * np.log10(n.spindle_psd_i[chan][spin].values)
+            ylabel = 'Power (dB)'
+        else:
+            pwr = n.spindle_psd_i[chan][spin].values
+            ylabel = 'Power (mV^2/Hz)'
+
+        # plot spectrum
+        ax.plot(n.spindle_psd_i[chan][spin].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+        # highlight spindle range. aquamarine or lavender works here too
+        ax.axvspan(9, 16, color='lavender', alpha=0.8)
+
+        # set subplot params
+        ax.set_xlim(0, 25)
+        ax.margins(y=0)
+        ax.set_xticks([5, 10, 15, 20])
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_title(spin, size='x-small')
+        ax.tick_params(axis='both', labelsize='x-small', labelleft=False)
+    
+    # delete empty subplots --> this can probably be combined with previous loop
+    for i, ax in enumerate(axs.flatten()):
+        if i >= len(n.spindle_psd_i[chan]):
+            fig.delaxes(ax)
+    
+    # set figure params   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.93])
+    fig.text(0.5, 0, 'Frequency (Hz)', ha='center', size='large', weight='semibold')
+    fig.text(0, 0.5, ylabel, va='center', rotation='vertical', size='large', weight='semibold')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + f'\n\nSpindle Power {chan}', size='large', weight='semibold')
+
+    return fig
+
+def spec_peaks(n, chan, x):
+    """ Helper to grab spectral peaks from individual spindles and visualize
+        Plots two-panels: Upper = power spectrum, Lower = spindle tracing (w/ zero-pad) 
+
+        Parameters
+        ----------
+        n: nrem.NREM object
+            compatible with psd_type = 'i' under analyze_spindles method
+        chan: str
+            Channel to plot
+        x: int
+            Spindle # to plot
+
+        Returns
+        -------
+        matplotlib.Figure
+    """
+    sf = n.s_freq
+    zpad_len = 3
+    
+    # grab the peaks
+    p_idx, props = find_peaks(n.spindle_psd_i[chan][x])
+    peaks = n.spindle_psd_i[chan][x].iloc[p_idx]
+
+    # recreate the zero-padded data for plotting
+    data = n.spindles[chan][x].Raw.values - np.mean(n.spindles[chan][x].Raw.values)
+    
+    # check for zero-padding
+    if n.metadata['spindle_analysis']['zeropad'] == True:
+        zpad_len = n.metadata['spindle_analysis']['zeropad_len_sec']
+        total_len = zpad_len*sf
+        zpad_samples = total_len - len(data)
+        zpad_seconds = zpad_samples/sf
+        # if spindle is not longer than total length to zero-pad to
+        if zpad_samples > 0:
+            # zero-pad data
+            padding = np.repeat(0, zpad_samples)
+            data_pad = np.append(data, padding)
+        else:
+            spin_len = len(data)/sf
+            print(f'Spindle {chan}:{x} length {spin_len} seconds longer than pad length {zpad_len}')
+            data_pad = data 
+    
+    # if no zero-padding is used
+    else:
+        spin_len = len(data)/sf
+        print(f'Spindle {chan}:{x} length {spin_len} seconds longer than pad length {zpad_len}')
+        data_pad = data
+    
+    # plot the peak detections
+    fig, axs = plt.subplots(2, 1, figsize=(4,3))
+    axs[0].plot(n.spindle_psd_i[chan][x])
+    axs[0].scatter(x=peaks.index, y=peaks.values)
+
+    axs[1].plot(data_pad, alpha=1, lw=0.8)
+
+    fig.suptitle(x)
+
+    return fig
+
+### Macroarchitecture methods ###
 
 def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
     """ 
