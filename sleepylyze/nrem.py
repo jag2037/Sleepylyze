@@ -256,7 +256,7 @@ class NREM:
     def reject_spins(self, min_chans_r, min_chans_d, duration):
         """ Reject spindles that occur over fewer than 3 channels. Apply duration thresholding to 
             spindles that occur over fewer than X channels. 
-            [chans < 3 = reject; 3 < chans < X = apply duration threshold; X < chans = keep]
+            [chans < min_chans_r = reject; min_chans_r < chans < min_chans_d = apply max/min duration threshold; X < chans = apply max duration threshold]
         
             Parameters
             ----------
@@ -289,7 +289,7 @@ class NREM:
         for chan in self.spindle_events:
             self.spindle_rejects[chan] = []
             for spin in self.spindle_events[chan]:
-                # reject if present over less than 3 channels
+                # reject if present over less than min_chans_r channels
                 if not np.any(spin_bool['chans_present'].loc[spin] >= min_chans_r):
                         self.spindle_rejects[chan].append(spin)
                         self.spindle_events[chan].remove(spin)
@@ -761,6 +761,8 @@ class NREM:
 
             Returns
             -------
+            self.spindles_zpad: dict
+                zero-padded spindle values
             self.spindle_psd_i: dict
                 format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
             self.spindle_multitaper_calcs: dict of pd.DataFrame
@@ -775,9 +777,11 @@ class NREM:
         self.metadata['spindle_analysis']['zeropad_len_sec'] = zpad_len
         sf = self.metadata['analysis_info']['s_freq']
         
+        spindles_zpad = {}
         spindle_psd = {}
         spindle_multitaper_calcs = {}
         for chan in self.spindles:
+            spindles_zpad[chan] = {}
             spindle_psd[chan] = {}
             # waveform resolution is dependent on length of signal, regardless of zero-padding
             spindle_multitaper_calcs[chan] = pd.DataFrame(columns=['spin_samples', 'spin_seconds', 'zpad_samples', 'zpad_seconds', 'waveform_resoultion_Hz', 
@@ -830,10 +834,12 @@ class NREM:
                     # convert to series & add to dict
                     psd = pd.Series(pwr, index=freqs)
                     spindle_psd[chan][x] = psd
+                    spindles_zpad[chan][x] = data_pad
         
+        self.spindles_zpad = spindles_zpad
         self.spindle_multitaper_calcs = spindle_multitaper_calcs
         self.spindle_psd_i = spindle_psd
-        print('Done. Spectra stored in obj.spindle_psd_i. Calculations stored in obj.spindle_multitaper_calcs.\n')    
+        print('Done. \nSpectra stored in obj.spindle_psd_i. Calculations stored in obj.spindle_multitaper_calcs. Zero-padded spindle data in obj.spindles_zpad.\n')    
 
 
 
