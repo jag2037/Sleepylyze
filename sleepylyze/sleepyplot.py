@@ -444,44 +444,18 @@ def spec_peaks(n, chan, x):
         -------
         matplotlib.Figure
     """
-    sf = n.s_freq
-    zpad_len = 3
     
-    # grab the peaks
+    # grab the peaks on the power spectrum
     p_idx, props = find_peaks(n.spindle_psd_i[chan][x])
     peaks = n.spindle_psd_i[chan][x].iloc[p_idx]
 
-    # recreate the zero-padded data for plotting
-    data = n.spindles[chan][x].Raw.values - np.mean(n.spindles[chan][x].Raw.values)
-    
-    # check for zero-padding
-    if n.metadata['spindle_analysis']['zeropad'] == True:
-        zpad_len = n.metadata['spindle_analysis']['zeropad_len_sec']
-        total_len = zpad_len*sf
-        zpad_samples = total_len - len(data)
-        zpad_seconds = zpad_samples/sf
-        # if spindle is not longer than total length to zero-pad to
-        if zpad_samples > 0:
-            # zero-pad data
-            padding = np.repeat(0, zpad_samples)
-            data_pad = np.append(data, padding)
-        else:
-            spin_len = len(data)/sf
-            print(f'Spindle {chan}:{x} length {spin_len} seconds longer than pad length {zpad_len}')
-            data_pad = data 
-    
-    # if no zero-padding is used
-    else:
-        spin_len = len(data)/sf
-        print(f'Spindle {chan}:{x} length {spin_len} seconds longer than pad length {zpad_len}')
-        data_pad = data
     
     # plot the peak detections
     fig, axs = plt.subplots(2, 1, figsize=(4,3))
     axs[0].plot(n.spindle_psd_i[chan][x])
     axs[0].scatter(x=peaks.index, y=peaks.values)
-
-    axs[1].plot(data_pad, alpha=1, lw=0.8)
+    # plot the raw spindle + zpad
+    axs[1].plot(n.spindles_zpad[chan][x], alpha=1, lw=0.8)
 
     fig.suptitle(x)
 
