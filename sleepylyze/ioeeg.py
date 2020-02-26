@@ -133,9 +133,18 @@ class Dataset:
         """ Read in the header block and extract useful info """
 
         print("Patient identifier:", self.metadata['in_num'])
+
+        # read the first line to check encoding
+		with open(self.metadata['filepath'], 'r') as f:
+		    line = f.readline()
+		if line[3] == '\x00':
+		    f_encoding = 'utf-16-le'
+		else:
+		    f_encoding = 'ascii' #might want to set this to None (used with open and pd.read_csv)
+		self.metadata['encoding'] = f_encoding
         
         # extract sampling freq, # of channels, headbox sn
-        with open(self.metadata['filepath'], 'r') as f: # pull out the header w/ first recording
+        with open(self.metadata['filepath'], 'r', encoding=f_encoding) as f: # pull out the header w/ first recording
             header = []
             for i in range(1, 267): # this assumes s_freq<=250
                 header.append(f.readline()) # use readline (NOT READLINES) here to save memory for large files
@@ -145,6 +154,7 @@ class Dataset:
         self.metadata['start_date'] = (header[15].split()[0]).replace('/', '-')
         self.metadata['start_time'] = header[15].split()[1] # extract start time in hh:mm:ss
         
+
         # Get starting time in usec for index
         s_freq = self.metadata['s_freq']
         start_time = self.metadata['start_time']
@@ -210,7 +220,7 @@ class Dataset:
         # read in only the data
         print('Importing EEG data...')
         # setting dtype to float will speed up load, but crashes if there is anything wrong with the record
-        data = pd.read_csv(self.metadata['filepath'], delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
+        data = pd.read_csv(self.metadata['filepath'], encoding=self.metadata['encoding'], delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
                                dtype = float, na_values = ['AMPSAT', 'SHORT'])
         
         # create DateTimeIndex
