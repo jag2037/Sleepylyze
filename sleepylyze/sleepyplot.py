@@ -383,8 +383,18 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     return fig
 
 
-def plot_spindlepower_chan_i(n, chan, dB=True):
-    """ Plot individual spindle spectra for a given channel """
+def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False):
+    """ Plot individual spindle spectra for a given channel 
+
+        Parameters
+        ----------
+        n: nrem.NREM object
+        chan: str
+            channel to plot
+        show_peaks: bool or str (default: 'spins')
+            which peaks to plot. 'spins' plots only peaks in the spindle range (options: None, 'spins', 'all')
+
+    """
     
     ncols = int(np.sqrt(len(n.spindle_psd_i[chan])))
     nrows = len(n.spindle_psd_i[chan])//ncols + (len(n.spindle_psd_i[chan]) % ncols > 0) 
@@ -400,10 +410,23 @@ def plot_spindlepower_chan_i(n, chan, dB=True):
             pwr = n.spindle_psd_i[chan][spin].values
             ylabel = 'Power (mV^2/Hz)'
 
-        # plot spectrum
-        ax.plot(n.spindle_psd_i[chan][spin].index, pwr, color='black', alpha=0.9, linewidth=0.8)
         # highlight spindle range. aquamarine or lavender works here too
-        ax.axvspan(9, 16, color='lavender', alpha=0.8)
+        spin_range = n.metadata['spindle_analysis']['spin_range']
+        ax.axvspan(spin_range[0], spin_range[1], color='lavender', alpha=0.8, zorder=1)
+        # plot spectrum
+        ax.plot(n.spindle_psd_i[chan][spin].index, pwr, color='black', alpha=0.9, linewidth=0.8, zorder=2)
+
+        # grab the peaks on the power spectrum
+        p_idx, props = find_peaks(n.spindle_psd_i[chan][spin])
+        peaks = n.spindle_psd_i[chan][spin].iloc[p_idx]
+        # plot all peaks
+        if show_peaks == 'all':
+            ax.scatter(x=peaks.index, y=peaks.values, alpha=0.5, zorder=3)
+        # plot only peaks in the spindle range
+        elif show_peaks == 'spins':
+            peaks_spins = peaks[(peaks.index > spin_range[0]) & (peaks.index < spin_range[1])]
+            ax.scatter(x=peaks_spins.index, y=peaks_spins.values, alpha=0.5, zorder=3)
+
 
         # set subplot params
         ax.set_xlim(0, 25)
