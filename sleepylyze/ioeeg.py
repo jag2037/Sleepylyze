@@ -135,13 +135,13 @@ class Dataset:
         print("Patient identifier:", self.metadata['in_num'])
 
         # read the first line to check encoding
-		with open(self.metadata['filepath'], 'r') as f:
-		    line = f.readline()
-		if line[3] == '\x00':
-		    f_encoding = 'utf-16-le'
-		else:
-		    f_encoding = 'ascii' #might want to set this to None (used with open and pd.read_csv)
-		self.metadata['encoding'] = f_encoding
+        with open(self.metadata['filepath'], 'r') as f:
+            line = f.readline()
+        if line[3] == '\x00':
+            f_encoding = 'utf-16-le'
+        else:
+            f_encoding = 'ascii' #might want to set this to None (used with open and pd.read_csv)
+        self.metadata['encoding'] = f_encoding
         
         # extract sampling freq, # of channels, headbox sn
         with open(self.metadata['filepath'], 'r', encoding=f_encoding) as f: # pull out the header w/ first recording
