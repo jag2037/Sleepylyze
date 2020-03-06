@@ -274,7 +274,7 @@ class Dataset:
         cols = [x.lower() for x in self.metadata['channels']]
         column_str = []
         for col in cols:
-            column_str.append(f'{col} NUMERIC(9,6),')
+            column_str.append(f'{col} NUMERIC(16,6),')
         column_str = "".join(column_str)
         
         # create string for SQL table creation (this overwrites if exists)
