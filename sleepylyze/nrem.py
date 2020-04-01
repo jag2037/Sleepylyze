@@ -623,6 +623,7 @@ class NREM:
                     spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd]
                     # spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd, center_freq, total_pwr]
 
+        self.metadata['spindle_analysis']['spin_range'] = spin_range
         self.spindle_tstats = spindle_stats   
         
         print('Spindle time stats stored in obj.spindle_tstats.\n')

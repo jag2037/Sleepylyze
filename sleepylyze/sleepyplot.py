@@ -118,9 +118,9 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     filtered: bool, optional, default: False
         Option to plot filtered EEG panel
     rms: bool, optional, default: False
-    	Option to plot filtered EEG panel with RMS and RMS moving average
+        Option to plot filtered EEG panel with RMS and RMS moving average
     thresholds: bool, optional, default: False
-    	Option to plot spindle threshold lines on rms panel
+        Option to plot spindle threshold lines on rms panel
     spindles: bool, optional, default: False
         Option to plot filtered EEG with spindle detection panel
     spindle_rejects: bool, optional, default: False
@@ -450,9 +450,84 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False):
 
     return fig
 
-def spec_peaks(n, chan, x):
-    """ Helper to grab spectral peaks from individual spindles and visualize
-        Plots two-panels: Upper = power spectrum, Lower = spindle tracing (w/ zero-pad) 
+
+def spec_peaks(n, chan, x, labels=True):
+    """ Vizualize individual peak detections, looking at % of > 4Hz power w/in the spindle range
+        
+        Parameters
+        ----------
+        n: nrem.NREM object
+            compatible with psd_type = 'i' under analyze_spindles method
+        chan: str
+            Channel to plot
+        x: int
+            Spindle # to plot
+        labels: bool (default: True)
+            Whether to print axis labels
+
+        Returns
+        -------
+        matplotlib.Figure
+    """
+    spin_range = n.metadata['spindle_analysis']['spin_range']
+    prune_frange = [4, 25] # change this to pull the value from metadata
+
+    psd = n.spindle_psd_i[chan][x]
+    zpad_spin = n.spindles_zpad[chan][x]
+    # subset of power > 4 Hz
+    psd_subset = psd[(psd.index >= prune_frange[0]) & (psd.index <= prune_frange[1])]
+    # power in spindle range
+    psd_spins = psd[(psd.index >= spin_range[0]) & (psd.index <= spin_range[1])]
+    # percent of power > 4Hz in spindle range
+    spin_perc = int(psd_spins.sum()/psd_subset.sum()*100)
+    
+        # plot the peak detections
+    fig, axs = plt.subplots(3, 1, figsize=(5,5))
+    plt.subplots_adjust(top=0.9, bottom=0.1, hspace=0.5)
+    
+    # plot the raw spindle + zpad
+    axs[0].plot(zpad_spin, alpha=1, lw=0.8, label='raw signal')
+    # convert x-tick labels from samples to ms
+    xticks = axs[0].get_xticks().tolist()
+    ms_xticks = [int(sample/n.s_freq*1000) for sample in xticks]
+    axs[0].set_xticklabels(ms_xticks)
+    if labels:
+        axs[0].set_ylabel('Amplitude (mV)', size = 'small')
+        axs[0].set_xlabel('Time (ms)', size = 'small')
+        
+    # plot the whole spectrum
+    axs[1].plot(psd, c='black', lw=0.8, label='power spectrum')
+    axs[1].axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2, zorder=0)
+    if labels:
+        axs[1].set_ylabel('Power (mv$^2$/Hz)', size = 'small')
+        axs[1].set_xlabel('Frequency (Hz)', size = 'small')      
+    
+    # plot just the subset of the spectrum used for pruning + mean & SD
+    axs[2].plot(psd_subset, c='black', lw=0.8, zorder=3) 
+    axs[2].axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2, label = 'Spindle Range', zorder=0)
+    axs[2].fill_between(psd_subset.index, psd_subset.values, zorder=0, alpha=0.3, color='pink')
+    axs[2].fill_between(psd_subset.index, psd_subset.values, where=[sub in psd_spins.index for sub in psd_subset.index], zorder=1, alpha=1, color='white')
+    axs[2].fill_between(psd_subset.index, psd_subset.values, where=[sub in psd_spins.index for sub in psd_subset.index], zorder=2, alpha=0.8, color='pink', label=f'{spin_perc}% of >4Hz power in spindle range')
+    if labels:
+        axs[2].set_ylabel('Power (mv$^2$/Hz)', size = 'small')
+        axs[2].set_xlabel('Frequency (Hz)', size = 'small')
+    
+    for ax in axs.flatten():
+        ax.tick_params(labelsize=9)
+        ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+    
+    fig.legend()
+    fig.suptitle(f'Channel {chan} Spindle #{x}', size = 'medium')
+    plt.xticks(fontsize=8)
+    
+    return fig
+
+
+def spec_peaks_SD(n, chan, x, labels=True):
+    """ Vizualize spectral peaks from individual spindles
+        This looks at mean power >4Hz + 1 SD as a potential frequency domain threshold
+        Plots three panels: Upper = spindle tracing (w/ zero-pad) , 
+            Center = spectrum w/ peaks, Lower = > 4Hz spectrum w/ peaks
 
         Parameters
         ----------
@@ -462,25 +537,68 @@ def spec_peaks(n, chan, x):
             Channel to plot
         x: int
             Spindle # to plot
+        labels: bool (default: True)
+            Whether to print axis labels
 
         Returns
         -------
         matplotlib.Figure
     """
     
+    spin_range = n.metadata['spindle_analysis']['spin_range']
+    prune_frange = [4, 25] # change this to pull the value from metadata
+    s = 1 # pull from metadata --> number of standard deviations above mean
+
+    psd = n.spindle_psd_i[chan][x]
+    zpad_spin = n.spindles_zpad[chan][x]
+    psd_subset = psd[(psd.index >= prune_frange[0]) & (psd.index <= prune_frange[1])]
+
     # grab the peaks on the power spectrum
-    p_idx, props = find_peaks(n.spindle_psd_i[chan][x])
-    peaks = n.spindle_psd_i[chan][x].iloc[p_idx]
+    p_idx, props = find_peaks(psd)
+    peaks = psd.iloc[p_idx]
+    peaks_spins = peaks[(peaks.index > spin_range[0]) & (peaks.index < spin_range[1])]
 
     
     # plot the peak detections
-    fig, axs = plt.subplots(2, 1, figsize=(4,3))
-    axs[0].plot(n.spindle_psd_i[chan][x])
-    axs[0].scatter(x=peaks.index, y=peaks.values)
+    fig, axs = plt.subplots(3, 1, figsize=(5,5))
+    plt.subplots_adjust(top=0.9, bottom=0.1, hspace=0.5)
+    #fig.set_tight_layout(True)
+    
     # plot the raw spindle + zpad
-    axs[1].plot(n.spindles_zpad[chan][x], alpha=1, lw=0.8)
-
-    fig.suptitle(x)
+    axs[0].plot(zpad_spin, alpha=1, lw=0.8, label='raw signal')
+    # convert x-tick labels from samples to ms
+    xticks = axs[0].get_xticks().tolist()
+    ms_xticks = [int(sample/n.s_freq*1000) for sample in xticks]
+    axs[0].set_xticklabels(ms_xticks)
+    if labels:
+        axs[0].set_ylabel('Amplitude (mV)', size = 'small')
+        axs[0].set_xlabel('Time (ms)', size = 'small')
+        
+    # plot the whole spectrum + peaks
+    axs[1].plot(psd, c='black', lw=0.8, label='power spectrum')
+    axs[1].axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2, label = 'Spindle Range', zorder=0)
+    axs[1].scatter(x=peaks.index, y=peaks.values, c='grey', alpha=0.8, label='spectral peaks')
+    if labels:
+        axs[1].set_ylabel('Power (mv$^2$/Hz)', size = 'small')
+        axs[1].set_xlabel('Frequency (Hz)', size = 'small')      
+    
+    # plot just the subset of the spectrum used for pruning + mean & SD
+    axs[2].plot(psd_subset, c='black', lw=0.8) 
+    axs[2].axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2, label = 'Spindle Range', zorder=0)
+    axs[2].axhline(psd_subset.mean(), c='orange', linestyle = '-', label = 'mean power')
+    axs[2].axhline(psd_subset.mean() + s*psd_subset.std(), c='orange', linestyle=':', label = f'mean+{s}SD')
+    axs[2].scatter(x=peaks_spins.index, y=peaks_spins.values, c='grey', alpha=0.8, label='spectral peaks')
+    if labels:
+        axs[2].set_ylabel('Power (mv$^2$/Hz)', size = 'small')
+        axs[2].set_xlabel('Frequency (Hz)', size = 'small')
+    
+    for ax in axs.flatten():
+        ax.tick_params(labelsize=9)
+        ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+    
+    #fig.legend()
+    fig.suptitle(f'Channel {chan} Spindle #{x}', size = 'medium')
+    plt.xticks(fontsize=8)
 
     return fig
 
@@ -1201,7 +1319,7 @@ def plot_so(n, datatype='Raw'):
     # set figure params   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
     fig.text(0.5, 0, 'Time (ms)', ha='center')
-    fig.text(0, 0.5, 'Amplitude (uV)', va='center', rotation='vertical')
+    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
 
     return fig
