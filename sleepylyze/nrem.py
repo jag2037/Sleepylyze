@@ -116,7 +116,29 @@ class NREM:
 
     # make attributes
     def spindle_attributes(self):
-        """ create attributes for spindle detection """
+        """ Create attributes for spindle detection 
+
+            Returns
+            -------
+            self.channels: list of str
+                channel names
+            self.spfiltEEG: pd.DataFrame
+                filtered EEG data
+            self.spRMS: pd.DataFrame
+                root mean square of filtered data
+            self.spRMSmavg: pd.DataFrame
+                moving average of the root mean square of the filtered data
+            self.spThresholds: pd.DataFrame
+                spindle detection thresholds by channel
+            self.spindle_events: dict
+                spindle event detections
+            self.spindle_rejects_t: dict
+                spindle rejects based on time domain criteria
+            self.spindle_rejects_f: dict
+                spindle rejects based on frequency domain criteria
+
+        """
+        # check if channel list exists
         try:
             self.channels
         except AttributeError:
@@ -127,7 +149,9 @@ class NREM:
         [setattr(self, df, pd.DataFrame(index=self.data.index)) for df in dfs]
         self.spThresholds = pd.DataFrame(index=['Mean RMS', 'Low Threshold', 'High Threshold'])
         self.spindle_events = {}
-        self.spindle_rejects = {}
+        self.spindle_rejects_t = {}
+        self.spindle_rejects_f = {}
+
     
     # step 1: make filter
     def make_butter_sp(self, wn, order):
@@ -252,11 +276,12 @@ class NREM:
                 
         self.spindle_events[i] = spindle_events_msep
 
-    # step 7: apply rejection criteria
-    def reject_spins(self, min_chans_r, min_chans_d, duration):
-        """ Reject spindles that occur over fewer than 3 channels. Apply duration thresholding to 
-            spindles that occur over fewer than X channels. 
-            [chans < min_chans_r = reject; min_chans_r < chans < min_chans_d = apply max/min duration threshold; X < chans = apply max duration threshold]
+    # step 7: apply time domain rejection criteria
+    def reject_spins_t(self, min_chans_r, min_chans_d, duration):
+        """ Reject spindles using time domain criteria:
+                1. reject spindles that occur over fewer than 3 channels. 
+                2. Apply duration thresholding to spindles that occur over fewer than X channels. 
+                [chans < min_chans_r = reject; min_chans_r < chans < min_chans_d = apply max/min duration threshold; X < chans = apply max duration threshold]
         
             Parameters
             ----------
@@ -304,73 +329,8 @@ class NREM:
                     if len(spin) > sduration[1]:
                         self.spindle_rejects[chan].append(spin)
                         self.spindle_events[chan].remove(spin)
-                    
-    # set multiIndex
-    def spMultiIndex(self):
-        """ combine dataframes into a multiIndex dataframe"""
-        # reset column levels
-        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
 
-        # list df vars for index specs
-        dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
-        calcs = ['Filtered', 'RMS', 'RMSmavg']
-        lvl0 = np.repeat(self.channels, len(calcs))
-        lvl1 = calcs*len(self.channels)    
-    
-        # combine & custom sort
-        self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
-        
-        
-    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, min_sep=0.2, duration=[0.5, 3.0], min_chans_r=3, min_chans_d=9):  
-        """ Detect spindles by channel [Params/Returns] 
-            
-            Parameters
-            ----------
-
-            min_sep: float (default: 0.1)
-                minimum separation (in seconds) for spindles to be considered distinct, otherwise combine
-
-            Returns
-            -------
-
-        """
-
-        self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder_half': order, 
-            'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'min_sep': min_sep, 'sp_duration': duration,
-            'sp_minchans_toskipautoreject': min_chans_r, 'sp_minchans_toskipduration': min_chans_d}
-
-        #self.s_freq = self.metadata['analysis_info']['s_freq']
-    
-        # set attributes
-        self.spindle_attributes()
-        # Make filter
-        self.make_butter_sp(wn, order)
-
-        print('Detecting spindles...')
-        # loop through channels (all channels for plotting ease)
-        for i in self.channels:
-           # if i not in ['EOG_L', 'EOG_R', 'EKG']:
-                #print(f'Detecting spindles on {i}...')
-                # Filter
-                self.spfilt(i)
-                # Calculate RMS & smooth
-                self.rms_smooth(i, sp_mw)
-                # Set detection thresholds
-                self.set_thres(i)
-                # Detect spindles
-                self.get_spindles(i, min_sep)
-        
-        # Apply rejection criteria
-        print('Pruning spindle detections...')
-        self.reject_spins(min_chans_r, min_chans_d, duration)
-        print('Spindle detection complete.')
-        # combine dataframes
-        print('Combining dataframes...')
-        self.spMultiIndex()
-        print('done.\n')
-
+    # step 8: create individual spindle dataframes                    
     def create_spindfs(self, zmethod, trough_dtype, buff, buffer_len):
         """ Create individual dataframes for individual spindles +/- a timedelta buffer 
             ** NOTE: buffer doesn't have spinso filter incorporated
@@ -471,6 +431,107 @@ class NREM:
             
             self.spindles_wbuffer = spindles_wbuffer
             print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
+                    
+    # set multiIndex --> this can be done earlier
+    def spMultiIndex(self):
+        """ combine dataframes into a multiIndex dataframe"""
+        # reset column levels
+        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
+        self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
+        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
+
+        # list df vars for index specs
+        dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
+        calcs = ['Filtered', 'RMS', 'RMSmavg']
+        lvl0 = np.repeat(self.channels, len(calcs))
+        lvl1 = calcs*len(self.channels)    
+    
+        # combine & custom sort
+        self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
+        
+        
+    def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, min_sep=0.2, duration=[0.5, 3.0], min_chans_r=3, min_chans_d=9,
+                        zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3):  
+        """ Detect spindles by channel [Params/Returns] 
+            
+            Parameters
+            ----------
+            wn: list of int (default: [8, 16])
+                butterworth bandpass filter window
+            order: int (default: 4)
+                butterworth 1/2 filter order (applied forwards + backwards)
+            sp_mw: float (default: 0.2)
+                moving window size for RMS & moving average calcs (seconds)
+            loSD: float (default: 0)
+                standard deviations above the average RMS that the spindle envelope must drop below to signify beginning/end of spindle
+            hiSD: float (default: 1.5)
+                standard deviations above the average RMS that the spindle envelope must exceed for a detection to be initiated
+            min_sep: float (default: 0.1)
+                minimum separation (in seconds) for spindles to be considered distinct, otherwise combine
+            min_chans_r: int (default: 3)
+                minimum number of channels for spindles to occur accross concurrently to bypass
+                automatic rejection
+            min_chans_d: int (default: 9)
+                minimum number of channels for spindles to occur across concurrently in order to 
+                bypass duration criterion. performs best at 1/4 of total chans
+            duration: list of float
+                duration range (seconds) for spindle thresholding
+            zmethod: str (default: 'trough')
+                method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
+                the deepest negative trough. Middle assigns zero center to the midpoint in time.
+            trough_dtype: str (default: 'spfilt')
+                    Which data to use for picking the most negative trough for centering [options: 'Raw', 'spfilt']
+            buff: bool (default: False)
+                calculate spindle data dataframes with a delta time buffer around center of spindle
+            buffer_len: int
+                length in seconds of buffer to calculate around 0-center of spindle
+
+            Returns
+            -------
+
+        """
+
+        self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder_half': order, 
+            'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'min_sep': min_sep, 'sp_duration': duration,
+            'sp_minchans_toskipautoreject': min_chans_r, 'sp_minchans_toskipduration': min_chans_d}
+
+        #self.s_freq = self.metadata['analysis_info']['s_freq']
+    
+        # set attributes
+        self.spindle_attributes()
+        # Make filter
+        self.make_butter_sp(wn, order)
+
+        print('Detecting spindles...')
+        # loop through channels (all channels for plotting ease)
+        for i in self.channels:
+           # if i not in ['EOG_L', 'EOG_R', 'EKG']:
+                #print(f'Detecting spindles on {i}...')
+                # Filter
+                self.spfilt(i)
+                # Calculate RMS & smooth
+                self.rms_smooth(i, sp_mw)
+                # Set detection thresholds
+                self.set_thres(i)
+                # Detect spindles
+                self.get_spindles(i, min_sep)
+        
+        # Apply time-domain rejection criteria
+        print('Pruning spindle detections...')
+        self.reject_spins_t(min_chans_r, min_chans_d, duration)
+        # create individual datframes for each spindle
+        self.create_spindfs(zmethod, trough_dtype, buff, buffer_len)
+        # calculate power for individual spindles
+
+        # Apply frequency-domain rejection criteria
+
+        print('Spindle detection complete.')
+        # combine dataframes
+        print('Combining dataframes...')
+        self.spMultiIndex()
+        print('done.\n')
+
+    
 
     def calc_spindle_means(self):
         """ Calculate mean, std, and sem at each timedelta from negative spindle peak per channel 
@@ -845,22 +906,12 @@ class NREM:
 
 
 
-    def analyze_spindles(self, zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, psd_type='i', psd_bandwidth=1.0, 
-                        zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], spin_range=[9, 16]):
+    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], spin_range=[9, 16]):
         """ 
             Starting code for spindle statistics/visualizations 
 
             Parameters
             ----------
-            zmethod: str (default: 'trough')
-                method used to assign 0-center to spindles [options: 'trough', 'middle']. Trough assigns zero-center to
-                the deepest negative trough. Middle assigns zero center to the midpoint in time.
-            trough_dtype: str (default: 'spfilt')
-                    Which data to use for picking the most negative trough for centering [options: 'Raw', 'spfilt']
-            buff: bool (default: False)
-                calculate spindle data dataframes with a delta time buffer around center of spindle
-            buffer_len: int
-                length in seconds of buffer to calculate around 0-center of spindle
             psd_type: str (default: 'i')
                 What data to use for psd calculations [Options: 'i' (individual spindles), 'concat' (spindles concatenated by channel)]
             psd_bandwidth: float
@@ -894,8 +945,7 @@ class NREM:
                 MultiIndex dataframe with calculated spindle statistics
         """
         
-        # create individual datframes for each spindle
-        self.create_spindfs(zmethod, trough_dtype, buff, buffer_len)
+
 
         # calculate spindle & spindle buffer means
         self.calc_spindle_means()
