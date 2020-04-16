@@ -614,7 +614,7 @@ class NREM:
             for spin in reversed(spin_list):
                 del self.spindles[chan][spin]
                 del self.spindle_events[chan][spin]
-                
+
         
         self.spindles_zpad = spindles_zpad
         self.spindles_zpad_rejects = spindles_zpad_rejects
@@ -623,7 +623,7 @@ class NREM:
         self.spindle_psd_i = spindle_psd
         self.spindle_psd_i_rejects = spindle_psd_rejects
         self.spindle_rejects_f = spindle_rejects_f
-        print('Done. \nSpectra stored in obj.spindle_psd_i. Calculations stored in obj.spindle_multitaper_calcs. Zero-padded spindle data in obj.spindles_zpad.\n')    
+        print('Spectra stored in obj.spindle_psd_i. Calculations stored in obj.spindle_multitaper_calcs. Zero-padded spindle data in obj.spindles_zpad.\n')    
 
         
         
