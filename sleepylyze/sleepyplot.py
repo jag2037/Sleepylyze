@@ -383,7 +383,7 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     return fig
 
 
-def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False):
+def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='true_spins'):
     """ Plot individual spindle spectra for a given channel 
 
         Parameters
@@ -393,32 +393,42 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False):
             channel to plot
         show_peaks: bool or str (default: 'spins')
             which peaks to plot. 'spins' plots only peaks in the spindle range (options: None, 'spins', 'all')
-
+        spin_type: str (default: 'true_spins')
+            type of spindle to plot (options: 'true_spins', 'rejects')
+            note: 'rejects' option plots spindles rejected in the frequency domain, not in the time domain
     """
     
-    ncols = int(np.sqrt(len(n.spindle_psd_i[chan])))
-    nrows = len(n.spindle_psd_i[chan])//ncols + (len(n.spindle_psd_i[chan]) % ncols > 0) 
+    # set data to plot
+    if spin_type == 'true_spins':
+        psd_dict = n.spindle_psd_i
+    elif spin_type == 'rejects':
+        psd_dict = n.spindle_psd_i_rejects
+
+    # set figure & subplot params
+    ncols = int(np.sqrt(len(psd_dict[chan])))
+    nrows = len(psd_dict[chan])//ncols + (len(psd_dict[chan]) % ncols > 0) 
     fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(16, 12))
     fig.subplots_adjust(hspace=0.8, wspace=0.5)
+
     
-    for spin, ax in zip(n.spindle_psd_i[chan], axs.flatten()):    
+    for spin, ax in zip(psd_dict[chan], axs.flatten()):    
         # transform units
         if dB == True:
-            pwr = 10 * np.log10(n.spindle_psd_i[chan][spin].values)
+            pwr = 10 * np.log10(psd_dict[chan][spin].values)
             ylabel = 'Power (dB)'
         else:
-            pwr = n.spindle_psd_i[chan][spin].values
+            pwr = psd_dict[chan][spin].values
             ylabel = 'Power (mV^2/Hz)'
 
         # highlight spindle range. aquamarine or lavender works here too
         spin_range = n.metadata['spindle_analysis']['spin_range']
         ax.axvspan(spin_range[0], spin_range[1], color='lavender', alpha=0.8, zorder=1)
         # plot spectrum
-        ax.plot(n.spindle_psd_i[chan][spin].index, pwr, color='black', alpha=0.9, linewidth=0.8, zorder=2)
+        ax.plot(psd_dict[chan][spin].index, pwr, color='black', alpha=0.9, linewidth=0.8, zorder=2)
 
         # grab the peaks on the power spectrum
-        p_idx, props = find_peaks(n.spindle_psd_i[chan][spin])
-        peaks = n.spindle_psd_i[chan][spin].iloc[p_idx]
+        p_idx, props = find_peaks(psd_dict[chan][spin])
+        peaks = psd_dict[chan][spin].iloc[p_idx]
         # plot all peaks
         if show_peaks == 'all':
             ax.scatter(x=peaks.index, y=peaks.values, alpha=0.5, zorder=3)
@@ -439,7 +449,7 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False):
     
     # delete empty subplots --> this can probably be combined with previous loop
     for i, ax in enumerate(axs.flatten()):
-        if i >= len(n.spindle_psd_i[chan]):
+        if i >= len(psd_dict[chan]):
             fig.delaxes(ax)
     
     # set figure params   
