@@ -480,23 +480,32 @@ def spec_peaks(n, chan, x, labels=True):
         matplotlib.Figure
     """
     spin_range = n.metadata['spindle_analysis']['spin_range']
-    prune_frange = [4, 25] # change this to pull the value from metadata
+    prune_range = n.metadata['spindle_analysis']['prune_range']
 
-    psd = n.spindle_psd_i[chan][x]
-    zpad_spin = n.spindles_zpad[chan][x]
-    # subset of power > 4 Hz
-    psd_subset = psd[(psd.index >= prune_frange[0]) & (psd.index <= prune_frange[1])]
+    # set data to plot
+    try:
+        psd = n.spindle_psd_i[chan][x]
+        zpad_spin = n.spindles_zpad[chan][x]
+        spin_perc = n.spindle_multitaper_calcs['Fp1'][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
+        status = 'accepted'
+    except KeyError:
+        psd = n.spindle_psd_i_rejects[chan][x]
+        zpad_spin = n.spindles_zpad_rejects[chan][x]
+        spin_perc = n.spindle_multitaper_calcs_rejects['Fp1'][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
+        status = 'rejected'
+    
+
+    # subset of power w/in prune range
+    psd_subset = psd[(psd.index >= prune_range[0]) & (psd.index <= prune_range[1])]
     # power in spindle range
     psd_spins = psd[(psd.index >= spin_range[0]) & (psd.index <= spin_range[1])]
-    # percent of power > 4Hz in spindle range
-    spin_perc = int(psd_spins.sum()/psd_subset.sum()*100)
     
-        # plot the peak detections
+    # plot the peak detections
     fig, axs = plt.subplots(3, 1, figsize=(5,5))
-    plt.subplots_adjust(top=0.9, bottom=0.1, hspace=0.5)
+    plt.subplots_adjust(top=0.88, bottom=0.125, hspace=0.5)
     
     # plot the raw spindle + zpad
-    axs[0].plot(zpad_spin, alpha=1, lw=0.8, label='raw signal')
+    axs[0].plot(zpad_spin, alpha=1, lw=0.8, label='Raw Signal')
     # convert x-tick labels from samples to ms
     xticks = axs[0].get_xticks().tolist()
     ms_xticks = [int(sample/n.s_freq*1000) for sample in xticks]
@@ -506,18 +515,18 @@ def spec_peaks(n, chan, x, labels=True):
         axs[0].set_xlabel('Time (ms)', size = 'small')
         
     # plot the whole spectrum
-    axs[1].plot(psd, c='black', lw=0.8, label='power spectrum')
+    axs[1].plot(psd, c='black', lw=0.8, label='Power Spectrum')
     axs[1].axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2, zorder=0)
     if labels:
         axs[1].set_ylabel('Power (mv$^2$/Hz)', size = 'small')
         axs[1].set_xlabel('Frequency (Hz)', size = 'small')      
     
-    # plot just the subset of the spectrum used for pruning + mean & SD
+    # plot just the subset of the spectrum used for pruning
     axs[2].plot(psd_subset, c='black', lw=0.8, zorder=3) 
     axs[2].axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2, label = 'Spindle Range', zorder=0)
     axs[2].fill_between(psd_subset.index, psd_subset.values, zorder=0, alpha=0.3, color='pink')
     axs[2].fill_between(psd_subset.index, psd_subset.values, where=[sub in psd_spins.index for sub in psd_subset.index], zorder=1, alpha=1, color='white')
-    axs[2].fill_between(psd_subset.index, psd_subset.values, where=[sub in psd_spins.index for sub in psd_subset.index], zorder=2, alpha=0.8, color='pink', label=f'{spin_perc}% of >4Hz power in spindle range')
+    axs[2].fill_between(psd_subset.index, psd_subset.values, where=[sub in psd_spins.index for sub in psd_subset.index], zorder=2, alpha=0.8, color='pink')
     if labels:
         axs[2].set_ylabel('Power (mv$^2$/Hz)', size = 'small')
         axs[2].set_xlabel('Frequency (Hz)', size = 'small')
@@ -526,8 +535,8 @@ def spec_peaks(n, chan, x, labels=True):
         ax.tick_params(labelsize=9)
         ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
     
-    fig.legend()
-    fig.suptitle(f'Channel {chan} Spindle #{x}', size = 'medium')
+    fig.legend(loc='lower center', ncol=3, bbox_to_anchor=(0.5, 0), fontsize='x-small')
+    fig.suptitle(f'Channel {chan} Spindle #{x}\nSpindle range comprises {spin_perc}% of {prune_range[0]}-{prune_range[1]}Hz power ({status})', size = 'medium')
     plt.xticks(fontsize=8)
     
     return fig
