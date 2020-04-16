@@ -486,12 +486,12 @@ def spec_peaks(n, chan, x, labels=True):
     try:
         psd = n.spindle_psd_i[chan][x]
         zpad_spin = n.spindles_zpad[chan][x]
-        spin_perc = n.spindle_multitaper_calcs['Fp1'][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
+        spin_perc = n.spindle_multitaper_calcs[chan][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
         status = 'accepted'
     except KeyError:
         psd = n.spindle_psd_i_rejects[chan][x]
         zpad_spin = n.spindles_zpad_rejects[chan][x]
-        spin_perc = n.spindle_multitaper_calcs_rejects['Fp1'][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
+        spin_perc = n.spindle_multitaper_calcs_rejects[chan][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
         status = 'rejected'
     
 
