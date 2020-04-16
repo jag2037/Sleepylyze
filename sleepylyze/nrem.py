@@ -4,6 +4,7 @@
         - Analysis should output # of NaNs in the data
 
     TO DO: 
+        - ** update analyze_spindles for psd_i removal
         - For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
         - Optimize self.create_spindfs() method
         - Assign NREM attributes to slots on init
@@ -133,9 +134,9 @@ class NREM:
             self.spindle_events: dict
                 spindle event detections
             self.spindle_rejects_t: dict
-                spindle rejects based on time domain criteria
+                spindle rejects based on time domain criteria. format {chan: [spindle reject indices,...]}
             self.spindle_rejects_f: dict
-                spindle rejects based on frequency domain criteria
+                spindle rejects based on frequency domain criteria. format {chan: [spindle reject indices,...]}
 
         """
         # check if channel list exists
@@ -296,7 +297,7 @@ class NREM:
             
             Returns
             -------
-            modified self.spindle_events and self.spindle_rejects attributes
+            modified self.spindle_events and self.spindle_rejects_t attributes
         """
         
         # convert duration from seconds to samples
@@ -312,23 +313,40 @@ class NREM:
         
         # check individual spindles
         for chan in self.spindle_events:
-            self.spindle_rejects[chan] = []
+            self.spindle_rejects_t[chan] = []
             for spin in self.spindle_events[chan]:
                 # reject if present over less than min_chans_r channels
                 if not np.any(spin_bool['chans_present'].loc[spin] >= min_chans_r):
-                        self.spindle_rejects[chan].append(spin)
+                        self.spindle_rejects_t[chan].append(spin)
                         self.spindle_events[chan].remove(spin)
                 # Apply duration threshold if not present over more than minimum # of channels
                 elif not np.any(spin_bool['chans_present'].loc[spin] >= min_chans_d):
                     # apply duration thresholding
                     if not sduration[0] <= len(spin) <= sduration[1]:
-                        self.spindle_rejects[chan].append(spin)
+                        self.spindle_rejects_t[chan].append(spin)
                         self.spindle_events[chan].remove(spin)
                 # Apply max duration threshold to all spindles left (regardless of # of chans)
                 else:
                     if len(spin) > sduration[1]:
-                        self.spindle_rejects[chan].append(spin)
+                        self.spindle_rejects_t[chan].append(spin)
                         self.spindle_events[chan].remove(spin)
+
+    # set multiIndex
+    def spMultiIndex(self):
+        """ combine dataframes into a multiIndex dataframe"""
+        # reset column levels
+        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
+        self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
+        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
+
+        # list df vars for index specs
+        dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
+        calcs = ['Filtered', 'RMS', 'RMSmavg']
+        lvl0 = np.repeat(self.channels, len(calcs))
+        lvl1 = calcs*len(self.channels)    
+    
+        # combine & custom sort
+        self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
 
     # step 8: create individual spindle dataframes                    
     def create_spindfs(self, zmethod, trough_dtype, buff, buffer_len):
@@ -431,28 +449,188 @@ class NREM:
             
             self.spindles_wbuffer = spindles_wbuffer
             print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
-                    
-    # set multiIndex --> this can be done earlier
-    def spMultiIndex(self):
-        """ combine dataframes into a multiIndex dataframe"""
-        # reset column levels
-        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
 
-        # list df vars for index specs
-        dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
-        calcs = ['Filtered', 'RMS', 'RMSmavg']
-        lvl0 = np.repeat(self.channels, len(calcs))
-        lvl1 = calcs*len(self.channels)    
-    
-        # combine & custom sort
-        self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
+    # step 9. calculate power spectrum for each spindle        
+    def calc_spindle_psd_i(self, psd_bandwidth, zpad, zpad_len, pwr_prune, pwr_thres, spin_range, prune_range):
+        """ Calculate multitaper power spectrum for individual spindles across all channels
+            Option to threshold spindle detections based on a % power threshold. 
+
+            Params
+            ------
+            psd_bandwidth: float
+                frequency resolution in Hz
+            zpad: bool (default: False)
+                whether to zeropad the data (for increased spectral resolution)
+            zpad_len: float
+                length to zero-pad the data to (in seconds)
+            pwr_prune: bool
+                Whether to reject spindles using frequency-domain criterion: power in spindle range must = >X% of total power in prune range
+                    Ex. spindle power must be >30% of total power between 4-25Hz
+            pwr_thres: float
+                % of power >4Hz that must be in the spindle range for a spindle to avoid rejection
+            spin_range: list of int
+                spindle frequency range (inclusive) to be used for spindle analysis and power thresholding
+            prune_range: list of float
+                frequency range for denominator of % power threshold calculation
+
+            Returns
+            -------
+            self.spindles_zpad: dict
+                zero-padded spindle values
+            self.spindles_zpad_rejects: dict
+                zero-padded spindle values for spins rejected in frequency domain
+            self.spindle_psd_i: dict
+                power spectra of individual spindles. format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
+            self.spindle_psd_i_rejects: dict
+                power spectra of individual spindles rejected in frequency domain. format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
+            self.spindle_multitaper_calcs: dict of pd.DataFrame
+                calculations used to calculated multitaper power spectral estimates for each spindle by channel
+            self.spindle_multitaper_calcs_rejects: dict of pd.DataFrame
+                calculations used to calculated multitaper power spectral estimates for spindles rejected in frequency domain
+        """
+        
+        print('Calculating power spectra (this may take a few minutes)...')
+        self.metadata['spindle_analysis']['psd_dtype'] = 'raw_individual'
+        self.metadata['spindle_analysis']['psd_method'] = 'multitaper'
+        self.metadata['spindle_analysis']['psd_bandwidth'] = psd_bandwidth
+        self.metadata['spindle_analysis']['zeropad'] = zpad
+        self.metadata['spindle_analysis']['zeropad_len_sec'] = zpad_len
+        self.metadata['spindle_analysis']['pwr_prune'] = pwr_prune
+        self.metadata['spindle_analysis']['pwr_thres'] = pwr_thres
+        self.metadata['spindle_analysis']['prune_range'] = prune_range
+        sf = self.metadata['analysis_info']['s_freq']
+        
+        rmv_spins = {}
+        spindle_rejects_f = {}
+
+        spindles_zpad = {}
+        spindles_zpad_rejects = {}
+        
+        spindle_psd = {}
+        spindle_psd_rejects = {}
+        
+        spindle_multitaper_calcs = {}
+        spindle_multitaper_calcs_rejects = {}
+        
+        for chan in self.spindles:
+            spindles_zpad[chan] = {}
+            spindles_zpad_rejects[chan] = {}
+            
+            spindle_psd[chan] = {}
+            spindle_psd_rejects[chan] = {}
+            spindle_rejects_f[chan] = []
+            rmv_spins[chan] = []
+            
+            # set up multitaper_calcs df
+            # waveform resolution is dependent on length of signal, regardless of zero-padding
+            spindle_multitaper_calcs[chan] = pd.DataFrame(columns=['spin_samples', 'spin_seconds', 'zpad_samples', 'zpad_seconds', 'waveform_resoultion_Hz', 
+                                                                   'psd_resolution_Hz', 'N_taper_len', 'W_bandwidth', 'K_tapers', f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'])
+            spindle_multitaper_calcs[chan].index.name = 'spindle_num'
+            # for spindle rejects
+            spindle_multitaper_calcs_rejects[chan] = pd.DataFrame(columns=['spin_samples', 'spin_seconds', 'zpad_samples', 'zpad_seconds', 'waveform_resoultion_Hz', 
+                                                                   'psd_resolution_Hz', 'N_taper_len', 'W_bandwidth', 'K_tapers', f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'])
+            spindle_multitaper_calcs_rejects[chan].index.name = 'spindle_num'
+            
+            if len(self.spindles[chan]) > 0:
+                for x in self.spindles[chan]:
+                    # subtract mean to zero-center spindle for zero-padding
+                    data = self.spindles[chan][x].Raw.values - np.mean(self.spindles[chan][x].Raw.values)
+                    zpad_samples=0
+                    zpad_seconds=0
+                    tx=0
+                    
+                    # option to zero-pad the spindle
+                    if zpad:
+                        total_len = zpad_len*sf
+                        zpad_samples = total_len - len(data)
+                        zpad_seconds = zpad_samples/sf
+                        if zpad_samples > 0:
+                            padding = np.repeat(0, zpad_samples)
+                            data_pad = np.append(data, padding)
+                        else:
+                            spin_len = len(data)/sf
+                            print(f'Spindle {chan}:{x} length {spin_len} seconds longer than pad length {zpad_len}')
+                            data_pad = data
+                    
+                    # or leave as-is
+                    else:
+                        data_pad = data
+                        
+                    # record PS params [K = 2NW-1]
+                    spin_samples = len(data)
+                    spin_seconds = len(data)/sf
+                    waveform_res = 1/spin_seconds
+                    psd_res = 1/(len(data_pad)/sf)
+                    N_taper_len = len(data_pad)/sf
+                    W_bandwidth = psd_bandwidth
+                    K_tapers = int((2*N_taper_len*W_bandwidth)-1)
+
+                    # calculate power spectrum
+                    try:
+                        pwr, freqs = psd_array_multitaper(data_pad, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
+                                                          normalization='full', verbose=0)
+                    except ValueError:
+                        print(f'Specified bandwidth too small for data length. Skipping spindle {chan}:{x}.')
+                        continue
+                    
+                    # convert to series & add to dict
+                    psd = pd.Series(pwr, index=freqs)
+
+                    # if not applying power % threshold
+                    if pwr_prune == False:
+                        # add to psd dicts
+                        spindle_psd[chan][x] = psd
+                        spindles_zpad[chan][x] = data_pad
+                        spin_perc = 'not_calculated'
+
+                    # otherwise apply power % threshold
+                    elif pwr_prune:
+                        # calculate total power > 4Hz
+                        psd_subset = psd[(psd.index >= prune_range[0]) & (psd.index <= prune_range[1])]
+                        # power in spindle range
+                        psd_spins = psd[(psd.index >= spin_range[0]) & (psd.index <= spin_range[1])]
+                        # percent of power > 4Hz in spindle range
+                        spin_perc = int(psd_spins.sum()/psd_subset.sum()*100)
+
+                        if spin_perc <= pwr_thres:
+                            # add to self.spindle_rejects_f
+                            spindle_rejects_f[chan].append(self.spindle_events[chan][x])
+                            # record params for removal from self.spindles & self.spindle_events after loop is complete
+                            rmv_spins[chan].append(x)
+                            # add to rejects psd dicts
+                            spindle_psd_rejects[chan][x] = psd
+                            spindles_zpad_rejects[chan][x] = data_pad
+                            spindle_multitaper_calcs_rejects[chan].loc[x] = [spin_samples, spin_seconds, zpad_samples, zpad_seconds, waveform_res, psd_res, N_taper_len, W_bandwidth, K_tapers, spin_perc]
+                        else:
+                            # add to psd dicts
+                            spindle_psd[chan][x] = psd
+                            spindles_zpad[chan][x] = data_pad
+                            spindle_multitaper_calcs[chan].loc[x] = [spin_samples, spin_seconds, zpad_samples, zpad_seconds, waveform_res, psd_res, N_taper_len, W_bandwidth, K_tapers, spin_perc]
+
+
+        # remove rejects from self.spindles & self.spindle_events
+        for chan, spin_list in rmv_spins.items():
+            # iterate backwards so that list indices for spindle_events don't change for subsequent items
+            for spin in reversed(spin_list):
+                del self.spindles[chan][spin]
+                del self.spindle_events[chan][spin]
+                
+        
+        self.spindles_zpad = spindles_zpad
+        self.spindles_zpad_rejects = spindles_zpad_rejects
+        self.spindle_multitaper_calcs = spindle_multitaper_calcs
+        self.spindle_multitaper_calcs_rejects = spindle_multitaper_calcs_rejects
+        self.spindle_psd_i = spindle_psd
+        self.spindle_psd_i_rejects = spindle_psd_rejects
+        self.spindle_rejects_f = spindle_rejects_f
+        print('Done. \nSpectra stored in obj.spindle_psd_i. Calculations stored in obj.spindle_multitaper_calcs. Zero-padded spindle data in obj.spindles_zpad.\n')    
+
         
         
     def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, min_sep=0.2, duration=[0.5, 3.0], min_chans_r=3, min_chans_d=9,
-                        zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3):  
-        """ Detect spindles by channel [Params/Returns] 
+                        zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, psd_bandwidth=1.0, zpad=True, zpad_len=3.0, pwr_prune=True,
+                        pwr_thres=30, spin_range=[9, 16], prune_range=[4, 25]):  
+        """ Detect spindles by channel
             
             Parameters
             ----------
@@ -485,15 +663,35 @@ class NREM:
                 calculate spindle data dataframes with a delta time buffer around center of spindle
             buffer_len: int
                 length in seconds of buffer to calculate around 0-center of spindle
+            psd_bandwidth: float (default: 1.0)
+                frequency resolution in Hz
+            zpad: bool (default: False)
+                whether to zeropad the data (for increased spectral resolution)
+            zpad_len: float
+                length to zero-pad the data to (in seconds)
+            pwr_prune: bool (default: True)
+                Whether to reject spindles using frequency-domain criterion: power in spindle range must = >X% of total power in prune range
+                    Ex. spindle power must be >30% of total power between 4-25Hz
+            pwr_thres: float (default: 30)
+                % of power >4Hz that must be in the spindle range for a spindle to avoid rejection
+            spin_range: list of int (default: [9, 16])
+                spindle frequency range (inclusive) to be used for spindle analysis and power thresholding
+            prune_range: list of float
+                frequency range for denominator of % power threshold calculation
 
             Returns
             -------
+            ## incomplete ##
+
+            self.spindle_psd_i: nested dict
+                power spectra for individual spindles by channel (Only if psd_type == 'i')
+                format {channel: {spindle: pd.Series}} with index = frequencies and values = power (uV^2/Hz)
 
         """
 
         self.metadata['spindle_analysis'] = {'sp_filtwindow': wn, 'sp_filtorder_half': order, 
             'sp_RMSmw': sp_mw, 'sp_loSD': loSD, 'sp_hiSD': hiSD, 'min_sep': min_sep, 'sp_duration': duration,
-            'sp_minchans_toskipautoreject': min_chans_r, 'sp_minchans_toskipduration': min_chans_d}
+            'sp_minchans_toskipautoreject': min_chans_r, 'sp_minchans_toskipduration': min_chans_d, 'spin_range':spin_range}
 
         #self.s_freq = self.metadata['analysis_info']['s_freq']
     
@@ -515,20 +713,21 @@ class NREM:
                 self.set_thres(i)
                 # Detect spindles
                 self.get_spindles(i, min_sep)
+
+        # combine dataframes
+        print('Combining dataframes...')
+        self.spMultiIndex()
         
         # Apply time-domain rejection criteria
         print('Pruning spindle detections...')
         self.reject_spins_t(min_chans_r, min_chans_d, duration)
         # create individual datframes for each spindle
         self.create_spindfs(zmethod, trough_dtype, buff, buffer_len)
-        # calculate power for individual spindles
-
-        # Apply frequency-domain rejection criteria
+        # calculate power for individual spindles & prune in frequency domain
+        self.calc_spindle_psd_i(psd_bandwidth, zpad, zpad_len, pwr_prune, pwr_thres, spin_range, prune_range)
 
         print('Spindle detection complete.')
-        # combine dataframes
-        print('Combining dataframes...')
-        self.spMultiIndex()
+        
         print('done.\n')
 
     
@@ -618,13 +817,8 @@ class NREM:
         print('Done. Spindles aggregated by channel in obj.spindle_buffer_aggregates dict. Spindle statisics stored in obj.spindle_buffer_means dataframe.')
 
 
-    def calc_spin_tstats(self, spin_range):
+    def calc_spin_tstats(self):
         """ calculate time-domain spindle feature statistics 
-        
-            Parameters
-            ----------
-            spin_range: list of int
-                spindle frequency range to be used for calculating center frequency
             
             Returns
             -------
@@ -632,11 +826,11 @@ class NREM:
                 MultiIndex dataframe with calculated spindle time statistics
         """
         
+        spin_range = self.metadata['spindle_analysis']['spin_range']
+
         print('Calculating spindle time-domain statistics...')
         
         # create multi-index dataframe
-        # lvl1 = ['Count', 'Duration', 'Duration', 'Amplitude_raw', 'Amplitude_raw', 'Amplitude_spfilt', 'Amplitude_spfilt', 'Density', 'ISI', 'ISI', 'Power', 'Power']
-        # lvl2 = ['total', 'mean', 'sd', 'rms', 'sd', 'rms', 'sd', 'spin_per_min', 'mean', 'sd', 'center_freq', 'total_pwr']
         lvl1 = ['Count', 'Duration', 'Duration', 'Amplitude_raw', 'Amplitude_raw', 'Amplitude_spfilt', 'Amplitude_spfilt', 'Density', 'ISI', 'ISI']
         lvl2 = ['total', 'mean', 'sd', 'rms', 'sd', 'rms', 'sd', 'spin_per_min', 'mean', 'sd']
         columns = pd.MultiIndex.from_arrays([lvl1, lvl2])
@@ -684,7 +878,6 @@ class NREM:
                     spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd]
                     # spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd, center_freq, total_pwr]
 
-        self.metadata['spindle_analysis']['spin_range'] = spin_range
         self.spindle_tstats = spindle_stats   
         
         print('Spindle time stats stored in obj.spindle_tstats.\n')
@@ -809,104 +1002,10 @@ class NREM:
         print('Gottselig normalization data stored in obj.spindle_psd_concat_norm.\n')
 
 
-    def calc_spindle_psd_i(self, psd_bandwidth, zpad=False, zpad_len=3):
-        """ Calculate multitaper power spectrum for individual spindles across all channels
-
-            Params
-            ------
-            bandwidth: float
-                frequency resolution in Hz
-            zpad: bool (default: False)
-                whether to zeropad the data (for increased spectral resolution)
-            zpad_len: float
-                length to zero-pad the data to (in seconds)    
-
-            Returns
-            -------
-            self.spindles_zpad: dict
-                zero-padded spindle values
-            self.spindle_psd_i: dict
-                format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
-            self.spindle_multitaper_calcs: dict of pd.DataFrame
-                calculations used to calculated multitaper power spectral estimates for each spindle by channel
-        """
-        
-        print('Calculating power spectra (this may take a few minutes)...')
-        self.metadata['spindle_analysis']['psd_dtype'] = 'raw_individual'
-        self.metadata['spindle_analysis']['psd_method'] = 'multitaper'
-        self.metadata['spindle_analysis']['psd_bandwidth'] = psd_bandwidth
-        self.metadata['spindle_analysis']['zeropad'] = zpad
-        self.metadata['spindle_analysis']['zeropad_len_sec'] = zpad_len
-        sf = self.metadata['analysis_info']['s_freq']
-        
-        spindles_zpad = {}
-        spindle_psd = {}
-        spindle_multitaper_calcs = {}
-        for chan in self.spindles:
-            spindles_zpad[chan] = {}
-            spindle_psd[chan] = {}
-            # waveform resolution is dependent on length of signal, regardless of zero-padding
-            spindle_multitaper_calcs[chan] = pd.DataFrame(columns=['spin_samples', 'spin_seconds', 'zpad_samples', 'zpad_seconds', 'waveform_resoultion_Hz', 
-                                                                   'psd_resolution_Hz', 'N_taper_len', 'W_bandwidth', 'K_tapers'])
-            spindle_multitaper_calcs[chan].index.name = 'spindle_num'
-            
-            if len(self.spindles[chan]) > 0:
-                for x in self.spindles[chan]:
-                    # subtract mean to zero-center spindle for zero-padding
-                    data = self.spindles[chan][x].Raw.values - np.mean(self.spindles[chan][x].Raw.values)
-                    zpad_samples=0
-                    zpad_seconds=0
-                    tx=0
-                    
-                    # option to zero-pad the spindle
-                    if zpad:
-                        total_len = zpad_len*sf
-                        zpad_samples = total_len - len(data)
-                        zpad_seconds = zpad_samples/sf
-                        if zpad_samples > 0:
-                            padding = np.repeat(0, zpad_samples)
-                            data_pad = np.append(data, padding)
-                        else:
-                            spin_len = len(data)/sf
-                            print(f'Spindle {chan}:{x} length {spin_len} seconds longer than pad length {zpad_len}')
-                            data_pad = data
-                    
-                    # or leave as-is
-                    else:
-                        data_pad = data
-                        
-                    # record PS params [K = 2NW-1]
-                    spin_samples = len(data)
-                    spin_seconds = len(data)/sf
-                    waveform_res = 1/spin_seconds
-                    psd_res = 1/(len(data_pad)/sf)
-                    N_taper_len = len(data_pad)/sf
-                    W_bandwidth = psd_bandwidth
-                    K_tapers = int((2*N_taper_len*W_bandwidth)-1)
-                    spindle_multitaper_calcs[chan].loc[x] = [spin_samples, spin_seconds, zpad_samples, zpad_seconds, waveform_res, psd_res, N_taper_len, W_bandwidth, K_tapers]
-
-                    # calculate power spectrum
-                    try:
-                        pwr, freqs = psd_array_multitaper(data_pad, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
-                                                          normalization='full', verbose=0)
-                    except ValueError:
-                        print(f'Specified bandwidth too small for data length. Skipping spindle {chan}:{x}.')
-                        continue
-                    
-                    # convert to series & add to dict
-                    psd = pd.Series(pwr, index=freqs)
-                    spindle_psd[chan][x] = psd
-                    spindles_zpad[chan][x] = data_pad
-        
-        self.spindles_zpad = spindles_zpad
-        self.spindle_multitaper_calcs = spindle_multitaper_calcs
-        self.spindle_psd_i = spindle_psd
-        print('Done. \nSpectra stored in obj.spindle_psd_i. Calculations stored in obj.spindle_multitaper_calcs. Zero-padded spindle data in obj.spindles_zpad.\n')    
 
 
 
-
-    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], spin_range=[9, 16]):
+    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)]):
         """ 
             Starting code for spindle statistics/visualizations 
 
@@ -922,8 +1021,6 @@ class NREM:
                 length to zero-pad spindles to (in seconds)
             norm_range: list of tuple
                 frequency ranges for gottselig normalization
-            spin_range: list of int
-                spindle frequency range to be used for calculating center frequency
         
             Returns
             -------
@@ -953,7 +1050,7 @@ class NREM:
             self.calc_spindle_buffer_means()
 
         # run time-domain spindle statistics by channel
-        self.calc_spin_tstats(spin_range)
+        self.calc_spin_tstats()
 
         # calculate power spectra
         if psd_type == 'concat':
@@ -961,9 +1058,9 @@ class NREM:
             self.calc_spindle_psd_concat(psd_bandwidth)
             # normalize power spectra for quantification
             self.calc_gottselig_norm(norm_range)
-        elif psd_type == 'i':
-            # calc psd on individual spindles
-            self.calc_spindle_psd_i(psd_bandwidth, zpad, zpad_len)
+        # elif psd_type == 'i': # already calculated in detect_spindles
+        #     # calc psd on individual spindles
+        #     self.calc_spindle_psd_i(psd_bandwidth, zpad, zpad_len)
 
 
 
