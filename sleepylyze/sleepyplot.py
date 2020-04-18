@@ -25,9 +25,11 @@ register_matplotlib_converters()
 
 
 
-def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
+def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects_t=False, spindle_rejects_f=False):
     """ plot multichannel EEG w/ option for double panel raw & filtered. For short, pub-ready
         figures. Use vizeeg for data inspection 
+
+        red = spindle rejects by time domain criteria; dark red = spindle rejects by frequency domain criteria
     
     Parameters
     ----------
@@ -38,8 +40,10 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
         Option to plot filtered EEG
     spindles: bool, optional, default: False
         Option to plot spindle detections
-    spindle_rejects: bool, optional, default: False
-        Option to plot rejected spindle detections
+    spindle_rejects_t: bool, optional, default: False
+        Option to plot rejected spindle detections from time-domain criteria
+    spindle_rejects_f: bool, optional, default: False
+        Option to plot rejected spindle detections from frequency-domain criteria
         
     Returns
     -------
@@ -61,8 +65,10 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     # flatten events list by channel for plotting
     if spindles == True:
         sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
-    if spindle_rejects == True:
-        sp_rej_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects[i])) for i in d.spindle_rejects.keys()]   
+    if spindle_rejects_t == True:
+        sp_rej_t_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_t[i])) for i in d.spindle_rejects_t.keys()]
+    if spindle_rejects_f == True:
+        sp_rej_f_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_f[i])) for i in d.spindle_rejects_f.keys()]   
 
     # set channels for plotting
     channels = [x[0] for x in d.data.columns]
@@ -84,11 +90,16 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
                 spins = pd.Series(index=norm_dat.index)
                 spins[sp_events_TS] = norm_dat[sp_events_TS]
                 ax.plot(spins, color='orange', alpha=0.5)
-            if spindle_rejects == True:
-                sp_rejs_TS = [pd.Timestamp(x) for x in sp_rej_eventsflat[i]]
-                spin_rejects = pd.Series(index=norm_dat.index)
-                spin_rejects[sp_rejs_TS] = norm_dat[sp_rejs_TS]
-                ax.plot(spin_rejects, color='red', alpha=0.5)
+            if spindle_rejects_t == True:
+                sp_rejs_t_TS = [pd.Timestamp(x) for x in sp_rej_t_eventsflat[i]]
+                spin_rejects_t = pd.Series(index=norm_dat.index)
+                spin_rejects_t[sp_rejs_t_TS] = norm_dat[sp_rejs_t_TS]
+                ax.plot(spin_rejects_t, color='red', alpha=0.5)
+            if spindle_rejects_f == True:
+                sp_rejs_f_TS = [pd.Timestamp(x) for x in sp_rej_f_eventsflat[i]]
+                spin_rejects_f = pd.Series(index=norm_dat.index)
+                spin_rejects_f[sp_rejs_f_TS] = norm_dat[sp_rejs_f_TS]
+                ax.plot(spin_rejects_f, color='darkred', alpha=0.5)
         
         ax.set_title(t)
         ax.set_yticks(list(np.arange(0.5, -(len(channels)-1), -1)))
@@ -105,7 +116,8 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
 
 
 
-def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=False, spindles=False, spindle_rejects=False):
+def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=False, spindles=False, spindle_rejects=False,
+                        spindle_rejects_f=False):
     """ plot single channel EEG. Options for multipaneled calculations. Not for concatenated datasets
     
     Parameters
@@ -127,7 +139,7 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
         Option to plot filtered EEG with spindle rejection panel.
         Note: Spindles and spindle_rejects plot on same panel if 
         both True
-        
+
     Returns
     -------
     matplotlib.pyplot figure instance
@@ -195,16 +207,29 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
         
         # plot spindle rejections
         if dt == 'filtd+rej' or dt == 'filtd+spin+rej':
-            sp_rej_valuesflat = []
-            sp_rej_eventsflat = []
-            for n in range(len(d.spindle_rejects[c])):
-                for m in range(len(d.spindle_rejects[c][n])):
-                    sp_rej_valuesflat.append(dat[d.spindle_rejects[c][n][m]])
-                    sp_rej_eventsflat.append(d.spindle_rejects[c][n][m])
-            sp_rej_events_TS = [pd.Timestamp(x) for x in sp_rej_eventsflat]
-            spin_rejects = pd.Series(index=dat.index)
-            spin_rejects[sp_rej_events_TS] = dat[sp_rej_events_TS]
-            ax.plot(spin_rejects, color='red', alpha=0.5, label='Rejected Detection')
+            # plot time-domain rejects
+            sp_rej_t_valuesflat = []
+            sp_rej_t_eventsflat = []
+            for n in range(len(d.spindle_rejects_t[c])):
+                for m in range(len(d.spindle_rejects_t[c][n])):
+                    sp_rej_t_valuesflat.append(dat[d.spindle_rejects_t[c][n][m]])
+                    sp_rej_t_eventsflat.append(d.spindle_rejects_t[c][n][m])
+            sp_rej_t_events_TS = [pd.Timestamp(x) for x in sp_rej_t_eventsflat]
+            spin_rejects_t = pd.Series(index=dat.index)
+            spin_rejects_t[sp_rej_t_events_TS] = dat[sp_rej_t_events_TS]
+            ax.plot(spin_rejects_t, color='red', alpha=0.5, label='Rejected Detection (T)')
+
+            # plot frequency-domain rejects
+            sp_rej_f_valuesflat = []
+            sp_rej_f_eventsflat = []
+            for n in range(len(d.spindle_rejects_f[c])):
+                for m in range(len(d.spindle_rejects_f[c][n])):
+                    sp_rej_f_valuesflat.append(dat[d.spindle_rejects_f[c][n][m]])
+                    sp_rej_f_eventsflat.append(d.spindle_rejects_f[c][n][m])
+            sp_rej_f_events_TS = [pd.Timestamp(x) for x in sp_rej_f_eventsflat]
+            spin_rejects_f = pd.Series(index=dat.index)
+            spin_rejects_f[sp_rej_f_events_TS] = dat[sp_rej_f_events_TS]
+            ax.plot(spin_rejects_f, color='darkred', alpha=0.5, label='Rejected Detection (F)')
             
         ax.legend(loc='lower left')
         #ax.set_title(t)
