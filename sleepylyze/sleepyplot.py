@@ -443,8 +443,14 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
     fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(16, 12))
     fig.subplots_adjust(hspace=0.8, wspace=0.5)
 
-    
-    for spin, ax in zip(psd_dict[chan], axs.flatten()):    
+    # move axes into a list for plotting if only one subplot
+    try:
+        axs_flat = axs.flatten()
+    except AttributeError:
+        axs_flat = [axs]
+
+    # plot spindles
+    for spin, ax in zip(psd_dict[chan], axs_flat):    
         # transform units
         if dB == True:
             pwr = 10 * np.log10(psd_dict[chan][spin].values)
@@ -481,7 +487,7 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
         ax.tick_params(axis='both', labelsize='x-small', labelleft=False)
     
     # delete empty subplots --> this can probably be combined with previous loop
-    for i, ax in enumerate(axs.flatten()):
+    for i, ax in enumerate(axs_flat):
         if i >= len(psd_dict[chan]):
             fig.delaxes(ax)
     
