@@ -25,7 +25,7 @@ register_matplotlib_converters()
 
 
 
-def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=None):
+def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=False):
     """ plot multichannel EEG w/ option for double panel raw & filtered. For short, pub-ready
         figures. Use vizeeg for data inspection 
 
@@ -40,10 +40,9 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=None):
         Option to plot filtered EEG
     spindles: bool, optional, default: False
         Option to plot spindle detections
-    spindle_rejects: str or None, optional, default: None
-        Option to plot rejected spindle detections (Options: 't', 'f', 'all', None)
-        't': time-domain rejects, 'f': frequency-domain rejects, 'all': all rejects, None: no rejects
-        
+    spindle_rejects: bool, optional, default: False
+        Option to plot rejected spindle detections 
+
     Returns
     -------
     matplotlib.pyplot figure instance
@@ -64,9 +63,8 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=None):
     # flatten events list by channel for plotting
     if spindles == True:
         sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
-    if (spindle_rejects == 't') or (spindle_rejects == 'all') :
+    if spindle_rejects == True:
         sp_rej_t_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_t[i])) for i in d.spindle_rejects_t.keys()]
-    if (spindle_rejects == 'f') or (spindle_rejects == 'all'):
         sp_rej_f_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_f[i])) for i in d.spindle_rejects_f.keys()]   
 
     # set channels for plotting
@@ -89,12 +87,13 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=None):
                 spins = pd.Series(index=norm_dat.index)
                 spins[sp_events_TS] = norm_dat[sp_events_TS]
                 ax.plot(spins, color='orange', alpha=0.5)
-            if (spindle_rejects == 't') or (spindle_rejects == 'all'):
+            if spindle_rejects == True:
+                # plot time-domain rejects
                 sp_rejs_t_TS = [pd.Timestamp(x) for x in sp_rej_t_eventsflat[i]]
                 spin_rejects_t = pd.Series(index=norm_dat.index)
                 spin_rejects_t[sp_rejs_t_TS] = norm_dat[sp_rejs_t_TS]
                 ax.plot(spin_rejects_t, color='red', alpha=0.5)
-            if (spindle_rejects == 'f') or (spindle_rejects == 'all'):
+                # plot frequency-domain rejects
                 sp_rejs_f_TS = [pd.Timestamp(x) for x in sp_rej_f_eventsflat[i]]
                 spin_rejects_f = pd.Series(index=norm_dat.index)
                 spin_rejects_f[sp_rejs_f_TS] = norm_dat[sp_rejs_f_TS]
@@ -252,6 +251,8 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
 def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=True, win_width=15):
     """ vizualize multichannel EEG w/ option for double panel raw and/or filtered. Optimized for
         inspecting spindle detections (title/axis labels removed for space)
+        Spindles rejected based on time-domain criteria are plotted in red; rejections based on 
+        frequency-domain criteria are plotted in darkred.
     
     Parameters
     ----------
@@ -299,7 +300,10 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     if spindles == True:
         sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
     if spindle_rejects == True:
-        sp_rej_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects[i])) for i in d.spindle_rejects.keys()]   
+        # time-domain rejects
+        sp_rej_t_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_t[i])) for i in d.spindle_rejects_t.keys()]
+        # frequency domain rejects
+        sp_rej_f_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_f[i])) for i in d.spindle_rejects_f.keys()]  
 
     # set channels for plotting
     channels = [x[0] for x in d.data.columns if x[0] not in ['EKG', 'EOG_L', 'EOG_R']]
@@ -329,10 +333,16 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
                 spins[sp_events_TS] = norm_dat[sp_events_TS]
                 ax.plot(spins, color='orange', alpha=0.5)
             if spindle_rejects == True:
-                sp_rejs_TS = [pd.Timestamp(x) for x in sp_rej_eventsflat[i]]
-                spin_rejects = pd.Series(index=norm_dat.index)
-                spin_rejects[sp_rejs_TS] = norm_dat[sp_rejs_TS]
-                ax.plot(spin_rejects, color='red', alpha=0.5)
+                # plot time-domain rejects
+                sp_rejs_t_TS = [pd.Timestamp(x) for x in sp_rej_t_eventsflat[i]]
+                spin_t_rejects = pd.Series(index=norm_dat.index)
+                spin_t_rejects[sp_rejs_t_TS] = norm_dat[sp_rejs_t_TS]
+                ax.plot(spin_t_rejects, color='red', alpha=0.5)
+                # plot frequency-domain rejects
+                sp_rejs_f_TS = [pd.Timestamp(x) for x in sp_rej_f_eventsflat[i]]
+                spin_f_rejects = pd.Series(index=norm_dat.index)
+                spin_f_rejects[sp_rejs_f_TS] = norm_dat[sp_rejs_f_TS]
+                ax.plot(spin_f_rejects, color='darkred', alpha=0.5)
         
         # remove title to maximize on-screen plot area
         #ax.set_title(t)
