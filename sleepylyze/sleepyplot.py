@@ -25,7 +25,7 @@ register_matplotlib_converters()
 
 
 
-def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects_t=False, spindle_rejects_f=False):
+def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects=None):
     """ plot multichannel EEG w/ option for double panel raw & filtered. For short, pub-ready
         figures. Use vizeeg for data inspection 
 
@@ -40,10 +40,9 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects_t=False
         Option to plot filtered EEG
     spindles: bool, optional, default: False
         Option to plot spindle detections
-    spindle_rejects_t: bool, optional, default: False
-        Option to plot rejected spindle detections from time-domain criteria
-    spindle_rejects_f: bool, optional, default: False
-        Option to plot rejected spindle detections from frequency-domain criteria
+    spindle_rejects: str or None, optional, default: None
+        Option to plot rejected spindle detections (Options: 't', 'f', 'all', None)
+        't': time-domain rejects, 'f': frequency-domain rejects, 'all': all rejects, None: no rejects
         
     Returns
     -------
@@ -65,9 +64,9 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects_t=False
     # flatten events list by channel for plotting
     if spindles == True:
         sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
-    if spindle_rejects_t == True:
+    if (spindle_rejects == 't') or (spindle_rejects == 'all') :
         sp_rej_t_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_t[i])) for i in d.spindle_rejects_t.keys()]
-    if spindle_rejects_f == True:
+    if (spindle_rejects == 'f') or (spindle_rejects == 'all'):
         sp_rej_f_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_f[i])) for i in d.spindle_rejects_f.keys()]   
 
     # set channels for plotting
@@ -90,12 +89,12 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects_t=False
                 spins = pd.Series(index=norm_dat.index)
                 spins[sp_events_TS] = norm_dat[sp_events_TS]
                 ax.plot(spins, color='orange', alpha=0.5)
-            if spindle_rejects_t == True:
+            if (spindle_rejects == 't') or (spindle_rejects == 'all'):
                 sp_rejs_t_TS = [pd.Timestamp(x) for x in sp_rej_t_eventsflat[i]]
                 spin_rejects_t = pd.Series(index=norm_dat.index)
                 spin_rejects_t[sp_rejs_t_TS] = norm_dat[sp_rejs_t_TS]
                 ax.plot(spin_rejects_t, color='red', alpha=0.5)
-            if spindle_rejects_f == True:
+            if (spindle_rejects == 'f') or (spindle_rejects == 'all'):
                 sp_rejs_f_TS = [pd.Timestamp(x) for x in sp_rej_f_eventsflat[i]]
                 spin_rejects_f = pd.Series(index=norm_dat.index)
                 spin_rejects_f[sp_rejs_f_TS] = norm_dat[sp_rejs_f_TS]
@@ -116,8 +115,7 @@ def plotEEG(d, raw=True, filtered=False, spindles=False, spindle_rejects_t=False
 
 
 
-def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=False, spindles=False, spindle_rejects=False,
-                        spindle_rejects_f=False):
+def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=False, spindles=False, spindle_rejects=False):
     """ plot single channel EEG. Options for multipaneled calculations. Not for concatenated datasets
     
     Parameters
