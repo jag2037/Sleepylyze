@@ -143,6 +143,7 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     """
     data = []
     dtype = []
+    labels = []
     c = chan
     
     # import data
@@ -156,15 +157,19 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
         #raw = d.data[c, 'Raw']
         data.append(raw_data)
         dtype.append('raw')
+        labels.append('Raw Signal')
     if filtered == True:    
         #filtd = d.spindle_calcs.loc(axis=1)[c, 'Filtered']
         data.append(filtd_data)
         dtype.append('filtd')
+        labels.append('Filtered Signal')
     if rms == True:
         data.append(filtd_data)
         dtype.append('filtd+rms')
+        labels.append('Filtered Signal')
     if spindles == True or spindle_rejects == True:
         data.append(filtd_data)
+        labels.append('Filtered Signal')
         if spindles == True and spindle_rejects == False:
             dtype.append('filtd+spin')
         elif spindles == False and spindle_rejects == True:
@@ -177,9 +182,9 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=(18,6), squeeze=False)
     fig.subplots_adjust(hspace=.1, top=.9, bottom=.1, left=.05, right=.95)
     
-    for dat, ax, dt in zip(data, axs.flatten(), dtype):
+    for dat, ax, dt, label in zip(data, axs.flatten(), dtype, labels):
         # plot EEG
-        ax.plot(dat, linewidth=.5, color='C0')
+        ax.plot(dat, linewidth=.5, color='C0', label=label)
             
         # plot filtered EEG w/ rms & thresholds
         if dt == 'filtd+rms':
