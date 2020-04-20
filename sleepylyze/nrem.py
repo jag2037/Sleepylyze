@@ -273,6 +273,9 @@ class NREM:
             else:
                 # otherwise, append spindle to list, advance pointer by 1
                 spindle_events_msep.append(spindle_events[x])
+                # if this is the second-to-last spindle, also add final spindle to list (bc not combining)
+                if x == (len(spindle_events)-2):
+                    spindle_events_msep.append(spindle_events[x+1])
                 x += 1
                 
         self.spindle_events[i] = spindle_events_msep
