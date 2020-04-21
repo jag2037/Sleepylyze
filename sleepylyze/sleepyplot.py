@@ -453,11 +453,18 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
     
     # import data
     if raw == True:
-        raw = d.data
-        data.append(raw)
+        raw_data = d.data 
+    if filtered == True or thresholds == True:
+        filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
+    
+    # set data to plot
+    if raw == True:
+        data.append(raw_data)
         title.append('Raw')
     if filtered == True:    
-        filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
+        data.append(filtd)
+        title.append('Filtered')
+    if thresholds == True:
         data.append(filtd)
         title.append('Filtered')
 
@@ -473,12 +480,12 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
 
     # plot data    
     fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=(18,6), squeeze=False)
-    fig.subplots_adjust(hspace=.1, top=.9, bottom=.1, left=.05, right=.95)
+    fig.subplots_adjust(hspace=.2, top=.9, bottom=.1, left=.05, right=.95)
     
-    for dat, ax, t in zip(data, axs.flatten(), title):
+    for (e, dat), ax, t in zip(enumerate(data), axs.flatten(), title):
         for i, c in enumerate(channels):
             # set labels for only the first filtered channel (prevent duplicate legends)
-            if (i == 0) & (t =='Filtered'):
+            if i == 0:
                 loSD = d.metadata['spindle_analysis']['sp_loSD']
                 hiSD = d.metadata['spindle_analysis']['sp_hiSD']
                 labels = {'RMS': 'RMS', 'RMS mavg': 'RMS mavg', 'lo_thres':f'RMS + {loSD} SD','hi_thres':f'RMS + {hiSD} SD', 'spindles':'Spindle Detection', 
@@ -487,13 +494,13 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
                 label_keys = ['RMS', 'RMS mavg', 'lo_thres', 'hi_thres', 'spindles', 'spindle_rejects_t', 'spindle_rejects_f']
                 labels = {k:'_nolegend_' for k in label_keys}
             
-            # normalize each channel to [0, 1]
+            # normalize each channel to [0, 1]; plot signal on 1st & 2nd panels
             dat_ser = pd.Series(dat[(c, t)], index=dat.index)
             norm_dat = (dat_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i # subtract i for plotting offset
             ax.plot(norm_dat, linewidth=.5, color='C0')
             
-            # plot thresholds
-            if (thresholds == True) & (t == 'Filtered'):
+            # plot thresholds on the second panel
+            if (thresholds == True) & (e == 1):
                 # RMS
                 rms_ser = d.spRMS[c].RMS
                 norm_rms = (rms_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i
@@ -508,13 +515,13 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
                 ax.axhline(norm_lo, linestyle='solid', color='grey', label = labels['lo_thres'])
                 ax.axhline(norm_hi, linestyle='dashed', color='grey', label = labels['hi_thres'])
             
-            # plot spindles
-            if spindles == True:
+            # plot spindles on the 3rd panel
+            if (spindles == True) & (e == 2):
                 sp_events_TS = [pd.Timestamp(x) for x in sp_eventsflat[i]]
                 spins = pd.Series(index=norm_dat.index)
                 spins[sp_events_TS] = norm_dat[sp_events_TS]
                 ax.plot(spins, color='orange', alpha=0.5, label=labels['spindles'])
-            if spindle_rejects == True:
+            if (spindle_rejects == True) & (e == 2):
                 # plot time-domain rejects
                 sp_rejs_t_TS = [pd.Timestamp(x) for x in sp_rej_t_eventsflat[i]]
                 spin_rejects_t = pd.Series(index=norm_dat.index)
@@ -526,18 +533,25 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
                 spin_rejects_f[sp_rejs_f_TS] = norm_dat[sp_rejs_f_TS]
                 ax.plot(spin_rejects_f, color='darkred', alpha=0.5, label=labels['spindle_rejects_f'])
         
-        ax.set_title(t)
+        ax.set_title(t, pad=5, fontsize='medium')
         ax.set_yticks(list(np.arange(0.5, -(len(channels)-1), -1)))
         ax.set_yticklabels(channels)
         ax.margins(x=0) # remove white space margins between data and y axis
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
+
+        # plot minor axes
+        seconds = mdates.SecondLocator()
+        ax.xaxis.set_minor_locator(seconds)
+        ax.grid(axis='x', which='minor', linestyle=':')
+        ax.grid(axis='x', which='major')
     
     # set overall parameters
     fig_title = d.metadata['file_info']['in_num'] + ' ' + d.metadata['file_info']['path'].split('\\')[1] + ' ' + d.metadata['file_info']['path'].split('.')[0].split('_')[-1]
     fig.suptitle(fig_title)
-    fig.legend(ncol=2, loc='upper right')
+    fig.legend(ncol=2, loc='upper right', )
     plt.xlabel('Time')
+
 
     return fig, axs
 
