@@ -177,7 +177,11 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
         elif spindles == True and spindle_rejects == True:
             dtype.append('filtd+spin+rej')
 
-    
+
+    # pull out thresholds for labels
+    loSD = d.metadata['spindle_analysis']['sp_loSD']
+    hiSD = d.metadata['spindle_analysis']['sp_hiSD']
+
     # plot data    
     fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=(18,6), squeeze=False)
     fig.subplots_adjust(hspace=.1, top=.9, bottom=.1, left=.05, right=.95)
@@ -191,8 +195,8 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
             ax.plot(d.spRMS[c], label='RMS', color='green')
             ax.plot(d.spRMSmavg[c], label='RMS moving average', color='orange')
         if dt == 'filtd+rms' and thresholds == True:
-            ax.axhline(d.spThresholds[c].loc['Low Threshold'], linestyle='solid', color='grey', label = 'Mean RMS + 1 SD')
-            ax.axhline(d.spThresholds[c].loc['High Threshold'], linestyle='dashed', color='grey', label = 'Mean RMS + 1.5 SD')
+            ax.axhline(d.spThresholds[c].loc['Low Threshold'], linestyle='solid', color='grey', label = f'Mean RMS + {loSD} SD')
+            ax.axhline(d.spThresholds[c].loc['High Threshold'], linestyle='dashed', color='grey', label = f'Mean RMS + {hiSD} SD')
         
         # plot spindles
         if dt =='filtd+spin' or dt =='filtd+spin+rej':
@@ -419,6 +423,123 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
 
     #return fig, axs
     return fig
+
+
+def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_rejects=True):
+    """ plot dual-channel LFP w/ option for double panel raw & filtered.
+
+        red = spindle rejects by time domain criteria; dark red = spindle rejects by frequency domain criteria
+    
+    Parameters
+    ----------
+    d: instance of ioeeg Dataset class
+    raw: bool, optional, default: True
+        Option to plot raw EEG
+    filtered: bool, optional, default: True
+        Option to plot filtered EEG
+    thresholds: bool, optional, default: True
+        Option to plot spindle detection thresholds
+    spindles: bool, optional, default: True
+        Option to plot spindle detections
+    spindle_rejects: bool, optional, default: True
+        Option to plot rejected spindle detections 
+
+    Returns
+    -------
+    matplotlib.pyplot figure instance
+    """
+    data = []
+    title = []
+    
+    # import data
+    if raw == True:
+        raw = d.data
+        data.append(raw)
+        title.append('Raw')
+    if filtered == True:    
+        filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
+        data.append(filtd)
+        title.append('Filtered')
+
+    # flatten events list by channel for plotting
+    if spindles == True:
+        sp_eventsflat = [list(itertools.chain.from_iterable(d.spindle_events[i])) for i in d.spindle_events.keys()]
+    if spindle_rejects == True:
+        sp_rej_t_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_t[i])) for i in d.spindle_rejects_t.keys()]
+        sp_rej_f_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_f[i])) for i in d.spindle_rejects_f.keys()]   
+
+    # set channels for plotting
+    channels = [x[0] for x in d.data.columns]
+
+    # plot data    
+    fig, axs = plt.subplots(len(data), 1, sharex=True, figsize=(18,6), squeeze=False)
+    fig.subplots_adjust(hspace=.1, top=.9, bottom=.1, left=.05, right=.95)
+    
+    for dat, ax, t in zip(data, axs.flatten(), title):
+        for i, c in enumerate(channels):
+            # set labels for only the first filtered channel (prevent duplicate legends)
+            if (i == 0) & (t =='Filtered'):
+                loSD = d.metadata['spindle_analysis']['sp_loSD']
+                hiSD = d.metadata['spindle_analysis']['sp_hiSD']
+                labels = {'RMS': 'RMS', 'RMS mavg': 'RMS mavg', 'lo_thres':f'RMS + {loSD} SD','hi_thres':f'RMS + {hiSD} SD', 'spindles':'Spindle Detection', 
+                          'spindle_rejects_t': 'Rejected Detection (time-domain)', 'spindle_rejects_f':'Rejected Detection (frequency-domain)'}
+            else:
+                label_keys = ['RMS', 'RMS mavg', 'lo_thres', 'hi_thres', 'spindles', 'spindle_rejects_t', 'spindle_rejects_f']
+                labels = {k:'_nolegend_' for k in label_keys}
+            
+            # normalize each channel to [0, 1]
+            dat_ser = pd.Series(dat[(c, t)], index=dat.index)
+            norm_dat = (dat_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i # subtract i for plotting offset
+            ax.plot(norm_dat, linewidth=.5, color='C0')
+            
+            # plot thresholds
+            if (thresholds == True) & (t == 'Filtered'):
+                # RMS
+                rms_ser = d.spRMS[c].RMS
+                norm_rms = (rms_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i
+                ax.plot(norm_rms, linewidth=.8, color='green', label = labels['RMS'])
+                # RMS moving average
+                rmsmavg_ser = d.spRMSmavg[c].RMSmavg
+                norm_rmsmavg = (rmsmavg_ser - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i
+                ax.plot(norm_rmsmavg, linewidth=.8, color='orange', label = labels['RMS mavg'])
+                # threshold values
+                norm_lo = (d.spThresholds[c].loc['Low Threshold'] - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i
+                norm_hi = (d.spThresholds[c].loc['High Threshold'] - min(dat_ser))/(max(dat_ser)-min(dat_ser)) - i
+                ax.axhline(norm_lo, linestyle='solid', color='grey', label = labels['lo_thres'])
+                ax.axhline(norm_hi, linestyle='dashed', color='grey', label = labels['hi_thres'])
+            
+            # plot spindles
+            if spindles == True:
+                sp_events_TS = [pd.Timestamp(x) for x in sp_eventsflat[i]]
+                spins = pd.Series(index=norm_dat.index)
+                spins[sp_events_TS] = norm_dat[sp_events_TS]
+                ax.plot(spins, color='orange', alpha=0.5, label=labels['spindles'])
+            if spindle_rejects == True:
+                # plot time-domain rejects
+                sp_rejs_t_TS = [pd.Timestamp(x) for x in sp_rej_t_eventsflat[i]]
+                spin_rejects_t = pd.Series(index=norm_dat.index)
+                spin_rejects_t[sp_rejs_t_TS] = norm_dat[sp_rejs_t_TS]
+                ax.plot(spin_rejects_t, color='red', alpha=0.5, label=labels['spindle_rejects_t'])
+                # plot frequency-domain rejects
+                sp_rejs_f_TS = [pd.Timestamp(x) for x in sp_rej_f_eventsflat[i]]
+                spin_rejects_f = pd.Series(index=norm_dat.index)
+                spin_rejects_f[sp_rejs_f_TS] = norm_dat[sp_rejs_f_TS]
+                ax.plot(spin_rejects_f, color='darkred', alpha=0.5, label=labels['spindle_rejects_f'])
+        
+        ax.set_title(t)
+        ax.set_yticks(list(np.arange(0.5, -(len(channels)-1), -1)))
+        ax.set_yticklabels(channels)
+        ax.margins(x=0) # remove white space margins between data and y axis
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+    
+    # set overall parameters
+    fig_title = d.metadata['file_info']['in_num'] + ' ' + d.metadata['file_info']['path'].split('\\')[1] + ' ' + d.metadata['file_info']['path'].split('.')[0].split('_')[-1]
+    fig.suptitle(fig_title)
+    fig.legend(ncol=2, loc='upper right')
+    plt.xlabel('Time')
+
+    return fig, axs
 
 
 def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='true_spins'):
