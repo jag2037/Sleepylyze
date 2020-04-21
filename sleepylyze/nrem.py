@@ -755,9 +755,11 @@ class NREM:
                 spindle_aggregates[chan] = {}
                 for datatype in datatypes:
                     # set the base df
-                    agg_df = pd.DataFrame(self.spindles[chan][0][datatype])
-                    agg_df = agg_df.rename(columns={datatype:'spin_0'})
-                    rsuffix = list(range(1, len(self.spindles[chan])))
+                    first_spin = list(self.spindles[chan].keys())[0]
+                    first_spin_colname = f'spin_{first_spin}'
+                    agg_df = pd.DataFrame(self.spindles[chan][first_spin][datatype])
+                    agg_df = agg_df.rename(columns={datatype:first_spin_colname})
+                    rsuffix = list(self.spindles[chan].keys())[1:]
                     # join on the index for each spindle
                     agg_df = agg_df.join([self.spindles[chan][x][datatype].rename('spin_'+str(x)) for x in rsuffix], how='outer')
                     spindle_aggregates[chan][datatype] = agg_df
@@ -869,9 +871,13 @@ class NREM:
                     density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
 
                     # calculate inter-spindle-interval (ISI) --> NOT ACCURATE FOR 2HR BLOCKS
-                    isi_arr = np.array([(self.spindles[chan][x+1].time.iloc[0] - self.spindles[chan][x].time.iloc[-1]).total_seconds() for x in self.spindles[chan] if x < len(self.spindles[chan])-1])
-                    isi_mean = isi_arr.mean()
-                    isi_sd = isi_arr.std()
+                    if len(self.spindles[chan]) > 1:
+                        isi_arr = np.array([(self.spindles[chan][x+1].time.iloc[0] - self.spindles[chan][x].time.iloc[-1]).total_seconds() for x in self.spindles[chan] if x < len(self.spindles[chan])-1])
+                        isi_mean = isi_arr.mean()
+                        isi_sd = isi_arr.std()
+                    else:
+                        isi_mean = None
+                        isi_sd = None
 
                     # calculate center frequency & total spindle power
                     # spindle_power = self.spindle_psd_norm[chan]['normed_pwr'][(self.spindle_psd[chan].index >= spin_range[0]) & (self.spindle_psd[chan].index <= spin_range[1])]
@@ -1008,7 +1014,7 @@ class NREM:
 
 
 
-    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)]):
+    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False):
         """ 
             Starting code for spindle statistics/visualizations 
 
@@ -1024,6 +1030,8 @@ class NREM:
                 length to zero-pad spindles to (in seconds)
             norm_range: list of tuple
                 frequency ranges for gottselig normalization
+            buff: bool (default: False)
+                whether to calculate means with a time buffer around spindle center
         
             Returns
             -------
