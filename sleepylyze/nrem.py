@@ -851,7 +851,7 @@ class NREM:
                 count = len(self.spindles[chan])
                 
                 if count == 0:
-                    spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None]
+                    spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None, None, None]
                 
                 else:
                     # calculate spindle duration
@@ -924,18 +924,26 @@ class NREM:
                 spindles = [self.spindles[chan][x].Raw.values for x in self.spindles[chan]]
                 data = np.concatenate(spindles)
                 
+                # calculate power spectrum
+                try:
+                    pwr, freqs = psd_array_multitaper(data, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
+                                                      normalization='full', verbose=0)
+                except ValueError as e:
+                    print(e)
+                    psd_bandwidth = float((str(e)).split(' ')[-1])
+                    print(f'Setting psd_bandwidth to {psd_bandwidth}')
+                    pwr, freqs = psd_array_multitaper(data, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
+                                                      normalization='full', verbose=0)
+
+                # convert to series & add to dict
+                psd = pd.Series(pwr, index=freqs)
+                spindle_psd[chan] = psd
+
                 # record PS params [K = 2NW-1]
                 N = len(data)/sf
                 W = psd_bandwidth
                 K = int((2*N*W)-1)
                 spindle_multitaper_calcs_concat[chan] = [len(data), N, W, N*W, K] 
-                
-                # calculate power spectrum
-                pwr, freqs = psd_array_multitaper(data, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
-                                                  normalization='full', verbose=0)
-                # convert to series & add to dict
-                psd = pd.Series(pwr, index=freqs)
-                spindle_psd[chan] = psd
         
         self.spindle_multitaper_calcs_concat = spindle_multitaper_calcs_concat
         self.spindle_psd_concat = spindle_psd
