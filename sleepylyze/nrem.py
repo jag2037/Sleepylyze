@@ -19,6 +19,7 @@ import glob
 #import joblib
 import json
 import os
+import math
 import numpy as np
 import pandas as pd
 import warnings
@@ -930,7 +931,9 @@ class NREM:
                                                       normalization='full', verbose=0)
                 except ValueError as e:
                     print(e)
-                    psd_bandwidth = float((str(e)).split(' ')[-1])
+                    min_bw = float((str(e)).split(' ')[-1])
+                    # round up to the nearest hundredth bc using exact # can still throw occasional errors
+                    psd_bandwidth = math.ceil(min_bw*100)/100
                     print(f'Setting psd_bandwidth to {psd_bandwidth}')
                     pwr, freqs = psd_array_multitaper(data, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
                                                       normalization='full', verbose=0)
@@ -991,18 +994,16 @@ class NREM:
                 y_pwr_fit = 10 * np.log10(pwr_fit.values)
 
                 # fit exponential -- try second fit line if first throws infinite covariance
-                with warnings.catch_warnings():
-                    warnings.simplefilter("error", OptimizeWarning)
+                try:
+                    popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 0, 1))
+                except (OptimizeWarning, RuntimeError, TypeError):
                     try:
-                        popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 0, 1))
-                    except (OptimizeWarning, RuntimeError):
-                        try:
-                            popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
-                        except (OptimizeWarning, RuntimeError):
-                            popt = np.full(3, np.nan)
-                            chans_norm_failed.append(chan)
-                            print(f'scipy.optimize.curvefit encountered RuntimeError on channel {chan}. Normalization skipped for this channel.')
-                            pass
+                        popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
+                    except (OptimizeWarning, RuntimeError, TypeError) as e:
+                        popt = np.full(3, np.nan)
+                        chans_norm_failed.append(chan)
+                        print(f'scipy.optimize.curvefit encountered error "{e}" on channel {chan}. Normalization skipped for this channel.')
+                        pass
 
                 xx = self.spindle_psd_concat[chan].index
                 yy = exponential_func(xx, *popt)
