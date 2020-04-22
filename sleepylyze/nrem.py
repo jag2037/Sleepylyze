@@ -903,10 +903,10 @@ class NREM:
 
             Returns
             -------
-            self.spindle_psd: dict
+            self.spindle_psd_concat: dict
                 format {channel: pd.Series} with index = frequencies and values = power (uV^2/Hz)
-            self.spindle_multitaper_calcs: pd.DataFrame
-                calculations used to calculated multitaper power spectral estimates for each channel
+            self.spindle_multitaper_calcs_concat: pd.DataFrame
+                calculations used to calculated concatenated multitaper power spectral estimates for each channel
         """
         
         print('Calculating power spectra (this may take a few minutes)...')
@@ -916,7 +916,7 @@ class NREM:
         sf = self.metadata['analysis_info']['s_freq']
         
         spindle_psd = {}
-        spindle_multitaper_calcs = pd.DataFrame(index=['data_len', 'N', 'W', 'NW', 'K'])
+        spindle_multitaper_calcs_concat = pd.DataFrame(index=['data_len', 'N', 'W', 'NW', 'K'])
         for chan in self.spindles:
             #print(f'Calculating spectra for {chan}...')
             if len(self.spindles[chan]) > 0:
@@ -928,7 +928,7 @@ class NREM:
                 N = len(data)/sf
                 W = psd_bandwidth
                 K = int((2*N*W)-1)
-                spindle_multitaper_calcs[chan] = [len(data), N, W, N*W, K] 
+                spindle_multitaper_calcs_concat[chan] = [len(data), N, W, N*W, K] 
                 
                 # calculate power spectrum
                 pwr, freqs = psd_array_multitaper(data, sf, adaptive=True, bandwidth=psd_bandwidth, fmax=25, 
@@ -937,9 +937,9 @@ class NREM:
                 psd = pd.Series(pwr, index=freqs)
                 spindle_psd[chan] = psd
         
-        self.spindle_multitaper_calcs = spindle_multitaper_calcs
+        self.spindle_multitaper_calcs_concat = spindle_multitaper_calcs_concat
         self.spindle_psd_concat = spindle_psd
-        print('Done. Spectra stored in obj.spindle_psd_concat. Calculations stored in obj.spindle_multitaper_calcs.\n')
+        print('Done. Spectra stored in obj.spindle_psd_concat. Calculations stored in obj.spindle_multitaper_calcs_concat.\n')
 
     def calc_gottselig_norm(self, norm_range):
         """ calculated normalized spindle power on EEG channels (from Gottselig et al., 2002). works with
@@ -1050,6 +1050,8 @@ class NREM:
                 format {channel: {spindle: pd.Series}} with index = frequencies and values = power (uV^2/Hz)
             self.spindle_multitaper_calcs: pd.DataFrame
                 calculations used to calculated multitaper power spectral estimates for each channel
+            self.spindle_multitaper_calcs_concat: pd.DataFrame
+                calculations used to calculated concatenated multitaper power spectral estimates for each channel
             self.spindle_features: pd.DataFrame
                 MultiIndex dataframe with calculated spindle statistics
         """
@@ -1122,6 +1124,11 @@ class NREM:
         filename = f'{fname}_spindle_mt_calcs.csv'
         savename = os.path.join(calc_dir, filename)
         self.spindle_multitaper_calcs.to_csv(savename)
+
+        # export multitaper calcs (concat)
+        filename = f'{fname}_spindle_mt_calcs_concat.csv'
+        savename = os.path.join(calc_dir, filename)
+        self.spindle_multitaper_calcs_concat.to_csv(savename)
         
         # export psd (concat)
         if self.metadata['spindle_analysis']['psd_dtype'] == 'raw_concat':
