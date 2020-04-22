@@ -1353,15 +1353,19 @@ def plot_gottselig(n, datatype='calcs'):
     """
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
-    eeg_chans = [x for x in n.spindle_psd.keys() if x not in exclude]
-    ncols = 6
+    eeg_chans = [x for x in n.spindle_psd_concat.keys() if x not in exclude]
+     # set subplot parameters
+    if len(eeg_chans)/6 < 1:
+        ncols = 1
+    else:
+        ncols = int(len(eeg_chans)/6)
     nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
-    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(20, 15))
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(ncols*3, ncols*2))
     fig.subplots_adjust(hspace=0.8, wspace=0.5)
     
     for chan, ax in zip(eeg_chans, axs.flatten()):
-        data = n.spindle_psd[chan]
-        data_normed = n.spindle_psd_norm[chan]
+        data = n.spindle_psd_concat[chan]
+        data_normed = n.spindle_psd_concat_norm[chan]
         
         if datatype == 'calcs':
             # first plot
