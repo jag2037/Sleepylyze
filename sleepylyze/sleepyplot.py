@@ -553,7 +553,7 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
     plt.xlabel('Time')
 
 
-    return fig, axs
+    return fig
 
 
 def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='true_spins'):
