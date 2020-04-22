@@ -577,6 +577,11 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
     elif spin_type == 'rejects':
         psd_dict = n.spindle_psd_i_rejects
 
+    # end if no spindles found matching the criteria
+    if len(psd_dict[chan]) < 1:
+        print(f'No {spin_type} found for channel {chan}')
+        return
+
     # set figure & subplot params
     ncols = int(np.sqrt(len(psd_dict[chan])))
     nrows = len(psd_dict[chan])//ncols + (len(psd_dict[chan]) % ncols > 0) 
@@ -635,9 +640,9 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
     
     # set figure params   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.93])
-    fig.text(0.5, 0, 'Frequency (Hz)', ha='center', size='large', weight='semibold')
-    fig.text(0, 0.5, ylabel, va='center', rotation='vertical', size='large', weight='semibold')
-    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + f'\n\nSpindle Power {chan}', size='large', weight='semibold')
+    fig.text(0.5, 0, 'Frequency (Hz)', ha='center')
+    fig.text(0, 0.5, ylabel, va='center', rotation='vertical')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + f'\nSpindle Power {chan}: {spin_type}')
 
     return fig
 
@@ -1210,15 +1215,24 @@ def plot_spindlepower(n, dB=True):
     eeg_chans = [x for x in n.spindle_psd_concat.keys() if x not in exclude]
     
     # set subplot parameters
-    if len(eeg_chans)/6 < 1:
-        ncols = 1
+    if len(eeg_chans) < 1:
+        print('No concatened spindles detected to plot.')
+        return
+    elif len(eeg_chans) < 6:
+        ncols = len(eeg_chans)
     else:
         ncols = int(len(eeg_chans)/6)
     nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
     fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(ncols*3, ncols*2))
     fig.subplots_adjust(hspace=0.8, wspace=0.5)
-    
-    for chan, ax in zip(eeg_chans, axs.flatten()):    
+
+    # move axes into a list for plotting if only one subplot
+    try:
+        axs_flat = axs.flatten()
+    except AttributeError:
+        axs_flat = [axs]
+
+    for chan, ax in zip(eeg_chans, axs_flat):    
         # transform units
         if dB == True:
             pwr = 10 * np.log10(n.spindle_psd_concat[chan].values)
@@ -1244,15 +1258,15 @@ def plot_spindlepower(n, dB=True):
         ax.set_title(chan, size='medium', weight='bold')
     
     # delete empty subplots --> this can probably be combined with previous loop
-    for i, ax in enumerate(axs.flatten()):
+    for i, ax in enumerate(axs_flat):
         if i >= len(eeg_chans):
             fig.delaxes(ax)
     
     # set figure params   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.93])
-    fig.text(0.5, 0, 'Frequency (Hz)', ha='center', size='large', weight='semibold')
-    fig.text(0, 0.5, ylabel, va='center', rotation='vertical', size='large', weight='semibold')
-    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\n\nSpindle Power', size='large', weight='semibold')
+    fig.text(0.5, 0, 'Frequency (Hz)', ha='center')
+    fig.text(0, 0.5, ylabel, va='center', rotation='vertical')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\nSpindle Power')
 
     return fig
 
