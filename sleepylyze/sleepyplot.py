@@ -580,7 +580,7 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
     # set figure & subplot params
     ncols = int(np.sqrt(len(psd_dict[chan])))
     nrows = len(psd_dict[chan])//ncols + (len(psd_dict[chan]) % ncols > 0) 
-    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(16, 12))
+    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, figsize=(ncols*3, ncols*2))
     fig.subplots_adjust(hspace=0.8, wspace=0.5)
 
     # move axes into a list for plotting if only one subplot
@@ -598,6 +598,8 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
         else:
             pwr = psd_dict[chan][spin].values
             ylabel = 'Power (mV^2/Hz)'
+            # set y-axis to scientific notation
+            ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
 
         # highlight spindle range. aquamarine or lavender works here too
         spin_range = n.metadata['spindle_analysis']['spin_range']
@@ -624,7 +626,7 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.set_title(spin, size='x-small')
-        ax.tick_params(axis='both', labelsize='x-small', labelleft=False)
+        ax.tick_params(axis='both', labelsize='x-small', labelleft=True) # turn labelleft=False to remove y-tick labels
     
     # delete empty subplots --> this can probably be combined with previous loop
     for i, ax in enumerate(axs_flat):
