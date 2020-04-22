@@ -969,14 +969,14 @@ class NREM:
         
         spindle_psd_norm = {}
         chans_norm_failed = []
-        for chan in self.spindle_psd:
+        for chan in self.spindle_psd_concat:
             if chan not in exclude:
                 spindle_psd_norm[chan] = {}
 
                 # specify data to be fit (only data in norm range)
-                incl_freqs = np.logical_or(((self.spindle_psd[chan].index >= norm_range[0][0]) & (self.spindle_psd[chan].index <= norm_range[0][1])),
-                                            ((self.spindle_psd[chan].index >= norm_range[1][0]) & (self.spindle_psd[chan].index <= norm_range[1][1])))
-                pwr_fit = self.spindle_psd[chan][incl_freqs] 
+                incl_freqs = np.logical_or(((self.spindle_psd_concat[chan].index >= norm_range[0][0]) & (self.spindle_psd_concat[chan].index <= norm_range[0][1])),
+                                            ((self.spindle_psd_concat[chan].index >= norm_range[1][0]) & (self.spindle_psd_concat[chan].index <= norm_range[1][1])))
+                pwr_fit = self.spindle_psd_concat[chan][incl_freqs] 
 
                 # set x and y values (convert y to dB)
                 x_pwr_fit = pwr_fit.index
@@ -996,11 +996,11 @@ class NREM:
                             print(f'scipy.optimize.curvefit encountered RuntimeError on channel {chan}. Normalization skipped for this channel.')
                             pass
 
-                xx = self.spindle_psd[chan].index
+                xx = self.spindle_psd_concat[chan].index
                 yy = exponential_func(xx, *popt)
 
                 # subtract the fit line
-                psd_norm = pd.Series(10*np.log10(self.spindle_psd[chan].values) - yy, index=self.spindle_psd[chan].index)
+                psd_norm = pd.Series(10*np.log10(self.spindle_psd_concat[chan].values) - yy, index=self.spindle_psd_concat[chan].index)
 
                 # save the values
                 spindle_psd_norm[chan]['normed_pwr'] = psd_norm
