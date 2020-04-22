@@ -872,7 +872,8 @@ class NREM:
 
                     # calculate inter-spindle-interval (ISI) --> NOT ACCURATE FOR 2HR BLOCKS
                     if len(self.spindles[chan]) > 1:
-                        isi_arr = np.array([(self.spindles[chan][x+1].time.iloc[0] - self.spindles[chan][x].time.iloc[-1]).total_seconds() for x in self.spindles[chan] if x < len(self.spindles[chan])-1])
+                        spin_keys = list(self.spindles[chan].keys())
+                        isi_arr = np.array([(self.spindles[chan][spin_keys[x+1]].time.iloc[0] - self.spindles[chan][spin_keys[x]].time.iloc[-1]).total_seconds() for x in range(len(spin_keys)) if x < len(spin_keys)-1])
                         isi_mean = isi_arr.mean()
                         isi_sd = isi_arr.std()
                     else:
