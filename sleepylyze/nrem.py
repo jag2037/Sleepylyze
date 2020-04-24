@@ -72,7 +72,8 @@ class NREM:
         self.data = data
         
         diff = data.index.to_series().diff()[1:2]
-        s_freq = 1000000/diff[0].microseconds
+        # use floor to round down if not an integer
+        s_freq = math.floor(1000000/diff[0].microseconds)
 
         self.metadata['file_info']['start_time'] = str(data.index[0])
         self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
