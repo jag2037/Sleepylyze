@@ -584,7 +584,7 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
     # set overall parameters
     fig_title = d.metadata['file_info']['in_num'] + ' ' + d.metadata['file_info']['path'].split('\\')[1] + ' ' + d.metadata['file_info']['path'].split('.')[0].split('_')[-1]
     fig.suptitle(fig_title)
-    fig.legend(ncol=2, loc='upper right', )
+    fig.legend(ncol=2, loc='upper right', fancybox=True, framealpha=0.5)
     plt.xlabel('Time')
 
 
