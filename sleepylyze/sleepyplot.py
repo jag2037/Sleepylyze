@@ -557,7 +557,18 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
                 spin_rejects_f[sp_rejs_f_TS] = norm_dat[sp_rejs_f_TS]
                 ax.plot(spin_rejects_f, color='darkred', alpha=0.5, label=labels['spindle_rejects_f'])
         
-        ax.set_title(t, pad=5, fontsize='medium')
+        # set subplot title
+        if t == 'Raw':
+            subtitle = 'Original Signal'
+        elif t == 'raw_lowpass':
+            lp_filtfreq = d.metadata['visualizations']['lowpass_freq']
+            subtitle = f'{lp_filtfreq} Hz Lowpass Filtered Signal'
+        elif t == 'Filtered':
+            sp_filtfreqs = d.metadata['spindle_analysis']['sp_filtwindow']
+            subtitle = f'{sp_filtfreqs[0]}-{sp_filtfreqs[1]} Hz Bandpass Filtered Signal'
+
+        # set subplot params
+        ax.set_title(subtitle, pad=5, fontsize='medium')
         ax.set_yticks(list(np.arange(0.5, -(len(channels)-1), -1)))
         ax.set_yticklabels(channels)
         ax.margins(x=0) # remove white space margins between data and y axis
