@@ -647,7 +647,7 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
     return fig
 
 
-def spec_peaks(n, chan, x, labels=True):
+def spec_spins(n, chan, x, labels=True):
     """ Vizualize individual peak detections, looking at % of > 4Hz power w/in the spindle range
         
         Parameters
