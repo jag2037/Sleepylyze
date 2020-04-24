@@ -31,7 +31,7 @@ from scipy.optimize import OptimizeWarning, curve_fit
 
 class NREM:
     """ General class for nonREM EEG segments """
-    def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False):
+    def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False, lowpass_freq=25, lowpass_order=4):
         """ Initialize NREM object
             
             Parameters
@@ -48,6 +48,10 @@ class NREM:
                 whether data has been epoched (if loading a single dataframe)
             batch: bool (default: True)
                 whether to load all matching files from the fpath directory
+            lowpass_freq: int (default: 25)
+                lowpass filter frequency *Used in visualizations ONLY*. must be < nyquist
+            lowpass_order: int (default: 4)
+                Butterworth lowpass filter order (doubles for filtfilt)
         """
         if batch:
             self.load_batch(fpath, match, in_num)
@@ -61,6 +65,7 @@ class NREM:
                 self.metadata['file_info']['epoch'] = fname.split('_')[4]
 
             self.load_segment()
+            self.lowpass_raw(lowpass_freq, lowpass_order)
 
     def load_segment(self):
         """ Load eeg segment and extract sampling frequency. """
@@ -86,10 +91,10 @@ class NREM:
 
             Parameters
             ----------
-            freq: int (default: 25)
+            lowpass_freq: int (default: 25)
                 lowpass frequency. must be < nyquist
-            lp_order: int (default: 4)
-                Butterworth lowpass filter order to be used if lowpass_raw is not None (doubles for filtfilt)
+            lowpass_order: int (default: 4)
+                Butterworth lowpass filter order (doubles for filtfilt)
 
             Returns
             -------
@@ -113,13 +118,9 @@ class NREM:
         # make filter
         sos = butter(lowpass_order, lowpass_freq, btype='lowpass', output='sos')
 
-        # check if channels attribute exists
-        try:
-            channels = self.channels
-        except AttributeError:
-            # create if doesn't exist
-            channels = [x[0] for x in self.data.columns]
-            self.channels = channels
+        # create channel attribute
+        channels = [x[0] for x in self.data.columns]
+        self.channels = channels
         
         # filter the data
         for i in channels:
@@ -140,6 +141,11 @@ class NREM:
         # use the lowpassed data
         raw_lowpass_data = data_lowpass
         self.data_lowpass = data_lowpass
+
+        # if calling a second time, replace zero-padded lowpass spindle values
+        if hasattr(self, 'spindles_zpad_lowpass'):
+            self.make_lowpass_zpad()
+            print('Zero-padded lowpass spindle values recalculated')
 
 
     def load_batch(self, fpath, match, in_num):
@@ -516,6 +522,81 @@ class NREM:
             self.spindles_wbuffer = spindles_wbuffer
             print('Spindle dataframes with buffer stored in obj.spindles_wbuffer.')
 
+    def make_lowpass_zpad(self):
+        """ Construct zero-padded spindle and spindle reject dictionaries for lowpass filtered data. 
+            Needed for sleepyplot.spec_spins(). Called by self.lowpass_raw() and self.calc_spindle_psd_i
+
+            Returns
+            -------
+            self.spindles_zpad_lowpass: nested dict
+                dict of zero-padded spindle values from lowpass filtered data (format: {chan:{spin #: values}})
+            self.spindles_zpad_rejects_lowpass: numpy.ndarray
+                dict of zero-padded spindle frequency domain reject values from lowpass filtered data (format: {chan:{spin #: values}})
+        """
+        
+        def create_zpad(spin, chan, x, zpad_len):
+            """ Create the zero-padded spindle from raw data [spin: np.array of spindle mV values] """
+            # subtract mean to zero-center spindle for zero-padding
+            sf = self.s_freq
+            data = spin.values - np.mean(spin.values)
+            zpad_samples=0
+            zpad_seconds=0
+            tx=0
+
+            total_len = zpad_len*sf
+            zpad_samples = total_len - len(data)
+            zpad_seconds = zpad_samples/sf
+            if zpad_samples > 0:
+                padding = np.repeat(0, zpad_samples)
+                data_pad = np.append(data, padding)
+            else:
+                spin_len = len(data)/sf
+                print(f'Spindle {chan}:{x} length {spin_len} seconds longer than pad length {zpad_len}')
+                data_pad = data
+            # return the zero-padded spindle
+            return data_pad
+        
+        # grab attributes
+        spindles = self.spindles
+        data_lowpass = self.data_lowpass
+        spindle_rejects_f = self.spindle_rejects_f
+        spindles_zpad_rejects = self.spindles_zpad_rejects
+        
+        # get length of zero-padding
+        zpad_len = self.metadata['spindle_analysis']['zeropad_len_sec']
+        spindles_zpad_lowpass = {}
+        spindles_zpad_rejects_lowpass = {}
+        
+        for chan in spindles:
+            spindles_zpad_lowpass[chan] = {}
+            spindles_zpad_rejects_lowpass[chan] = {}
+            
+            # if there are spindles on that channel
+            if len(spindles[chan]) > 0:
+                # for each true spindle
+                for x in spindles[chan]:
+                    # get the time index & low-pass values
+                    spin_idx = [np.datetime64(t) for t in spindles[chan][x].time.values]
+                    spin = data_lowpass[chan].loc[spin_idx]
+                    # make the zero-padding
+                    data_pad = create_zpad(spin, chan, x, zpad_len)
+                    # add to dict
+                    spindles_zpad_lowpass[chan][x] = data_pad
+            if len(spindle_rejects_f[chan]) > 0:
+                reject_dict = {key:idxs for key, idxs in zip(spindles_zpad_rejects[chan].keys(), spindle_rejects_f[chan])}
+                # for each rejected spindle
+                for x, spin_idx in reject_dict.items():
+                    # get the low-pass values
+                    spin = data_lowpass[chan].loc[spin_idx]
+                    # make the zero-padding
+                    data_pad = create_zpad(spin, chan, x, zpad_len)
+                    # add to dict
+                    spindles_zpad_rejects_lowpass[chan][x] = data_pad
+        
+        # save as attributes 
+        self.spindles_zpad_lowpass = spindles_zpad_lowpass
+        self.spindles_zpad_rejects_lowpass = spindles_zpad_rejects_lowpass
+
     # step 9. calculate power spectrum for each spindle        
     def calc_spindle_psd_i(self, psd_bandwidth, zpad, zpad_len, pwr_prune, pwr_thres, spin_range, prune_range):
         """ Calculate multitaper power spectrum for individual spindles across all channels
@@ -690,6 +771,11 @@ class NREM:
         self.spindle_psd_i_rejects = spindle_psd_rejects
         self.spindle_rejects_f = spindle_rejects_f
         print('Spectra stored in obj.spindle_psd_i. Calculations stored in obj.spindle_multitaper_calcs. Zero-padded spindle data in obj.spindles_zpad.\n')    
+
+        # calculate zero-padded lowpass filtered spindles if data has been lowpassed
+        if hasattr(self, 'data_lowpass'):
+            self.make_lowpass_zpad()
+            print('Zero-padded lowpass filtered tabulated. Stored in obj.spindles_zpad_lowpass.')
 
         
         
@@ -1146,7 +1232,6 @@ class NREM:
         # elif psd_type == 'i': # already calculated in detect_spindles
         #     # calc psd on individual spindles
         #     self.calc_spindle_psd_i(psd_bandwidth, zpad, zpad_len)
-
 
 
 
