@@ -425,7 +425,7 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     return fig
 
 
-def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_rejects=True, lowpass_raw=25, lowpass_order=4):
+def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_rejects=True, raw_lowpass=True, lowpass_freq=25, lowpass_order=4):
     """ plot dual-channel LFP w/ option for double panel raw & filtered.
 
         red = spindle rejects by time domain criteria; dark red = spindle rejects by frequency domain criteria
@@ -443,8 +443,10 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
         Option to plot spindle detections
     spindle_rejects: bool, optional, default: True
         Option to plot rejected spindle detections
-    lowpass_raw: int or None (default: 25)
-        Frequency to lowpass the raw data for visualization 
+    raw_lowpass: bool (default: True)
+        Whether to plot the lowpass filtered raw data [in place of the unchanged raw data]
+    lowpass_freq: int (default: 25)
+        Frequency to lowpass the raw data for visualization (if not already applied)
     lowpass_order: int (default: 4)
         Butterworth lowpass filter order to be used if lowpass_raw is not None (doubles for filtfilt)
 
@@ -457,46 +459,29 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
     
     # import data
     if raw == True:
-        if not lowpass_raw:
+        if not raw_lowpass:
             # use the unchanged raw data
             raw_data = d.data
-        else:
-            ## otherwise lowpass the data for visualization
-            # make butterworth lowpass filter
-            nyquist = d.s_freq/2
-            data_lowpass = pd.DataFrame(index = d.data.index)
-            # adjust lowpass to nyquist
-            if lowpass_raw >= 1:
-                lowpass_raw = lowpass_raw/nyquist
-            # make filter
-            sos = butter(lowpass_order, lowpass_raw, btype='lowpass', output='sos')
-            # filter the data
-            for i in self.channels:
-                # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
-                data_nan = self.data[i][self.data[i]['Raw'].isna()]
-                data_notnan = self.data[i][self.data[i]['Raw'].isna() == False]
-                # filter notNaN data & add column to notNaN df
-                data_notnan_filt = sosfiltfilt(sos, data_notnan.to_numpy(), axis=0)
-                data_notnan['Filt'] = data_notnan_filt
-                # merge NaN & filtered notNaN values, sort on index
-                filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
-                # add to dataframe
-                data_lowpass[i] = filt_chan
-            # set dataframe columns
-            data_lowpass.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('raw_lowpass'), len(self.channels))],names=['Channel','datatype'])
-            # use the lowpassed data
-            raw_lowpass_data = data_lowpass
+        elif raw_lowpass:
+            # use the lowpass filtered raw data
+            try:
+                # check if filtered data exists
+                raw_lowpass_data = d.data_lowpass
+            except AttributeError:
+                # apply lowpass filter
+                d.lowpass_raw(lowpass_freq, lowpass_order)
+                raw_lowpass_data = d.data_lowpass
 
     if filtered == True or thresholds == True:
         filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
     
     # set data to plot (title corresponds to multiindex level 2 in data df)
     if raw == True:
-        if lowpass_raw is None:
+        if not raw_lowpass:
             # plot the unchanged data
             data.append(raw_data)
             title.append('Raw')
-        elif lowpass_raw is not None:
+        elif raw_lowpass:
             # plot the lowpass data
             data.append(raw_lowpass_data)
             title.append('raw_lowpass')

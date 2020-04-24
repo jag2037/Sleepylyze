@@ -81,6 +81,67 @@ class NREM:
 
         print('EEG successfully imported.')
 
+    def lowpass_raw(self, lowpass_freq=25, lowpass_order=4):
+        """ Lowpass the raw data [for visualization only -- Removes high-frequency artifacts]
+
+            Parameters
+            ----------
+            freq: int (default: 25)
+                lowpass frequency. must be < nyquist
+            lp_order: int (default: 4)
+                Butterworth lowpass filter order to be used if lowpass_raw is not None (doubles for filtfilt)
+
+            Returns
+            -------
+            self.channels: list of str
+                channel list (if not already created)
+            self.data_lowpass
+
+        """
+        # set data
+        data = self.data
+        self.metadata['visualizations'] = {'lowpass_freq': lowpass_freq, 'lowpass_order_half': lowpass_order}
+
+        # make butterworth lowpass filter
+        nyquist = self.s_freq/2
+        data_lowpass = pd.DataFrame(index = data.index)
+        
+        # adjust lowpass to nyquist
+        if lowpass_freq >= 1:
+            lowpass_freq = lowpass_freq/nyquist
+        
+        # make filter
+        sos = butter(lowpass_order, lowpass_freq, btype='lowpass', output='sos')
+
+        # check if channels attribute exists
+        try:
+            channels = self.channels
+        except AttributeError:
+            # create if doesn't exist
+            channels = [x[0] for x in self.data.columns]
+            self.channels = channels
+        
+        # filter the data
+        for i in channels:
+            # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
+            data_nan = data[i][data[i]['Raw'].isna()]
+            data_notnan = data[i][data[i]['Raw'].isna() == False]
+            # filter notNaN data & add column to notNaN df
+            data_notnan_filt = sosfiltfilt(sos, data_notnan.to_numpy(), axis=0)
+            data_notnan['Filt'] = data_notnan_filt
+            # merge NaN & filtered notNaN values, sort on index
+            filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
+            # add to dataframe
+            data_lowpass[i] = filt_chan
+        
+
+        # set dataframe columns
+        data_lowpass.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('raw_lowpass'), len(channels))],names=['Channel','datatype'])
+        # use the lowpassed data
+        raw_lowpass_data = data_lowpass
+        self.data_lowpass = data_lowpass
+
+
     def load_batch(self, fpath, match, in_num):
         """ Load a batch of EEG segments & reset index from absolute to relative time 
             TO DO: Throw error if IN doesn't match any files in folder
