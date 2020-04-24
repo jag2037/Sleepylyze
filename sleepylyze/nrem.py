@@ -48,7 +48,7 @@ class NREM:
                 whether data has been epoched (if loading a single dataframe)
             batch: bool (default: True)
                 whether to load all matching files from the fpath directory
-            lowpass_freq: int (default: 25)
+            lowpass_freq: int or None (default: 25)
                 lowpass filter frequency *Used in visualizations ONLY*. must be < nyquist
             lowpass_order: int (default: 4)
                 Butterworth lowpass filter order (doubles for filtfilt)
@@ -65,7 +65,8 @@ class NREM:
                 self.metadata['file_info']['epoch'] = fname.split('_')[4]
 
             self.load_segment()
-            self.lowpass_raw(lowpass_freq, lowpass_order)
+            if lowpass_freq:
+                self.lowpass_raw(lowpass_freq, lowpass_order)
 
     def load_segment(self):
         """ Load eeg segment and extract sampling frequency. """
@@ -1172,7 +1173,8 @@ class NREM:
 
 
 
-    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False):
+    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
+                        gottselig=False):
         """ 
             Starting code for spindle statistics/visualizations 
 
@@ -1190,6 +1192,8 @@ class NREM:
                 frequency ranges for gottselig normalization
             buff: bool (default: False)
                 whether to calculate means with a time buffer around spindle center
+            gottselig: bool (default: False)
+                whether to calculate gottselig normalization on concatenated spectrum
         
             Returns
             -------
@@ -1227,8 +1231,11 @@ class NREM:
         if psd_type == 'concat':
             # calc psd on concated spindles
             self.calc_spindle_psd_concat(psd_bandwidth)
-            # normalize power spectra for quantification
-            self.calc_gottselig_norm(norm_range)
+
+            if gottselig:
+                # normalize power spectra for quantification
+                self.calc_gottselig_norm(norm_range)
+        
         # elif psd_type == 'i': # already calculated in detect_spindles
         #     # calc psd on individual spindles
         #     self.calc_spindle_psd_i(psd_bandwidth, zpad, zpad_len)
