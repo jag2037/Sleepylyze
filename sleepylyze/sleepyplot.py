@@ -682,7 +682,7 @@ def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='t
     return fig
 
 
-def spec_spins(n, chan, x, labels=True):
+def spec_spins(n, chan, x, labels=True, raw_lowpass = True):
     """ Vizualize individual peak detections, looking at % of > 4Hz power w/in the spindle range
         
         Parameters
@@ -695,6 +695,8 @@ def spec_spins(n, chan, x, labels=True):
             Spindle # to plot
         labels: bool (default: True)
             Whether to print axis labels
+        raw_lowpass: bool (default: True)
+            Whether to plot the lowpass filtered raw data [in place of the unchanged raw data]
 
         Returns
         -------
@@ -702,16 +704,27 @@ def spec_spins(n, chan, x, labels=True):
     """
     spin_range = n.metadata['spindle_analysis']['spin_range']
     prune_range = n.metadata['spindle_analysis']['prune_range']
+    lowpass_freq = n.metadata['visualizations']['lowpass_freq']
 
     # set data to plot
     try:
         psd = n.spindle_psd_i[chan][x]
-        zpad_spin = n.spindles_zpad[chan][x]
+        if raw_lowpass:
+            # set spindle to lowpass data
+            zpad_spin = n.spindles_zpad_lowpass[chan][x]
+        else:
+            # use original data
+            zpad_spin = n.spindles_zpad[chan][x]
         spin_perc = n.spindle_multitaper_calcs[chan][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
         status = 'accepted'
     except KeyError:
         psd = n.spindle_psd_i_rejects[chan][x]
-        zpad_spin = n.spindles_zpad_rejects[chan][x]
+        if raw_lowpass:
+            # set spindle to lowpass data
+            zpad_spin = n.spindles_zpad_rejects_lowpass[chan][x]
+        else:
+            # use original data
+            zpad_spin = n.spindles_zpad_rejects[chan][x]
         spin_perc = n.spindle_multitaper_calcs_rejects[chan][f'perc_{prune_range[0]}-{prune_range[1]}Hzpwr_in_spin_range'].loc[x]
         status = 'rejected'
     
@@ -726,7 +739,12 @@ def spec_spins(n, chan, x, labels=True):
     plt.subplots_adjust(top=0.88, bottom=0.125, hspace=0.5)
     
     # plot the raw spindle + zpad
-    axs[0].plot(zpad_spin, alpha=1, lw=0.8, label='Raw Signal')
+    ## set zpad label
+    if raw_lowpass:
+        zpad_label = f'{lowpass_freq}Hz Lowpass Filtered Signal'
+    else:
+        zpad_label = 'Original Signal'
+    axs[0].plot(zpad_spin, alpha=1, lw=0.8, label=zpad_label)
     # convert x-tick labels from samples to ms
     xticks = axs[0].get_xticks().tolist()
     ms_xticks = [int(sample/n.s_freq*1000) for sample in xticks]
