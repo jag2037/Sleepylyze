@@ -871,10 +871,15 @@ class NREM:
                     # calculate density
                     density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
 
-                    # calculate inter-spindle-interval (ISI) --> NOT ACCURATE FOR 2HR BLOCKS
+                    # calculate inter-spindle-interval (ISI)
                     if len(self.spindles[chan]) > 1:
                         spin_keys = list(self.spindles[chan].keys())
-                        isi_arr = np.array([(self.spindles[chan][spin_keys[x+1]].time.iloc[0] - self.spindles[chan][spin_keys[x]].time.iloc[-1]).total_seconds() for x in range(len(spin_keys)) if x < len(spin_keys)-1])
+                        # make a list of tuples of ISI start and end timestamps
+                        isi_ranges = [(self.spindles[chan][spin_keys[x]].time.iloc[-1], self.spindles[chan][spin_keys[x+1]].time.iloc[0]) for x in range(len(spin_keys)) if x < len(spin_keys)-1]
+                        # keep the ISI tuple only if there are no NaNs in the data (no missing data)
+                        notNaN_isi_ranges = [i for i in isi_ranges if np.any(np.isnan(self.data[chan].loc[i[0]:i[1]])) == False]
+                        # calculate the total seconds for each tuple
+                        isi_arr = np.array([(isi[1]-isi[0]).total_seconds() for isi in notNaN_isi_ranges])
                         isi_mean = isi_arr.mean()
                         isi_sd = isi_arr.std()
                     else:
