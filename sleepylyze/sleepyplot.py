@@ -425,7 +425,8 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     return fig
 
 
-def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_rejects=True, raw_lowpass=True, lowpass_freq=25, lowpass_order=4):
+def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_rejects=True, raw_lowpass=True, lowpass_freq=25, 
+            lowpass_order=4, win_frac=None, xlim=None):
     """ plot dual-channel LFP w/ option for double panel raw & filtered.
 
         red = spindle rejects by time domain criteria; dark red = spindle rejects by frequency domain criteria
@@ -449,6 +450,10 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
         Frequency to lowpass the raw data for visualization (if not already applied)
     lowpass_order: int (default: 4)
         Butterworth lowpass filter order to be used if lowpass_raw is not None (doubles for filtfilt)
+    win_frac: str or None (default: None)
+        window count, if plotting x-axis in windows (ex. '3/4' for window 3 of 4)
+    xlim: tuple of DateTimeIndex
+        x-axis values to be used for x-limits
 
     Returns
     -------
@@ -567,6 +572,10 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
             sp_filtfreqs = d.metadata['spindle_analysis']['sp_filtwindow']
             subtitle = f'{sp_filtfreqs[0]}-{sp_filtfreqs[1]} Hz Bandpass Filtered Signal'
 
+        # set xlimit for windowing
+        if xlim is not None:
+            ax.set_xlim(xlim)
+
         # set subplot params
         ax.set_title(subtitle, pad=5, fontsize='medium')
         ax.set_yticks(list(np.arange(0.5, -(len(channels)-1), -1)))
@@ -582,7 +591,10 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
         ax.grid(axis='x', which='major')
     
     # set overall parameters
-    fig_title = d.metadata['file_info']['in_num'] + ' ' + d.metadata['file_info']['path'].split('\\')[1] + ' ' + d.metadata['file_info']['path'].split('.')[0].split('_')[-1]
+    fig_title = (d.metadata['file_info']['path'].split('\\')[1].split('.')[0]).replace('_', ' ')
+    if win_frac is not None:
+            frac = win_frac.split('/')
+            fig_title = fig_title + f' (Figure {frac[0]} of {frac[1]})'
     fig.suptitle(fig_title)
     fig.legend(ncol=2, loc='upper right', fancybox=True, framealpha=0.5)
     plt.xlabel('Time')
