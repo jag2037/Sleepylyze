@@ -591,7 +591,7 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
         ax.grid(axis='x', which='major')
     
     # set overall parameters
-    fig_title = (d.metadata['file_info']['path'].split('\\')[1].split('.')[0]).replace('_', ' ')
+    fig_title = fig_title = n.metadata['file_info']['in_num'] + ' ' + n.metadata['file_info']['path'].split('\\')[1] + ' ' + n.metadata['file_info']['path'].split('.')[0].split('_')[-1]
     if win_frac is not None:
             frac = win_frac.split('/')
             fig_title = fig_title + f' (Figure {frac[0]} of {frac[1]})'
