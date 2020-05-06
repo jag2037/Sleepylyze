@@ -1422,13 +1422,17 @@ def plot_spindlepower_headplot(n, dB=True):
     return fig
 
 
-def plot_gottselig(n, datatype='calcs'):
+def plot_gottselig(n, datatype='calcs', plot_peaks=True, smoothed=True):
     """ plot gottselig normalization for all channels 
     
         Parameters
         ----------
         datatype: str (default: 'calcs')
             which data to plot [options: 'calcs', 'normed_pwr']
+        plot_peaks: bool (default: True)
+            whether to plot peak detections [only if datatype='normed_pwr']
+        smoothed: bool (default: False)
+            whether to plot rms smoothed signal used for peak calculations [only if datatype='normed_pwr']
     """
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
@@ -1455,9 +1459,18 @@ def plot_gottselig(n, datatype='calcs'):
         
         elif datatype == 'normed_pwr':
             # second plot
-            ax.plot(data_normed['normed_pwr'], color='black', label='Normalized power')
-            ax.axvspan(9, 16, color='lavender', alpha=0.8, label = 'Spindle Range')
+            ax.plot(data_normed['normed_pwr'], color='black', lw=0.8, label='Normalized power', zorder=2)
+            ax.axvspan(9, 16, color='lightgrey', alpha=0.8, label = 'Spindle Range', zorder=1)
             ax.set_title(chan)
+
+            if smoothed:
+                # plot smoothed psd
+                ax.plot(n.psd_concat_norm_peaks[chan]['smoothed_data'], lw=1.2, alpha=0.8, color='lime', zorder=3)
+           
+            if plot_peaks:
+                # plot peak detections
+                peaks = n.psd_concat_norm_peaks[chan]['peaks']
+                ax.scatter(x=peaks.index, y=peaks.values, color='magenta', alpha=0.8, marker=7, zorder=4)
         
         # set subplot params
         ax.margins(y=0)
@@ -1479,7 +1492,7 @@ def plot_gottselig(n, datatype='calcs'):
 
     return fig
 
-def plot_gottselig_headplot(n, datatype='calcs'):
+def plot_gottselig_headplot(n, datatype='calcs', plot_peaks=True, smoothed=True):
     """ plot gottselig normalization headplot for all channels 
         NOTE: only for FS128 (12-11-19)
 
@@ -1489,6 +1502,10 @@ def plot_gottselig_headplot(n, datatype='calcs'):
         ----------
         datatype: str (default: 'calcs')
             which data to plot [options: 'calcs', 'normed_pwr']
+        plot_peaks: bool (default: True)
+            whether to plot peak detections [only if datatype='normed_pwr']
+        smoothed: bool (default: False)
+            whether to plot rms smoothed signal used for peak calculations [only if datatype='normed_pwr']
     """
     
     # set channel locations
@@ -1534,8 +1551,8 @@ def plot_gottselig_headplot(n, datatype='calcs'):
     plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
     
     for chan in locs.keys():    
-        data = n.spindle_psd[chan]
-        data_normed = n.spindle_psd_norm[chan]
+        data = n.spindle_psd_concat[chan]
+        data_normed = n.spindle_psd_concat_norm[chan]
         
         if datatype == 'calcs':
             # first plot
@@ -1546,9 +1563,19 @@ def plot_gottselig_headplot(n, datatype='calcs'):
         
         elif datatype == 'normed_pwr':
             # second plot
-            ax[locs[chan][1], locs[chan][0]].plot(data_normed['normed_pwr'], color='black', label='Normalized power')
-            ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='lavender', alpha=0.8, label = 'Spindle Range')
+            ax[locs[chan][1], locs[chan][0]].plot(data_normed['normed_pwr'], color='black', lw=0.8, label='Normalized power', zorder=2)
+            ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='lavender', alpha=0.8, label = 'Spindle Range', zorder=1)
             ax[locs[chan][1], locs[chan][0]].set_title(chan)
+
+            if smoothed:
+                # plot smoothed psd
+                ax[locs[chan][1], locs[chan][0]].plot(n.psd_concat_norm_peaks[chan]['smoothed_data'], lw=1.2, color='lime', alpha=0.8, label='Smoothed Spectrum', zorder=3)
+           
+            if plot_peaks:
+                # plot peak detections
+                peaks = n.psd_concat_norm_peaks[chan]['peaks']
+                ax[locs[chan][1], locs[chan][0]].scatter(x=peaks.index, y=peaks.values, color='magenta', marker=7, alpha=0.8, label ='Spindle Peak', zorder=4)
+        
         
         # set subplot params
         ax[locs[chan][1], locs[chan][0]].margins(y=0)
