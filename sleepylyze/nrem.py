@@ -26,7 +26,7 @@ import warnings
 import xlsxwriter
 
 from mne.time_frequency import psd_array_multitaper
-from scipy.signal import butter, sosfiltfilt, sosfreqz
+from scipy.signal import butter, sosfiltfilt, sosfreqz, find_peaks
 from scipy.optimize import OptimizeWarning, curve_fit
 
 class NREM:
@@ -1035,11 +1035,6 @@ class NREM:
                         isi_mean = None
                         isi_sd = None
 
-                    # calculate center frequency & total spindle power
-                    # spindle_power = self.spindle_psd_norm[chan]['normed_pwr'][(self.spindle_psd[chan].index >= spin_range[0]) & (self.spindle_psd[chan].index <= spin_range[1])]
-                    # center_freq = spindle_power.idxmax()
-                    # total_pwr = spindle_power.sum()
-
                     spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd]
                     # spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd, center_freq, total_pwr]
 
@@ -1175,18 +1170,84 @@ class NREM:
         print('Gottselig normalization data stored in obj.spindle_psd_concat_norm.\n')
 
 
+    def calc_spin_fstats(self, pk_width_hz=0.5):
+        """ Calculate frequency statistics on concatenated spindles
+            To do: determine statistics to calculate for individual spindles
+
+            To calculate peaks on concatenated data, the spectrum is:
+                1. smoothed with an RMS window length equal to the psd_bandwidth
+                2. peaks must have a minimum horizontal distance equal to psd_bandwidth
+                3. peaks must have a minimum frequency width (set by width_hz)
 
 
+            Parameters
+            ----------
+            pk_width_hz: float (default: 0.5)
+                minimum width (in Hz) for a peak to be considered a peak
+        """
 
-    def analyze_spindles(self, psd_type='i', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
-                        gottselig=False):
+        print('Calculating spindle frequency-domain statistics...')
+        
+        spin_range = self.metadata['spindle_analysis']['spin_range']
+         #exclude non-EEG channels
+        exclude = ['EOG_L', 'EOG_R', 'EKG']
+
+        # create fstats dataframe & peaks dict
+        cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz']
+        spindle_fstats = pd.DataFrame(columns=cols)
+        psd_concat_norm_peaks = {}
+
+        # set the parameters for picking peaks
+        # set minimum distance between adjacent peaks equal to spectral resolution
+        psd = self.spindle_psd_concat[list(self.spindle_psd_concat.keys())[0]]
+        samp_per_hz = len(psd)/(psd.index[-1]-psd.index[0])
+        bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
+        distance = samp_per_hz*bw_hz
+        # set minimum width in samples for a peak to be considered a peak
+        width = samp_per_hz*pk_width_hz
+        # set the moving window sample length equal to the psd bandwidth
+        mw_samples = int(distance)
+
+        # calculate stats for each channel
+        for chan in self.spindle_psd_concat.keys():
+            if chan not in exclude:
+                # smooth the signal
+                datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
+                window = np.ones(mw_samples)/float(mw_samples)
+                rms = np.sqrt(np.convolve(datsq, window, 'same'))
+                smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
+                smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
+
+                #calculate center frequency & total spindle power (to 2 decimal points)
+                dominant_freq = round(smoothed_spindle_power.idxmax(), 2)
+                total_pwr = round(smoothed_spindle_power.sum(), 2)
+
+                # get peaks
+                p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
+                peaks = smoothed_spindle_power.iloc[p_idx]
+                total_peaks = len(peaks)
+                peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                            
+                # add row to dataframe
+                spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz]
+
+                # save values to peaks dict
+                psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
+
+        self.psd_concat_norm_peaks = psd_concat_norm_peaks
+        self.spindle_fstats = spindle_fstats
+
+
+    def analyze_spindles(self, psd_type='concat', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
+                        gottselig=True):
         """ 
             Starting code for spindle statistics/visualizations 
 
             Parameters
             ----------
-            psd_type: str (default: 'i')
+            psd_type: str (default: 'concat')
                 What data to use for psd calculations [Options: 'i' (individual spindles), 'concat' (spindles concatenated by channel)]
+                **this parameter is redundant now that 'i' is auto-calculated in spindle detection step -- can be hard-coded to 'concat'
             psd_bandwidth: float
                 frequency bandwidth for power spectra calculations (Hz)
             zpad: bool (default: False)
@@ -1233,7 +1294,7 @@ class NREM:
         self.calc_spin_tstats()
 
         # calculate power spectra
-        if psd_type == 'concat':
+        if psd_type == 'concat': # this is redundant (should always be 'concat')
             # calc psd on concated spindles
             self.calc_spindle_psd_concat(psd_bandwidth)
 
@@ -1241,9 +1302,9 @@ class NREM:
                 # normalize power spectra for quantification
                 self.calc_gottselig_norm(norm_range)
         
-        # elif psd_type == 'i': # already calculated in detect_spindles
-        #     # calc psd on individual spindles
-        #     self.calc_spindle_psd_i(psd_bandwidth, zpad, zpad_len)
+
+        # calculate frequency stats
+        self.calc_spin_fstats(pk_width_hz=0.5)
 
 
 
@@ -1288,8 +1349,8 @@ class NREM:
         with open(savename, 'w') as f:
             json.dump(self.metadata, f, indent=4)
         
-        # export multitaper calcs
-        filename = f'{fname}_spindle_mt_calcs.csv'
+        # export multitaper calcs (psd_i)
+        filename = f'{fname}_spindle_mt_calcs_i.csv'
         savename = os.path.join(calc_dir, filename)
         self.spindle_multitaper_calcs.to_csv(savename)
 
