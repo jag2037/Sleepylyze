@@ -578,9 +578,9 @@ class Dataset:
         hyp_stats['sleep_efficiency'] = (len(hyp) - len(hyp[hyp.values == 0.0]) - len(hyp[hyp.values == 6.0]))/(len(hyp) - len(hyp[hyp.values == 6.0])) * 100
         # sleep stage % (removing record breaks)
         for stage, code in stages.items():
-            if stage is not 'rbrk':
+            if stage != 'rbrk':
                 percent = len(hyp[hyp.values == code])/(len(hyp)-len(hyp[hyp.values == 6.0])) * 100
-            elif stage is 'rbrk':
+            elif stage == 'rbrk':
                 percent = len(hyp[hyp.values == code])/len(hyp)
             hyp_stats[stage]= {'%night': percent}
         # cycle stats for each sleep stage
@@ -655,6 +655,9 @@ class Dataset:
 
     def cut_EEG(self, sleepstage='all', epoch_len=None):
         """ cut dataset based on loaded hypnogram 
+
+        	*NOTE: non-epoched data updated for Pandas KeyError future warning. Epoched data to be updated.
+
         Parameters
         ----------
         stage: str or list of str
@@ -663,6 +666,10 @@ class Dataset:
             length (in seconds) to epoch the data by 
         """
 
+        # set data start and end idxs (for determining valid cut indices)
+        data_start, data_end = np.sort(self.data.index)[0], np.sort(self.data.index)[-1]
+
+        # set sleep stages to cut
         if sleepstage == 'all':
             stages = self.stage_cuts.keys()
         else:
@@ -711,7 +718,11 @@ class Dataset:
                     data = {}
                     cycs = len(self.stage_cuts[stage])
                     for c in range(1, cycs+1):
-                        data[c] = self.data.loc[(self.stage_cuts[stage][c])]
+                        # set the indices loaded from the noise log
+                        idxs = self.stage_cuts[stage][c]
+                        # exclude any indices that are outside of the loaded data
+                        valid_idxs = idxs[(idxs >= data_start) & (idxs <= data_end)]
+                        data[c] = self.data.loc[valid_idxs]
                     cut_data[stage] = data
 
             self.cut_data = cut_data
