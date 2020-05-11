@@ -9,6 +9,7 @@
 import glob
 import os
 import nrem
+import pandas as pd
 import sleepyplot as slp 
 
 def spindle_analysis(fname, fpath, export_dir, wn, order, sp_mw, loSD, hiSD, min_sep, 
@@ -131,7 +132,7 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
 
         print(f'Files saved to {savedir}')
     else:
-        return df_two df_four df_six df_eight
+        return df_two, df_four, df_six, df_eight
 
     print('Done')
 
