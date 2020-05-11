@@ -873,258 +873,7 @@ def spec_peaks_SD(n, chan, x, labels=True):
 
     return fig
 
-### Macroarchitecture methods ###
 
-def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
-    """ 
-        Plot cycle length for each sleep stage vs cycle # 
-        -> This should show if there are trends in cycle length
-        based on number of times that stage has been cycled through
-        
-        Params
-        ------
-        d: transitions.HypStats or ioeeg.Dataset object
-        plt_stages: str or list of string (default: 'all')
-            stages to plot
-        logscale: bool (default:True)
-            plot the y-axis on a log scale
-        normx: bool (default: True)
-            normalize x-axis according to total number of cycles for that stage
-    """
-
-    if plt_stages == 'all':
-        stages = ['awake', 'rem', 's1', 's2', 'ads', 'sws']
-    elif type(plt_stages) == str:
-        stages = [plt_stages]
-    elif type(plt_stages) == list:
-        stages = plt_stages
-
-    fig, ax = plt.subplots()
-
-    for key in d.hyp_stats.keys():
-        if key in stages:
-            if d.hyp_stats[key]['n_cycles'] > 0:
-                if normx == True:
-                    x = [int(x)/d.hyp_stats[key]['n_cycles'] for x in d.hyp_stats[key]['cycle_lengths'].keys()]
-                    xlabel = 'Normalized Cycle'
-                else:
-                    x = d.hyp_stats[key]['cycle_lengths'].keys()
-                    xlabel = 'Cycle'
-                if logscale == True:
-                    y = [math.log10(y) for y in d.hyp_stats[key]['cycle_lengths'].values()]
-                    ylabel = 'Cycle length [log(seconds)]'
-                else:
-                    y = d.hyp_stats[key]['cycle_lengths'].values()
-                    ylabel = 'Cycle length (seconds)'
-                ax.plot(x, y, label = key)
-    ax.legend()
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-
-    return fig
-
-def cycles_boxplot(d, yscale='min'):
-    """ boxplot of cycle lengths 
-    
-        Params
-        ------
-        yscale: str (default: 'min')
-            y scaling (options: 'min', 'sec')
-        
-        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
-    """
-    ylist = []
-    xticklabels = []
-    for key in d.hyp_stats.keys():
-        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
-            if d.hyp_stats[key]['n_cycles'] > 0:
-                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
-                if yscale == 'sec':
-                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
-                    ylabel = 'Cycle Length (sec)'
-                elif yscale == 'min':
-                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
-                    ylabel = 'Cycle Length (min)'
-                
-    fig, ax = plt.subplots()
-    
-    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
-    
-    # change box outline & fill
-    for box in bp['boxes']:
-        box.set(color='lightgray')
-        box.set(facecolor='lightgray')
-    # change median color
-    for median in bp['medians']:
-        median.set(color='grey', lw=2)
-    # change whisker color
-    for whisker in bp['whiskers']:
-        whisker.set(color='grey', lw=2)
-    # change cap color
-    for cap in bp['caps']:
-        cap.set(color='grey', lw = 2)
-    # change the style of fliers and their fill
-    for flier in bp['fliers']:
-        flier.set(markerfacecolor='grey', marker='o', markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
-    
-    ax.set_xticklabels(xticklabels)
-    #ax.spines['top'].set_visible(False)
-    #ax.spines['right'].set_visible(False)
-    
-    plt.xlabel('\nSleep Stage')
-    plt.ylabel(ylabel)
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
-    
-    return fig
-
-def cycles_scatterbox(d, yscale='min'):
-    """ boxplot of cycle lengths w/ colored scatterplot of datapoints
-    
-        Params
-        ------
-        yscale: str (default: 'min')
-            y scaling (options: 'min', 'sec')
-        
-        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
-    """
-
-    ylist = []
-    xticklabels = []
-    colors = []
-    for key in d.hyp_stats.keys():
-        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
-            if d.hyp_stats[key]['n_cycles'] > 0:
-                # set xtick labels
-                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
-                # set y values
-                if yscale == 'sec':
-                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
-                    ylabel = 'Cycle Length (sec)'
-                elif yscale == 'min':
-                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
-                    ylabel = 'Cycle Length (min)'
-                # set colors
-                if key == 'awake':
-                    colors.append('darkgrey')
-                elif key == 's1':
-                    colors.append('orange')
-                elif key == 's2':
-                    colors.append('lime')
-                elif key == 'ads':
-                    colors.append('blue')
-                elif key == 'sws':
-                    colors.append('purple')
-
-    fig, ax = plt.subplots()
-    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
-    
-    # change box outline & fill
-    for box in bp['boxes']:
-        box.set(color='lightgray', alpha=1)
-    # change median color
-    for median in bp['medians']:
-        median.set(color='grey', lw=2)
-    # change whisker color
-    for whisker in bp['whiskers']:
-        whisker.set(color='grey', lw=2)
-    # change cap color
-    for cap in bp['caps']:
-        cap.set(color='grey', lw = 2)
-    # change the style of fliers and their fill
-    for flier in bp['fliers']:
-        flier.set(markerfacecolor='grey', marker=None, markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
-        
-    # add scatterplot for datapoints
-    for i in range(len(ylist)):
-        y = ylist[i]
-        # create jitter by randomly distributing x vals
-        x = np.random.normal(1+i, 0.1, size=len(y))
-        ax.plot(x, y, 'r.', markerfacecolor=colors[i], markeredgecolor=colors[i], markersize=12, 
-                markeredgewidth=0.8, alpha=0.5, zorder=3) #zorder sets scatter on top
-
-    ax.set_xticklabels(xticklabels)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    
-    plt.grid(axis='both', linestyle=':', linewidth=1)
-    plt.xlabel('\nSleep Stage')
-    plt.ylabel(ylabel)
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
-    
-    return fig
-    
-
-def plot_hyp(d):
-    """ plot hypnogram for ioeeg.Dataset instance """
-    fig, ax = plt.subplots(figsize = (30,5))
-    
-    ax.plot(d.hyp, color='lightseagreen', lw=2)
-    ax = plt.gca()
-    ax.set_ylim(ax.get_ylim()[::-1])
-    ax.set_yticks([0, 1, 2, 3, 4, 5])
-    ax.set_yticklabels(['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta\nSleep     ', 'SWS'])
-
-    fmt = mdates.DateFormatter('%I:%M%p')
-    ax.xaxis.set_major_formatter(fmt)
-    ax.margins(x=.01)
-    
-    plt.xlabel('Time')
-    plt.ylabel('Sleep Stage')
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
-    
-    return fig
-
-
-def plot_transitions(h, savefig=False, savedir=None):
-    """ plot sleep stage transition diagram. 
-        
-        NOTE: This is for preliminary visualization. For high quality
-        figures use plot_transitions.R
-            *for 3d plots use R code, or see https://stackoverflow.com/questions/16907564/how-can-i-plot-a-3d-graph-in-python-with-igraph
-            or this http://bommaritollc.com/2011/02/21/plotting-3d-graphs-with-python-igraph-and-cairo-cn220-example/
-    """
-
-    # set data
-    m = np.matrix(h.transition_perc)/2
-    net=ig.Graph.Weighted_Adjacency(m.tolist(), attr='width', loops=False)
-
-    # set node params [see https://www.cs.rhul.ac.uk/home/tamas/development/igraph/tutorial/tutorial.html]
-    node_size = np.array((h.epoch_counts['Awake'], h.epoch_counts['REM'], h.epoch_counts['Stage 1'], h.epoch_counts['Stage 2'], h.epoch_counts['Alpha-Delta'], h.epoch_counts['SWS']))
-    net.vs['size'] = node_size/4
-    net.vs['shape'] = 'circle'
-    net.vs['color'] = ['lightgrey', 'red', 'orange', 'lime', 'blue', 'purple']
-
-    label_dist = [0 if x>200 else 1.3 for x in node_size]
-    net.vs['label_dist'] = label_dist
-    net.vs['label_angle'] = [np.pi/2, np.pi, np.pi, 0, np.pi*3/2, 0]
-    net.vs['label_size'] = 12
-    net.vs['label'] = ['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta', 'SWS']
-
-    # set edge params
-    net.es['curved'] = True # this can be set to a float also (ex. 0.3)
-    net.es['arrow_size'] = 0.8
-    net.es['arrow_width'] = 1.5
-    net.es['color'] = 'darkgrey'
-
-    # set layout
-    l = [(0, 0), (-2, 2), (-1, 1), (1, 1), (0, 2), (2, 2)]
-    layout = ig.Layout(l)
-
-    # set visual style
-    visual_style = {}
-    visual_style['bbox'] = (500, 500)
-    visual_style['margin'] = 110
-
-    fig = ig.plot(net, layout=layout, **visual_style)
-
-    if savefig == True:
-        savename = h.in_num + '_TransitionPlot_' + h.start_date + '.png'
-        if savedir is None:
-            savedir = os.getcwd()
-        save = os.path.join(savedir, savename)
-        fig.save(save)
-
-    return fig
 
 ### Spindle Methods ###
 
@@ -1490,6 +1239,7 @@ def plot_gottselig(n, datatype='calcs', plot_peaks=True, smoothed=True):
     fig.text(0, 0.5, 'Power (dB)', va='center', rotation='vertical', size='large')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\n\nGottselig Normalization', size='large')
 
+
     return fig
 
 def plot_gottselig_headplot(n, datatype='calcs', plot_peaks=True, smoothed=True):
@@ -1718,6 +1468,260 @@ def plot_spso(n):
     return fig
 
 
+### Macroarchitecture methods ###
+
+def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
+    """ 
+        Plot cycle length for each sleep stage vs cycle # 
+        -> This should show if there are trends in cycle length
+        based on number of times that stage has been cycled through
+        
+        Params
+        ------
+        d: transitions.HypStats or ioeeg.Dataset object
+        plt_stages: str or list of string (default: 'all')
+            stages to plot
+        logscale: bool (default:True)
+            plot the y-axis on a log scale
+        normx: bool (default: True)
+            normalize x-axis according to total number of cycles for that stage
+    """
+
+    if plt_stages == 'all':
+        stages = ['awake', 'rem', 's1', 's2', 'ads', 'sws']
+    elif type(plt_stages) == str:
+        stages = [plt_stages]
+    elif type(plt_stages) == list:
+        stages = plt_stages
+
+    fig, ax = plt.subplots()
+
+    for key in d.hyp_stats.keys():
+        if key in stages:
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                if normx == True:
+                    x = [int(x)/d.hyp_stats[key]['n_cycles'] for x in d.hyp_stats[key]['cycle_lengths'].keys()]
+                    xlabel = 'Normalized Cycle'
+                else:
+                    x = d.hyp_stats[key]['cycle_lengths'].keys()
+                    xlabel = 'Cycle'
+                if logscale == True:
+                    y = [math.log10(y) for y in d.hyp_stats[key]['cycle_lengths'].values()]
+                    ylabel = 'Cycle length [log(seconds)]'
+                else:
+                    y = d.hyp_stats[key]['cycle_lengths'].values()
+                    ylabel = 'Cycle length (seconds)'
+                ax.plot(x, y, label = key)
+    ax.legend()
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    return fig
+
+def cycles_boxplot(d, yscale='min'):
+    """ boxplot of cycle lengths 
+    
+        Params
+        ------
+        yscale: str (default: 'min')
+            y scaling (options: 'min', 'sec')
+        
+        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
+    """
+    ylist = []
+    xticklabels = []
+    for key in d.hyp_stats.keys():
+        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
+                if yscale == 'sec':
+                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
+                    ylabel = 'Cycle Length (sec)'
+                elif yscale == 'min':
+                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
+                    ylabel = 'Cycle Length (min)'
+                
+    fig, ax = plt.subplots()
+    
+    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
+    
+    # change box outline & fill
+    for box in bp['boxes']:
+        box.set(color='lightgray')
+        box.set(facecolor='lightgray')
+    # change median color
+    for median in bp['medians']:
+        median.set(color='grey', lw=2)
+    # change whisker color
+    for whisker in bp['whiskers']:
+        whisker.set(color='grey', lw=2)
+    # change cap color
+    for cap in bp['caps']:
+        cap.set(color='grey', lw = 2)
+    # change the style of fliers and their fill
+    for flier in bp['fliers']:
+        flier.set(markerfacecolor='grey', marker='o', markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
+    
+    ax.set_xticklabels(xticklabels)
+    #ax.spines['top'].set_visible(False)
+    #ax.spines['right'].set_visible(False)
+    
+    plt.xlabel('\nSleep Stage')
+    plt.ylabel(ylabel)
+    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    
+    return fig
+
+def cycles_scatterbox(d, yscale='min'):
+    """ boxplot of cycle lengths w/ colored scatterplot of datapoints
+    
+        Params
+        ------
+        yscale: str (default: 'min')
+            y scaling (options: 'min', 'sec')
+        
+        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
+    """
+
+    ylist = []
+    xticklabels = []
+    colors = []
+    for key in d.hyp_stats.keys():
+        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                # set xtick labels
+                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
+                # set y values
+                if yscale == 'sec':
+                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
+                    ylabel = 'Cycle Length (sec)'
+                elif yscale == 'min':
+                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
+                    ylabel = 'Cycle Length (min)'
+                # set colors
+                if key == 'awake':
+                    colors.append('darkgrey')
+                elif key == 's1':
+                    colors.append('orange')
+                elif key == 's2':
+                    colors.append('lime')
+                elif key == 'ads':
+                    colors.append('blue')
+                elif key == 'sws':
+                    colors.append('purple')
+
+    fig, ax = plt.subplots()
+    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
+    
+    # change box outline & fill
+    for box in bp['boxes']:
+        box.set(color='lightgray', alpha=1)
+    # change median color
+    for median in bp['medians']:
+        median.set(color='grey', lw=2)
+    # change whisker color
+    for whisker in bp['whiskers']:
+        whisker.set(color='grey', lw=2)
+    # change cap color
+    for cap in bp['caps']:
+        cap.set(color='grey', lw = 2)
+    # change the style of fliers and their fill
+    for flier in bp['fliers']:
+        flier.set(markerfacecolor='grey', marker=None, markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
+        
+    # add scatterplot for datapoints
+    for i in range(len(ylist)):
+        y = ylist[i]
+        # create jitter by randomly distributing x vals
+        x = np.random.normal(1+i, 0.1, size=len(y))
+        ax.plot(x, y, 'r.', markerfacecolor=colors[i], markeredgecolor=colors[i], markersize=12, 
+                markeredgewidth=0.8, alpha=0.5, zorder=3) #zorder sets scatter on top
+
+    ax.set_xticklabels(xticklabels)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    plt.grid(axis='both', linestyle=':', linewidth=1)
+    plt.xlabel('\nSleep Stage')
+    plt.ylabel(ylabel)
+    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    
+    return fig
+    
+
+def plot_hyp(d):
+    """ plot hypnogram for ioeeg.Dataset instance """
+    fig, ax = plt.subplots(figsize = (30,5))
+    
+    ax.plot(d.hyp, color='lightseagreen', lw=2)
+    ax = plt.gca()
+    ax.set_ylim(ax.get_ylim()[::-1])
+    ax.set_yticks([0, 1, 2, 3, 4, 5])
+    ax.set_yticklabels(['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta\nSleep     ', 'SWS'])
+
+    fmt = mdates.DateFormatter('%I:%M%p')
+    ax.xaxis.set_major_formatter(fmt)
+    ax.margins(x=.01)
+    
+    plt.xlabel('Time')
+    plt.ylabel('Sleep Stage')
+    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    
+    return fig
+
+
+def plot_transitions(h, savefig=False, savedir=None):
+    """ plot sleep stage transition diagram. 
+        
+        NOTE: This is for preliminary visualization. For high quality
+        figures use plot_transitions.R
+            *for 3d plots use R code, or see https://stackoverflow.com/questions/16907564/how-can-i-plot-a-3d-graph-in-python-with-igraph
+            or this http://bommaritollc.com/2011/02/21/plotting-3d-graphs-with-python-igraph-and-cairo-cn220-example/
+    """
+
+    # set data
+    m = np.matrix(h.transition_perc)/2
+    net=ig.Graph.Weighted_Adjacency(m.tolist(), attr='width', loops=False)
+
+    # set node params [see https://www.cs.rhul.ac.uk/home/tamas/development/igraph/tutorial/tutorial.html]
+    node_size = np.array((h.epoch_counts['Awake'], h.epoch_counts['REM'], h.epoch_counts['Stage 1'], h.epoch_counts['Stage 2'], h.epoch_counts['Alpha-Delta'], h.epoch_counts['SWS']))
+    net.vs['size'] = node_size/4
+    net.vs['shape'] = 'circle'
+    net.vs['color'] = ['lightgrey', 'red', 'orange', 'lime', 'blue', 'purple']
+
+    label_dist = [0 if x>200 else 1.3 for x in node_size]
+    net.vs['label_dist'] = label_dist
+    net.vs['label_angle'] = [np.pi/2, np.pi, np.pi, 0, np.pi*3/2, 0]
+    net.vs['label_size'] = 12
+    net.vs['label'] = ['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta', 'SWS']
+
+    # set edge params
+    net.es['curved'] = True # this can be set to a float also (ex. 0.3)
+    net.es['arrow_size'] = 0.8
+    net.es['arrow_width'] = 1.5
+    net.es['color'] = 'darkgrey'
+
+    # set layout
+    l = [(0, 0), (-2, 2), (-1, 1), (1, 1), (0, 2), (2, 2)]
+    layout = ig.Layout(l)
+
+    # set visual style
+    visual_style = {}
+    visual_style['bbox'] = (500, 500)
+    visual_style['margin'] = 110
+
+    fig = ig.plot(net, layout=layout, **visual_style)
+
+    if savefig == True:
+        savename = h.in_num + '_TransitionPlot_' + h.start_date + '.png'
+        if savedir is None:
+            savedir = os.getcwd()
+        save = os.path.join(savedir, savename)
+        fig.save(save)
+
+    return fig
+
+
 ### EKG Methods ###
 
 def plotEKG(ekg, rpeaks=False):
@@ -1822,3 +1826,6 @@ def plotPS(ekg, method, dB=False, bands=False):
     plt.suptitle(title)
 
     return fig
+
+
+
