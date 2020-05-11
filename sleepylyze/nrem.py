@@ -1308,105 +1308,152 @@ class NREM:
 
 
 
-    def export_spindles(self, export_dir):
-        """ Export spindle analyses
-            NOTE: Update for spindle_psd_i
-
-            Parameters
-            ----------
-            export_dir: str
-                Directory to save exported files
-            
-            Returns
-            -------
-            export_dir/fname_metadata.txt: json dump file
-            export_dir/calcs/fname_multitaper_calcs.csv: csv file
-            export_dir/calcs/fname_spindle_psd.txt: json dump file
-            export_dir/calcs/fname_spindle_psd_norm.txt: json dump file
-            export_dir/fname_spindle_aggregates.csv: multi-tab excel file
-            export_dir/fname_spindle_means.csv: csv file
-            export_dir/fname_spindle_stats.csv: csv file
-              
-        """
+def export_spindles(self, export_dir, raw=True, psd_concat=True, psd_i=True, stats=True):
+    """ Export spindle analyses
+    
+        Parameters
+        ----------
+        raw: bool (default: True)
+            export raw EEG spindle detection tracings
+        psd_concat: bool (default: True)
+            export psd calculations and series for concatenated spindles
+        psd_i: bool (default: True)
+            export psd calculations and series for individual spindles
+        stats: bool (default: True)
+            export spindle time and frequency statistics
         
-        print('Exporting spindle analyses..')
-
-        # make export directory if doesn't exit
-        if not os.path.exists(export_dir):
-            os.makedirs(export_dir)
+        Returns
+        -------
+        *To be completed
         
-        # make subdirectory for calculations
-        calc_dir = os.path.join(export_dir, 'calcs')
-        if not os.path.exists(calc_dir):
-            os.makedirs(calc_dir)
+    """
+    
+    print(f'Spindle export directory: {export_dir}\n')    
+    # make export directory if doesn't exit
+    if not os.path.exists(export_dir):
+        os.makedirs(export_dir)
+    
+    # set base for savename
+    fname = self.metadata['file_info']['fname'].split('.')[0]
+    
+    # dump metadata into main directory
+    filename = f'{fname}_spindle_metadata.txt'
+    savename = os.path.join(export_dir, filename)
+    with open(savename, 'w') as f:
+        json.dump(self.metadata, f, indent=4)
+    
+    # export raw spindle tracings
+    if raw:
+        raw_dir = export_dir + '/spindle_tracings'
+        if not os.path.exists(raw_dir):
+            os.makedirs(raw_dir)
         
-        # set base for savename
-        fname = self.metadata['file_info']['fname'].split('.')[0]
-        
-        # dump metadata
-        filename = f'{fname}_spindle_metadata.txt'
-        savename = os.path.join(export_dir, filename)
-        with open(savename, 'w') as f:
-            json.dump(self.metadata, f, indent=4)
-        
-        # export multitaper calcs (psd_i)
-        filename = f'{fname}_spindle_mt_calcs_i.csv'
-        savename = os.path.join(calc_dir, filename)
-        self.spindle_multitaper_calcs.to_csv(savename)
-
-        # export multitaper calcs (concat)
-        filename = f'{fname}_spindle_mt_calcs_concat.csv'
-        savename = os.path.join(calc_dir, filename)
-        self.spindle_multitaper_calcs_concat.to_csv(savename)
-        
-        # export psd (concat)
-        if self.metadata['spindle_analysis']['psd_dtype'] == 'raw_concat':
-            # convert series to dicts for json dump
-            psd_export = {}
-            for name, series in self.spindle_psd.items():
-                psd_export[name] = series.to_dict()
-            filename = f'{fname}_spindle_psd_concat.txt'
-            savename = os.path.join(calc_dir, filename)
+        # export spindle tracings for each channel
+        print('Exporting spindle tracings...')
+        for chan in self.spindles.keys():
+            filename = f'{fname}_{chan}_spindle_tracings.txt'
+            savename = os.path.join(raw_dir, filename)
+            ## use json dict dump to save space
+            spin_export = {}
+            for spin, series in self.spindles[chan].items():
+                # convert time from datetime to str
+                s = series.astype({'time': str})
+                spin_export[spin] = s.to_dict()
             with open(savename, 'w') as f:
-                json.dump(psd_export, f, indent=4)
-        
-            # export psd norm
-            # convert series to dicts for json dump
-            psd_norm_export = {}
-            for chan in self.spindle_psd_norm.keys():
-                psd_norm_export[chan]={}
-                for name, series in self.spindle_psd_norm[chan].items():
-                    psd_norm_export[chan][name] = series.to_dict()
-            filename = f'{fname}_spindle_psd_norm.txt'
-            savename = os.path.join(calc_dir, filename)
-            with open(savename, 'w') as f:
-                json.dump(psd_norm_export, f, indent=4)
-
-        # export psd (individual)
-        ### INDIVIDUAL EXPORT HERE
+                json.dump(spin_export, f, indent=4)
+            ## for exporting into an excel workbook instead
+#           writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+#           for spin in self.spindles[chan].keys():
+#               tab = f{'Spindle_{spin}'}
+#               self.spindles[chan][spin].to_excel(writer, sheet_name=tab)
         
         # export spindle aggregates
+        print('Exporting spindle aggregates...')
         filename = f'{fname}_spindle_aggregates.xlsx'
-        savename = os.path.join(export_dir, filename)
+        savename = os.path.join(raw_dir, filename)
         writer = pd.ExcelWriter(savename, engine='xlsxwriter')
         for chan in self.spindle_aggregates.keys():
             for dtype in self.spindle_aggregates[chan].keys():
                 tab = '_'.join([chan, dtype])
                 self.spindle_aggregates[chan][dtype].to_excel(writer, sheet_name=tab)
-        writer.save() 
-        
+        writer.save()
+
         # export spindle means
+        print('Exporting spindle means...\n')
         for dtype in self.spindle_means.keys():
             filename = f'{fname}_spindle_means_{dtype}.csv'
-            savename = os.path.join(export_dir, filename)
+            savename = os.path.join(raw_dir, filename)
             self.spindle_means[dtype].to_csv(savename)
-        
-        # export spindle stats
-        filename = f'{fname}_spindle_stats.csv'
-        savename = os.path.join(export_dir, filename)
-        self.spindle_stats.to_csv(savename)
 
-        print(f'Export complete. Analyses stored in {export_dir}')
+
+    # export concated spectra
+    if psd_concat:
+        # set subdirectory
+        psd_concat_dir = export_dir + '/psd_concat'
+        if not os.path.exists(psd_concat_dir):
+            os.makedirs(psd_concat_dir)
+        # export multitaper calcs (concat)
+        print('Exporting concatenated spindle spectra calcs...')
+        filename = f'{fname}_spindle_mt_calcs_concat.csv'
+        savename = os.path.join(psd_concat_dir, filename)
+        self.spindle_multitaper_calcs_concat.to_csv(savename)
+        # export psd series
+        # convert series to dicts for json dump
+        psd_export = {}
+        for name, series in self.spindle_psd_concat.items():
+            psd_export[name] = series.to_dict()
+        filename = f'{fname}_spindle_psd_concat.txt'
+        savename = os.path.join(psd_concat_dir, filename)
+        with open(savename, 'w') as f:
+            json.dump(psd_export, f, indent=4)
+
+        # export psd norm
+        print('Exporting concatenated spindle norm spectra...\n')
+        # convert series to dicts for json dump
+        psd_norm_export = {}
+        for chan in self.spindle_psd_concat_norm.keys():
+            psd_norm_export[chan]={}
+            for name, series in self.spindle_psd_concat_norm[chan].items():
+                psd_norm_export[chan][name] = series.to_dict()
+        filename = f'{fname}_spindle_psd_norm.txt'
+        savename = os.path.join(psd_concat_dir, filename)
+        with open(savename, 'w') as f:
+            json.dump(psd_norm_export, f, indent=4)
+            
+        
+    if psd_i:
+        # export individual spindle spectra
+        print('Exporting individual spindle spectra...\n')
+        psd_i_dir = export_dir + '/psd_individual'
+        if not os.path.exists(psd_i_dir):
+            os.makedirs(psd_i_dir)
+        # export a file for each channel
+        for chan in self.spindle_psd_i.keys():
+            filename = f'{fname}_spindle_psd_i_{chan}.txt'
+            savename = os.path.join(psd_i_dir, filename)
+            # convert to dict for json dump
+            psd_export = {}
+            for spin, series in self.spindle_psd_i[chan].items():
+                psd_export[spin] = series.to_dict()
+            with open(savename, 'w') as f:
+                json.dump(psd_export, f, indent=4)
+            
+        
+    if stats:
+        print('Exporting spindle statistics...\n')
+        stats_dir = export_dir + '/statistics'
+        if not os.path.exists(stats_dir):
+            os.makedirs(stats_dir)
+        # export spindle time stats
+        filename = f'{fname}_spindle_tstats.csv'
+        savename = os.path.join(stats_dir, filename)
+        n.spindle_tstats.to_csv(savename)
+        # export spindle frequency stats
+        filename = f'{fname}_spindle_fstats.csv'
+        savename = os.path.join(stats_dir, filename)
+        self.spindle_fstats.to_csv(savename)
+        
+    print('Done.')
 
 
     ## Slow Oscillation Detection Methods ##
