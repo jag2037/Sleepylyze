@@ -603,6 +603,9 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
     return fig
 
 
+
+### Spindle Methods ###
+
 def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='true_spins'):
     """ Plot individual spindle spectra for a given channel 
 
@@ -875,8 +878,6 @@ def spec_peaks_SD(n, chan, x, labels=True):
 
 
 
-### Spindle Methods ###
-
 def plot_spins(n, datatype='Raw'):
     """ plot all spindle detections by channel 
         
@@ -998,16 +999,16 @@ def plot_spindlepower_chan(n, chan, dB=True):
 
     # transform units
     if dB == True:
-        pwr = 10 * np.log10(n.spindle_psd[chan].values)
+        pwr = 10 * np.log10(n.spindle_psd_concat[chan].values)
         ylabel = 'Power (dB)'
     else:
-        pwr = n.spindle_psd[chan].values
+        pwr = n.spindle_psd_concat[chan].values
         ylabel = 'Power (mV^2/Hz)'
     
     fig, ax = plt.subplots()
     
     # plot just spectrum
-    ax.plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+    ax.plot(n.spindle_psd_concat[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
     ax.axvspan(9, 16, color='lavender', alpha=0.8)
         
     ax.set_xlim(0, 25)
@@ -1017,7 +1018,7 @@ def plot_spindlepower_chan(n, chan, dB=True):
     
     plt.xlabel('Frequency (Hz)')
     plt.ylabel(ylabel)
-    plt.title((n.metadata['file_info']['fname'].split('.')[0] + '\n\n' + chan + ' Spindle Power'), size='medium', weight='semibold')
+    plt.title((n.metadata['file_info']['fname'].split('.')[0] + '\n\n' + chan + ' Concatenated Spindle Power'), size='medium', weight='semibold')
 
     return fig
 
