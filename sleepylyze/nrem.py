@@ -1216,13 +1216,14 @@ class NREM:
                 smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
                 smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
 
-                #calculate center frequency & total spindle power (to 2 decimal points)
-                dominant_freq = round(smoothed_spindle_power.idxmax(), 2)
+                #calculate total spindle power (to 2 decimal points)
                 total_pwr = round(smoothed_spindle_power.sum(), 2)
 
                 # get peaks
                 p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
                 peaks = smoothed_spindle_power.iloc[p_idx]
+                # set dominant frequency to major peak
+                dominant_freq = round(peaks.idxmax(), 2)
                 total_peaks = len(peaks)
                 peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
                             
