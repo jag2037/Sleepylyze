@@ -1191,7 +1191,7 @@ class NREM:
         exclude = ['EOG_L', 'EOG_R', 'EKG']
 
         # create fstats dataframe & peaks dict
-        cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz']
+        cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
         spindle_fstats = pd.DataFrame(columns=cols)
         psd_concat_norm_peaks = {}
 
@@ -1226,9 +1226,11 @@ class NREM:
                 dominant_freq = round(peaks.idxmax(), 2)
                 total_peaks = len(peaks)
                 peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                # ratio of peak amplitudes as a fraction of the dominant amplitude
+                peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
                             
                 # add row to dataframe
-                spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz]
+                spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
 
                 # save values to peaks dict
                 psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
