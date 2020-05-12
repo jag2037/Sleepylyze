@@ -1062,7 +1062,7 @@ def plot_spindlepower(n, dB=True):
         ax.plot(n.spindle_psd_concat[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
         # highlight spindle range. aquamarine or lavender works here too
         spin_range = n.metadata['spindle_analysis']['spin_range']
-        ax.axvspan(spin_range[0], spin_range[1], color='lavender', alpha=0.8)
+        ax.axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2)
 
         # set subplot params
         ax.set_xlim(0, 25)
@@ -1136,17 +1136,17 @@ def plot_spindlepower_headplot(n, dB=True):
     for chan in locs.keys():    
         # transform units
         if dB == True:
-            pwr = 10 * np.log10(n.spindle_psd[chan].values)
+            pwr = 10 * np.log10(n.spindle_psd_concat[chan].values)
             ylabel = 'Power (dB)'
         else:
-            pwr = n.spindle_psd[chan].values
+            pwr = n.spindle_psd_concat[chan].values
             ylabel = 'Power (mV^2/Hz)'
 
         # plot spectrum
         #ax = plt.subplot()
-        ax[locs[chan][1], locs[chan][0]].plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+        ax[locs[chan][1], locs[chan][0]].plot(n.spindle_psd_concat[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
         # highlight spindle range. aquamarine or lavender works here too
-        ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='lavender', alpha=0.8)
+        ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='grey', alpha=0.2)
 
         # set subplot params
         ax[locs[chan][1], locs[chan][0]].set_xlim(0, 25)
