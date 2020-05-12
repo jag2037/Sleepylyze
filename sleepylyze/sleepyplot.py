@@ -1469,6 +1469,150 @@ def plot_spso(n):
     return fig
 
 
+def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=True, spins_i=True, spindle_means=True, psd_concat=True):
+    """ Produce and export all spindle figures 
+    
+        Parameters
+        ----------
+        export_dir: str
+            directory to export figures
+        ext: str (default: 'png')
+            figure ext (e.g. png, eps, jpg)
+        dpi: int (default: 300)
+            dots per inch
+        transparent: bool (default: False)
+            render background as transparent
+        spindle_spectra: bool (default: True)
+            whether to plot spindle spectra subplot figure for each channel
+        spins_i: bool (default: True)
+            whether to plot indvidiual spindle spectra (spec_spins) figures for each channel
+        spindle_means: bool (default: True)
+            whether to plot spindle means and tracing overlays
+        psd_concat: bool (default: True)
+            whether to plot concated spindle spectra headplots and gottselig plots
+
+        
+        Returns
+        -------
+        *To be completed
+    
+    """
+    
+    print(f'Spindle figure export directory: {export_dir}\n')  
+    
+    # make export directory if doesn't exit
+    if not os.path.exists(export_dir):
+        os.makedirs(export_dir)
+    # set base for savename
+    fname = n.metadata['file_info']['fname'].split('.')[0]
+    
+    # make subdirectory for channel spectra
+    psd_dir = os.path.join(export_dir, 'channel_spectra')
+    if not os.path.exists(psd_dir):
+        os.makedirs(psd_dir)
+    
+    if spindle_spectra or spins_i:                       
+        # by channel
+        exclude = ['EKG', 'EOG_L', 'EOG_R']
+        for chan in n.spindles.keys():
+            if chan not in exclude:
+                print('\nExporting {chan} spectra figures...')
+                # make subdirectory for channel
+                chan_dir = os.path.join(psd_dir, chan)
+                if not os.path.exists(chan_dir):
+                        os.makedirs(chan_dir)
+
+                if spindle_spectra:
+                    print('\tExporting spindle power subplots...')
+                    # individual spindle spectra (accepted)
+                    filename = f'{fname}_SpindleSpectra_Accepted.{ext}'
+                    savename = os.path.join(chan_dir, filename)
+                    fig = plot_spindlepower_chan_i(n, chan)
+                    fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    plt.close(fig)                  
+                    # individual spindle spectra (rejected)
+                    filename = f'{fname}_SpindleSpectra_Rejected.{ext}'
+                    savename = os.path.join(chan_dir, filename)
+                    fig = plot_spindlepower_chan_i(n, chan, spin_type='rejects')
+                    fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    plt.close(fig)
+
+                if spins_i:
+                    print('\tExporting spec_spins figures...')
+                    # make subdirectory for individual spins
+                    spin_dir = os.path.join(chan_dir, 'individual_spectra')
+                    if not os.path.exists(spin_dir):
+                            os.makedirs(spin_dir)              
+                    # individual [accepted] spindles
+                    for spin in n.spindle_psd_i[chan].keys():
+                        filename = f'{fname}_SpinPSD_{chan}_Accepted_{spin}.{ext}'
+                        savename = os.path.join(spin_dir, filename)
+                        fig = spec_spins(n, chan, spin)
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                        plt.close(fig)
+                    # individual [rejected] spindles
+                    for spin in n.spindle_psd_i_rejects[chan].keys():
+                        filename = f'{fname}_SpinPSD_{chan}_Rejected_{spin}.{ext}'
+                        savename = os.path.join(spin_dir, filename)
+                        fig = spec_spins(n, chan, spin)
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                        plt.close(fig)
+    
+    
+    ## Overall
+    if spindle_means:
+        print('Exporting spindle overlays & means...')
+        # overlaid spindle tracings (raw & filtered)
+        filename = f'{fname}_spindles_raw.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spins(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        filename = f'{fname}_spindles_filt.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spins(n, datatype='spfilt')
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        # spindle means (raw & filtered)
+        filename = f'{fname}_SpindleMeans_raw.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spin_means(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        filename = f'{fname}_SpindleMeans_filt.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spin_means(n, datatype ='spfilt')
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+    
+    if psd_concat:
+        print('Exporting concatenated spindle power figures...')
+        # concatenated spectra headplot
+        filename = f'{fname}_SpectraConcat.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spindlepower_headplot(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        # gottselig norm headplots (calcs & subtracted)
+        filename = f'{fname}_SpectraConcat_NormFit.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_gottselig_headplot(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        filename = f'{fname}_SpectraConcat_NormPwr.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_gottselig_headplot(n, datatype='normed_pwr')
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+    
+    print('\nDone.')
+
+
 ### Macroarchitecture methods ###
 
 def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
