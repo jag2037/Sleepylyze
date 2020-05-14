@@ -747,6 +747,7 @@ class NREM:
                         # record params for removal from self.spindles & self.spindle_events after loop is complete
                         rmv_spins[chan].append(x)
                         # add to rejects psd dicts
+                        spin_perc = 'not_calculated'
                         spindle_psd_rejects[chan][x] = psd
                         spindles_zpad_rejects[chan][x] = data_pad
                         spindle_multitaper_calcs_rejects[chan].loc[x] = [spin_samples, spin_seconds, zpad_samples, zpad_seconds, waveform_res, psd_res, N_taper_len, W_bandwidth, K_tapers, spin_perc]
@@ -1344,7 +1345,7 @@ class NREM:
 
 
     def analyze_spindles(self, psd_type='concat', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
-                        gottselig=True):
+                        gottselig=True, fstats_concat=True):
         """ 
             Starting code for spindle statistics/visualizations 
 
@@ -1365,6 +1366,8 @@ class NREM:
                 whether to calculate means with a time buffer around spindle center
             gottselig: bool (default: False)
                 whether to calculate gottselig normalization on concatenated spectrum
+            fstats_concat: bool (default: True)
+                whether to calculate concatenated spindle frequency statistics
         
             Returns
             -------
@@ -1410,7 +1413,8 @@ class NREM:
         # calculate individual spindle stats
         self.calc_spin_stats_i()
         # calculate frequency stats
-        self.calc_spin_fstats_concat()
+        if fstats_concat:
+            self.calc_spin_fstats_concat()
 
 
 
