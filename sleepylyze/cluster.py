@@ -9,6 +9,48 @@ from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 
 
+def fmt_kmeans(n):
+    """ reformat spidnle data for kmeans clustering 
+    
+        Params
+        ------
+        n: nrem.NREM object
+            post-spindle detections and analysis
+        
+        Returns
+        -------
+        psd_1d: 1-dimensional np.array
+            spindle spectra
+        f_idx: np.array
+            spindle frequency indices
+    """
+    
+    spin_range = n.metadata['spindle_analysis']['spin_range']
+    
+    # specify the data
+    chan_arr_list = []
+    for chan in n.spindle_psd_i.keys():
+        # set channel spindle data
+        spin_psd_chan = n.spindle_psd_i[chan]
+        first_spin_idx = list(spin_psd_chan.keys())[0]
+        spin_idxs = (spin_psd_chan[first_spin_idx].index >= spin_range[0]) & (spin_psd_chan[first_spin_idx].index <= spin_range[1])
+        # this fails if a spindle is longer than zpad_len (bc then not all spindles are the same length)
+        chan_arr = np.array([spin_psd_chan[x][spin_idxs].values for x in spin_psd_chan])
+        chan_arr_list.append(chan_arr)
+
+    # stack all of the channels into a single array
+    psd_arr = np.vstack(chan_arr_list)
+    # get frequency index from first spindle
+    first_chan = list(n.spindle_psd_i.keys())[0]
+    first_spin = list(n.spindle_psd_i[first_chan].keys())[0]
+    first_psd = n.spindle_psd_i[first_chan][first_spin]
+    f_idx = first_psd[(first_psd.index >= spin_range[0]) & (first_psd.index <= spin_range[1])].index
+    
+    # reshape the data to a 1-dimensional array
+    psd_1d = np.reshape(psd_arr, (psd_arr.shape[0], psd_arr.shape[1], 1))
+    
+    return psd_1d, f_idx
+
 
 def calc_kmeans(n, n_clusters, train_split = 30):
     """ calc k-means clustering on spindle spectra
@@ -24,6 +66,7 @@ def calc_kmeans(n, n_clusters, train_split = 30):
             
         Returns
         -------
+        TimeSeriesScalerMeanVariance(): scaler object fit to training data
         km_psd: sklearn.cluster.KMeans model
         psd: dict of results
     """
@@ -74,7 +117,7 @@ def calc_kmeans(n, n_clusters, train_split = 30):
     else:
         ch_score_train, ch_score_test = None, None
     
-    return km_psd, f_idx, {'X_train':X_train_psd, 'y_train_pred':y_train_pred, 'ch_score_train':ch_score_train, 'X_test':X_test_psd, 'y_test_pred':y_test_pred, 'ch_score_test':ch_score_test}
+    return TimeSeriesScalerMeanVariance(), km_psd, f_idx, {'X_train':X_train_psd, 'y_train_pred':y_train_pred, 'ch_score_train':ch_score_train, 'X_test':X_test_psd, 'y_test_pred':y_test_pred, 'ch_score_test':ch_score_test}
 
 
 
