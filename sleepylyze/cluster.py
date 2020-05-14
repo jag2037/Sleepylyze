@@ -71,29 +71,7 @@ def calc_kmeans(n, n_clusters, train_split = 30):
         psd: dict of results
     """
 
-    spin_range = n.metadata['spindle_analysis']['spin_range']
-    
-    # specify the data
-    chan_arr_list = []
-    for chan in n.spindle_psd_i.keys():
-        # set channel spindle data
-        spin_psd_chan = n.spindle_psd_i[chan]
-        first_spin_idx = list(spin_psd_chan.keys())[0]
-        spin_idxs = (spin_psd_chan[first_spin_idx].index >= spin_range[0]) & (spin_psd_chan[first_spin_idx].index <= spin_range[1])
-        # this fails if a spindle is longer than zpad_len (bc then not all spindles are the same length)
-        chan_arr = np.array([spin_psd_chan[x][spin_idxs].values for x in spin_psd_chan])
-        chan_arr_list.append(chan_arr)
-
-    # stack all of the channels into a single array
-    psd_arr = np.vstack(chan_arr_list)
-    # get frequency index from first spindle
-    first_chan = list(n.spindle_psd_i.keys())[0]
-    first_spin = list(n.spindle_psd_i[first_chan].keys())[0]
-    first_psd = n.spindle_psd_i[first_chan][first_spin]
-    f_idx = first_psd[(first_psd.index >= spin_range[0]) & (first_psd.index <= spin_range[1])].index
-    
-    # reshape the data to a 1-dimensional array
-    psd_1d = np.reshape(psd_arr, (psd_arr.shape[0], psd_arr.shape[1], 1))
+    psd_1d, f_idx = fmt_kmeans(n)
     # shuffle the array to prevent grabbing a time-biased set
     np.random.shuffle(psd_1d)
 
@@ -177,7 +155,7 @@ def pick_clusters(n, clusters, train_split, plot_clusts=True, plot_scree=True):
 
     for n_clusters in range(1, clusters):
         # make and fit the model to trianing data
-        km_psd, f_idx, psd = calc_kmeans(n, n_clusters, train_split)
+        scaler, km_psd, f_idx, psd = calc_kmeans(n, n_clusters, train_split)
         
         if plot_clusts:
             # plot the kmeans for each cluster
