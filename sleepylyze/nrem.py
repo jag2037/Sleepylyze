@@ -1209,6 +1209,8 @@ class NREM:
     def calc_spin_stats_i(self):
         """ Calculate statistics for individual spindles """
 
+        print('\nCalculating individual spindle statistics...')
+
         # pull minimum width (in Hz) for a peak to be considered a peak
         pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
         
@@ -1265,6 +1267,7 @@ class NREM:
         # convert row list into dataframe
         stats_i_df = pd.DataFrame(stats_i_rows)
         self.spindle_stats_i = stats_i_df
+        print('Done. Stats stored in obj.spindle_stats_i.')
 
 
     def calc_spin_fstats_concat(self):
@@ -1278,7 +1281,7 @@ class NREM:
 
         """
 
-        print('Calculating spindle frequency-domain statistics...')
+        print('Calculating concatenated frequency-domain statistics...')
         
         spin_range = self.metadata['spindle_analysis']['spin_range']
         # pull minimum width (in Hz) for a peak to be considered a peak
@@ -1333,6 +1336,7 @@ class NREM:
 
         self.psd_concat_norm_peaks = psd_concat_norm_peaks
         self.spindle_fstats_concat = spindle_fstats
+        print('Done. Concat frequency stats stored in obj.spindle_fstats_concat.')
 
 
     def analyze_spindles(self, psd_type='concat', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
