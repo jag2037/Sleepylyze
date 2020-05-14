@@ -747,6 +747,7 @@ class NREM:
                         # record params for removal from self.spindles & self.spindle_events after loop is complete
                         rmv_spins[chan].append(x)
                         # add to rejects psd dicts
+                        spin_perc = 'not_calculated'
                         spindle_psd_rejects[chan][x] = psd
                         spindles_zpad_rejects[chan][x] = data_pad
                         spindle_multitaper_calcs_rejects[chan].loc[x] = [spin_samples, spin_seconds, zpad_samples, zpad_seconds, waveform_res, psd_res, N_taper_len, W_bandwidth, K_tapers, spin_perc]
@@ -1209,6 +1210,8 @@ class NREM:
     def calc_spin_stats_i(self):
         """ Calculate statistics for individual spindles """
 
+        print('\nCalculating individual spindle statistics...')
+
         # pull minimum width (in Hz) for a peak to be considered a peak
         pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
         
@@ -1284,6 +1287,7 @@ class NREM:
         # convert row list into dataframe
         stats_i_df = pd.DataFrame(stats_i_rows)
         self.spindle_stats_i = stats_i_df
+        print('Done. Stats stored in obj.spindle_stats_i.')
 
 
     def calc_spin_fstats_concat(self):
@@ -1297,7 +1301,7 @@ class NREM:
 
         """
 
-        print('Calculating spindle frequency-domain statistics...')
+        print('Calculating concatenated frequency-domain statistics...')
         
         spin_range = self.metadata['spindle_analysis']['spin_range']
         # pull minimum width (in Hz) for a peak to be considered a peak
@@ -1338,11 +1342,15 @@ class NREM:
                 p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
                 peaks = smoothed_spindle_power.iloc[p_idx]
                 # set dominant frequency to major peak
-                dominant_freq = round(peaks.idxmax(), 2)
                 total_peaks = len(peaks)
-                peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
-                # ratio of peak amplitudes as a fraction of the dominant amplitude
-                peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
+                if total_peaks > 0:
+                    dominant_freq = round(peaks.idxmax(), 2)
+                    peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                    # ratio of peak amplitudes as a fraction of the dominant amplitude
+                    peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
+                else:
+                    dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
+
                             
                 # add row to dataframe
                 spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
@@ -1352,10 +1360,11 @@ class NREM:
 
         self.psd_concat_norm_peaks = psd_concat_norm_peaks
         self.spindle_fstats_concat = spindle_fstats
+        print('Done. Concat frequency stats stored in obj.spindle_fstats_concat.')
 
 
     def analyze_spindles(self, psd_type='concat', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
-                        gottselig=True):
+                        gottselig=True, fstats_concat=True):
         """ 
             Starting code for spindle statistics/visualizations 
 
@@ -1376,6 +1385,8 @@ class NREM:
                 whether to calculate means with a time buffer around spindle center
             gottselig: bool (default: False)
                 whether to calculate gottselig normalization on concatenated spectrum
+            fstats_concat: bool (default: True)
+                whether to calculate concatenated spindle frequency statistics
         
             Returns
             -------
@@ -1421,7 +1432,8 @@ class NREM:
         # calculate individual spindle stats
         self.calc_spin_stats_i()
         # calculate frequency stats
-        self.calc_spin_fstats_concat()
+        if fstats_concat:
+            self.calc_spin_fstats_concat()
 
 
 
