@@ -1322,11 +1322,15 @@ class NREM:
                 p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
                 peaks = smoothed_spindle_power.iloc[p_idx]
                 # set dominant frequency to major peak
-                dominant_freq = round(peaks.idxmax(), 2)
                 total_peaks = len(peaks)
-                peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
-                # ratio of peak amplitudes as a fraction of the dominant amplitude
-                peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
+                if total_peaks > 0:
+                    dominant_freq = round(peaks.idxmax(), 2)
+                    peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                    # ratio of peak amplitudes as a fraction of the dominant amplitude
+                    peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
+                else:
+                    dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
+
                             
                 # add row to dataframe
                 spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
