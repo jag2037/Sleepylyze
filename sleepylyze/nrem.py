@@ -1216,14 +1216,33 @@ class NREM:
         stats_i_rows = []
         
         # create column names for dict keys to build rows
-        cols = ['chan', 'spin', 'dur_ms', 'amp_raw_rms', 'amp_spfilt_rms', 
+        cols = ['AP', 'RL', 'chan', 'spin', 'dur_ms', 'amp_raw_rms', 'amp_spfilt_rms', 
             'dominant_freq_Hz', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios', 'total_pwr_ms2']
+
+        # assign anterior-posterior characters
+        a_chars = ['F', 'C']
+        p_chars = ['P', 'O', 'T']
         
         # exclude non-EEG channels
         exclude = ['EKG', 'EOG_L', 'EOG_R']
         # loop through all channels
         for chan in self.spindles.keys():
             if chan not in exclude:
+                
+                # assign AP & RL quadrant
+                if any((c in a_chars) for c in chan):
+                    ap = 'A'
+                elif any((c in p_chars) for c in chan):
+                    ap = 'P'
+                # make right-left dict
+                if chan[-1] == 'z':
+                    rl = 'C'
+                elif int(chan[-1]) % 2 == 0:
+                    rl = 'R'
+                else:
+                    rl = 'L'
+
+                # analyze individual spindles
                 for spin in self.spindles[chan]:
                     # set individual spindle data
                     spindle = self.spindles[chan][spin]
@@ -1256,7 +1275,7 @@ class NREM:
                     # ratio of peak amplitudes as a fraction of the dominant amplitude
                     peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
 
-                    vals = [chan, spin, dur_ms, amp_raw_rms, amp_spfilt_rms, dominant_freq, total_peaks, peak_freqs_hz, peak_ratios, total_pwr]
+                    vals = [ap, rl, chan, spin, dur_ms, amp_raw_rms, amp_spfilt_rms, dominant_freq, total_peaks, peak_freqs_hz, peak_ratios, total_pwr]
                     row = {c:v for c, v in zip(cols, vals)}
 
                     # add row to stats_i list
