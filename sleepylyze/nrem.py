@@ -1223,8 +1223,9 @@ class NREM:
             'dominant_freq_Hz', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios', 'total_pwr_ms2']
 
         # assign anterior-posterior characters
-        a_chars = ['F', 'C']
-        p_chars = ['P', 'O', 'T']
+        a_chars = ['f']
+        p_chars = ['p', 'o', 't']
+        c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
         
         # exclude non-EEG channels
         exclude = ['EKG', 'EOG_L', 'EOG_R']
@@ -1232,12 +1233,14 @@ class NREM:
         for chan in self.spindles.keys():
             if chan not in exclude:
                 
-                # assign AP & RL quadrant
-                if any((c in a_chars) for c in chan):
+                # assign anterior-posterior
+                if chan.casefold() in c_chans:
+                    ap = 'C' 
+                elif any((c.casefold() in a_chars) for c in chan):
                     ap = 'A'
-                elif any((c in p_chars) for c in chan):
+                elif any((c.casefold() in p_chars) for c in chan):
                     ap = 'P'
-                # make right-left dict
+                # assign RL
                 if chan[-1] == 'z':
                     rl = 'C'
                 elif int(chan[-1]) % 2 == 0:
