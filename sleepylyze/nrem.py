@@ -377,11 +377,12 @@ class NREM:
         sduration = [x*self.s_freq for x in duration]
         
         # make boolean mask for spindle presence
-        spin_bool = pd.DataFrame(index = self.data.index)
+        bool_dict = {}
         for chan in self.spindle_events:
             if chan not in ['EOG_L', 'EOG_R', 'EKG']:
                 spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
-                spin_bool[chan] = np.isin(self.data.index.values, spins_flat)
+                bool_dict[chan] = np.isin(self.data.index.values, spins_flat)
+        spin_bool = pd.DataFrame(bool_dict, index = self.data.index.values)
         spin_bool['chans_present'] = spin_bool.sum(axis=1)
         
         # check individual spindles
