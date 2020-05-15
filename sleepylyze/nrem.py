@@ -374,7 +374,7 @@ class NREM:
         """
         
         # convert duration from seconds to samples
-        sduration = [x*self.s_freq for x in duration]
+        #sduration = [x*self.s_freq for x in duration]
         
         # make boolean mask for spindle presence
         spin_bool = pd.DataFrame(index = self.data.index)
@@ -384,25 +384,35 @@ class NREM:
                 spin_bool[chan] = np.isin(self.data.index.values, spins_flat)
         spin_bool['chans_present'] = spin_bool.sum(axis=1)
         
+        spindle_rejects_t = {}
+        true_events = {}
+        spindle_events = self.spindle_events
         # check individual spindles
-        for chan in self.spindle_events:
-            self.spindle_rejects_t[chan] = []
-            for spin in self.spindle_events[chan]:
+        for chan in spindle_events:
+            reject_idxs = []
+            for e, spin in enumerate(spindle_events[chan]):
+                spin_secs = (spin[-1] - spin[0])/np.timedelta64(1, 's')
                 # reject if present over less than min_chans_r channels
                 if not np.any(spin_bool['chans_present'].loc[spin] >= min_chans_r):
-                        self.spindle_rejects_t[chan].append(spin)
-                        self.spindle_events[chan].remove(spin)
+                    reject_idxs.append(e)
                 # Apply duration threshold if not present over more than minimum # of channels
                 elif not np.any(spin_bool['chans_present'].loc[spin] >= min_chans_d):
                     # apply duration thresholding
-                    if not sduration[0] <= len(spin) <= sduration[1]:
-                        self.spindle_rejects_t[chan].append(spin)
-                        self.spindle_events[chan].remove(spin)
+                    if not duration[0] <= spin_secs <= duration[1]:
+                        reject_idxs.append(e)
                 # Apply max duration threshold to all spindles left (regardless of # of chans)
                 else:
-                    if len(spin) > sduration[1]:
-                        self.spindle_rejects_t[chan].append(spin)
-                        self.spindle_events[chan].remove(spin)
+                    if spin_secs > duration[1]:
+                        reject_idxs.append(e)
+            # append spins to rejects
+            spindle_rejects_t[chan] = [spindle_events[chan][idx] for idx in reject_idxs]
+            true_events[chan] = [spin for e, spin in enumerate(spindle_events[chan]) if e not in reject_idxs]
+
+
+        # replace values
+        self.spindle_rejects_t = spindle_rejects_t
+        self.spindle_events = true_events
+
 
     # set multiIndex
     def spMultiIndex(self):
