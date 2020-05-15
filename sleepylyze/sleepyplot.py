@@ -1469,6 +1469,137 @@ def plot_spso(n):
     return fig
 
 
+
+def plot_tstats_topo(n, col):
+    """ Plot topoplots for nrem.spindle_tstats column [col = column name] """
+    
+    # some parameters
+    N = 300             # number of points for interpolation
+    xy_center = [4,4]   # center of the plot
+    radius = 4          # radius
+
+    # set channel locations
+    locs = {'FPz': [4, 8],
+             'Fp1': [3, 8],
+             'FP2': [5, 8],
+             'AF7': [1, 7],
+             'AF8': [7, 7],
+             'F7': [0, 6],
+             'F8': [8, 6],
+             'F3': [2, 6],
+             'F4': [6, 6],
+             'F1': [3, 6],
+             'F2': [5, 6],
+             'Fz': [4, 6],
+             'FC5': [1, 5],
+             'FC6': [7, 5],
+             'FC1': [3, 5],
+             'FC2': [5, 5],
+             'T3': [0, 4],
+             'T4': [8, 4],
+             'C3': [2, 4],
+             'C4': [6, 4],
+             'Cz': [4, 4],
+             'CP5': [1, 3],
+             'CP6': [7, 3],
+             'CP1': [3, 3],
+             'CP2': [5, 3],
+             'CPz': [4, 3],
+             'P3': [2, 2],
+             'P4': [6, 2],
+             'Pz': [4, 2],
+             'T5': [0, 2],
+             'T6': [8, 2],
+             'POz': [4, 1],
+             'PO7': [1, 1],
+             'PO8': [7, 1],
+             'O1': [2, 0],
+             'O2': [6, 0],
+             'Oz': [4, 0]}
+
+    # make figure
+    fig, ax = plt.subplots()
+    fig.subplots_adjust(hspace=0.2, wspace=0.2)
+
+    # set data
+    data = n.spindle_tstats[col]
+
+    z = []
+    x,y = [],[]
+    for chan, loc in locs.items():
+        x.append(loc[0])
+        y.append(loc[1])
+        z.append(data[chan])
+
+
+    xi = np.linspace(-2, 8, N)
+    yi = np.linspace(-2, 8, N)
+    zi = scipy.interpolate.griddata((x, y), z, (xi[None,:], yi[:,None]), method='cubic')
+
+    # set points > radius to not-a-number. They will not be plotted.
+    # the dr/2 makes the edges a bit smoother
+    dr = xi[1] - xi[0]
+    for i in range(N):
+        for j in range(N):
+            r = np.sqrt((xi[i] - xy_center[0])**2 + (yi[j] - xy_center[1])**2)
+            if (r - dr/2) > radius:
+                zi[j,i] = "nan"
+
+    # set aspect = 1 to make it a circle
+    ax.set_aspect(1)
+
+    # use different number of levels for the fill and the lines
+    # vmin and vmax set the color ranges
+#         vmin, vmax = -120, 850
+#         v = np.linspace(vmin, vmax, 60, endpoint=True)
+#         CS = ax.contourf(xi, yi, zi, v, cmap = plt.cm.jet, zorder = 1, vmin=vmin, vmax=vmax)
+    CS = ax.contourf(xi, yi, zi, 60, cmap = plt.cm.jet, zorder = 1)
+    # add contour lines
+    #ax.contour(xi, yi, zi, 15, colors = "grey", zorder = 2)
+
+
+
+    # add the data points
+    ax.scatter(x, y, marker = 'o', c = 'black', s = 15, zorder = 3)
+
+    # draw a circle
+    # change the linewidth to hide the 
+    circle = matplotlib.patches.Circle(xy = xy_center, radius = radius, edgecolor = "k", facecolor = "none")
+    ax.add_patch(circle)
+
+    # make the axis invisible 
+    for loc, spine in ax.spines.items():
+        # use ax.spines.items() in Python 3
+        spine.set_linewidth(0)
+
+    #remove the ticks
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Add some body parts. Hide unwanted parts by setting the zorder low
+    # add two ears
+    circle = matplotlib.patches.Ellipse(xy = [0,radius], width = 0.5, height = 1.0, angle = 0, edgecolor = "k", facecolor = "w", zorder = 0)
+    ax.add_patch(circle)
+    circle = matplotlib.patches.Ellipse(xy = [radius*2, radius], width = 0.5, height = 1.0, angle = 0, edgecolor = "k", facecolor = "w", zorder = 0)
+    ax.add_patch(circle)
+    # add a nose
+    xy = [[3.25,7.7], [4,8.75],[4.75,7.7]]
+    polygon = matplotlib.patches.Polygon(xy = xy, facecolor = "w", edgecolor='black', zorder = 0)
+    ax.add_patch(polygon) 
+
+    # set axes limits
+    ax.set_xlim(-0.5, radius*2+0.5)
+    ax.set_ylim(-0.5, radius*2+1)
+
+
+    # make a color bar
+    cbar = fig.colorbar(CS)
+    # set title
+    fig.suptitle(col)
+
+    return fig
+
+
 def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=True, spins_i=True, spindle_means=True, psd_concat=True):
     """ Produce and export all spindle figures 
     
