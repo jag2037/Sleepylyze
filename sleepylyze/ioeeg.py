@@ -154,6 +154,11 @@ class Dataset:
         self.metadata['start_date'] = (header[15].split()[0]).replace('/', '-')
         self.metadata['start_time'] = header[15].split()[1] # extract start time in hh:mm:ss
         
+        # set metadata if there's an extra 'Stamp' column inserted before the data (exists for some versions of XLTEK)
+        if header[13].split('\t')[3] == 'Stamp':
+        	self.metadata['stamp_col'] = True
+        else:
+        	self.metadata['stamp_col'] = False
 
         # Get starting time in usec for index
         s_freq = self.metadata['s_freq']
@@ -214,13 +219,20 @@ class Dataset:
             
     def load_eeg(self):
         """ Import raw EEG data """
+
+        # set the first column of data to import (depends on presence of 'Stamp' col)
+        if self.metadata['stamp_col']:
+        	start_col = 4
+        else:
+        	start_col = 3
+
         # set the last column of data to import
-        end_col = len(self.metadata['channels']) + 3 # works for MOBEE32, check for other headboxes
+        end_col = start_col + len(self.metadata['channels'])
         
         # read in only the data
         print('Importing EEG data...')
         # setting dtype to float will speed up load, but crashes if there is anything wrong with the record
-        data = pd.read_csv(self.metadata['filepath'], encoding=self.metadata['encoding'], delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
+        data = pd.read_csv(self.metadata['filepath'], encoding=self.metadata['encoding'], delim_whitespace=True, header=None, skiprows=15, usecols=range(start_col,end_col),
                                dtype = float, na_values = ['AMPSAT', 'SHORT'])
         
         # create DateTimeIndex
