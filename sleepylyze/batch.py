@@ -126,7 +126,12 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
 
         print('Saving files...')
         for df, hrs in zip([df_two, df_four, df_six, df_eight], ['0-2hrs', '2-4hrs', '4-6hrs', '6-8hrs']):
-            date = df.index[0].strftime('%Y-%m-%d')
+            try:
+                date = df.index[0].strftime('%Y-%m-%d')
+            # if the df is empty, pass
+            except IndexError:
+                print(f'No stage 2 sleep during {hrs} of sleep.')
+                pass
             savename = in_num + '_' + date + '_s2_' + hrs + '.csv'
             df.to_csv(os.path.join(savedir, savename))
 

@@ -21,6 +21,7 @@ import shapely.geometry as SG
 from matplotlib.widgets import Slider
 from pandas.plotting import register_matplotlib_converters
 from scipy.signal import find_peaks, butter, sosfiltfilt
+from scipy import interpolate
 register_matplotlib_converters()
 
 
@@ -1534,7 +1535,7 @@ def plot_tstats_topo(n, col):
 
     xi = np.linspace(-2, 8, N)
     yi = np.linspace(-2, 8, N)
-    zi = scipy.interpolate.griddata((x, y), z, (xi[None,:], yi[:,None]), method='cubic')
+    zi = interpolate.griddata((x, y), z, (xi[None,:], yi[:,None]), method='cubic')
 
     # set points > radius to not-a-number. They will not be plotted.
     # the dr/2 makes the edges a bit smoother
