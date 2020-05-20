@@ -28,15 +28,17 @@ def fmt_kmeans(n):
     spin_range = n.metadata['spindle_analysis']['spin_range']
     
     # specify the data
+    exclude = ['EOG_L', 'EOG_R', 'EKG']
     chan_arr_list = []
     for chan in n.spindle_psd_i.keys():
-        # set channel spindle data
-        spin_psd_chan = n.spindle_psd_i[chan]
-        first_spin_idx = list(spin_psd_chan.keys())[0]
-        spin_idxs = (spin_psd_chan[first_spin_idx].index >= spin_range[0]) & (spin_psd_chan[first_spin_idx].index <= spin_range[1])
-        # this fails if a spindle is longer than zpad_len (bc then not all spindles are the same length)
-        chan_arr = np.array([spin_psd_chan[x][spin_idxs].values for x in spin_psd_chan])
-        chan_arr_list.append(chan_arr)
+        if chan not in exclude:
+            # set channel spindle data
+            spin_psd_chan = n.spindle_psd_i[chan]
+            first_spin_idx = list(spin_psd_chan.keys())[0]
+            spin_idxs = (spin_psd_chan[first_spin_idx].index >= spin_range[0]) & (spin_psd_chan[first_spin_idx].index <= spin_range[1])
+            # this fails if a spindle is longer than zpad_len (bc then not all spindles are the same length)
+            chan_arr = np.array([spin_psd_chan[x][spin_idxs].values for x in spin_psd_chan])
+            chan_arr_list.append(chan_arr)
 
     # stack all of the channels into a single array
     psd_arr = np.vstack(chan_arr_list)
