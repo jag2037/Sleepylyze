@@ -1482,7 +1482,7 @@ def plot_tstats_topo(n, col):
     # set channel locations
     locs = {'FPz': [4, 8],
              'Fp1': [3, 8],
-             'FP2': [5, 8],
+             'Fp2': [5, 8],
              'AF7': [1, 7],
              'AF8': [7, 7],
              'F7': [0, 6],
@@ -1845,7 +1845,7 @@ def cycles_boxplot(d, yscale='min'):
     
     plt.xlabel('\nSleep Stage')
     plt.ylabel(ylabel)
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    plt.suptitle(d.in_num + ' (' + d.metadata['start_date'] + ')')
     
     return fig
 
@@ -1942,7 +1942,7 @@ def plot_hyp(d):
     
     plt.xlabel('Time')
     plt.ylabel('Sleep Stage')
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    plt.suptitle(d.metadata['in_num'] + ' (' + d.metadata['start_date'] + ')')
     
     return fig
 
