@@ -1095,7 +1095,7 @@ def plot_spindlepower_headplot(n, dB=True):
     # set channel locations
     locs = {'FPz': [4, 0],
              'Fp1': [3, 0],
-             'FP2': [5, 0],
+             'Fp2': [5, 0],
              'AF7': [1, 1],
              'AF8': [7, 1],
              'F7': [0, 2],
