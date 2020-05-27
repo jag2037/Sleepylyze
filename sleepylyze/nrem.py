@@ -354,10 +354,11 @@ class NREM:
     def reject_spins_t(self, min_chans_r, min_chans_d, duration):
         """ Reject spindles using time domain criteria:
                 1. reject spindles that occur over fewer than 3 channels. 
-                2. Apply duration thresholding to spindles that occur over fewer than X channels. 
-                [chans < min_chans_r = reject; min_chans_r < chans < min_chans_d = apply max/min duration threshold; X < chans = apply max duration threshold]
-        
+                2. Apply min duration thresholding to spindles that occur over fewer than X channels. 
+                3. Apply max duration thresholding to all remaining spindles
+                [chans < min_chans_r = reject; min_chans_r < chans < min_chans_d = apply min duration threshold; x > max_dur = reject] 
             Parameters
+
             ----------
             min_chans_r: int
                 minimum number of channels for spindles to occur accross concurrently to bypass
@@ -396,7 +397,7 @@ class NREM:
                 # reject if present over less than min_chans_r channels
                 if not np.any(spin_bool['chans_present'].loc[spin] >= min_chans_r):
                     reject_idxs.append(e)
-                # Apply duration threshold if not present over more than minimum # of channels
+                # Apply min duration threshold if not present over more than minimum # of channels
                 elif not np.any(spin_bool['chans_present'].loc[spin] >= min_chans_d):
                     # apply duration thresholding
                     if not duration[0] <= spin_secs <= duration[1]:
@@ -1066,7 +1067,11 @@ class NREM:
                     amp_sd_spfilt = amplitudes_spfilt.std()
 
                     # calculate density
-                    density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
+                    #density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
+                    data_notnan = self.data[chan][self.data[chan]['Raw'].isna() == False]
+                    minutes = (len(data_notnan)/self.s_freq)/60
+                    density = count/(minutes)
+
 
                     # calculate inter-spindle-interval (ISI)
                     if len(self.spindles[chan]) > 1:
