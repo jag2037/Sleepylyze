@@ -154,14 +154,13 @@ def pick_clusters(n, clusters, train_split, plot_clusts=True, plot_scree=True):
             whether to plot scree plot
     """
     distortions = []
-
+    clust_figs = []
     for n_clusters in range(1, clusters):
         # make and fit the model to trianing data
         scaler, km_psd, f_idx, psd = calc_kmeans(n, n_clusters, train_split)
         
         if plot_clusts:
             # plot the kmeans for each cluster
-            clust_figs = []
             fig = plot_kmeans(n, km_psd, f_idx, X=psd['X_train'], y_pred=psd['y_train_pred'])
             clust_figs.append(fig)
 
@@ -176,7 +175,7 @@ def pick_clusters(n, clusters, train_split, plot_clusts=True, plot_scree=True):
         scree_fig, ax = plt.subplots()
         dists = pd.Series(distortions, index=range(1, clusters))
         ax.plot(dists, marker='o')
-        ax.set_title('KMeans Scree Plot')
+        ax.set_title('KMeans Cluster Dispersion')
         ax.set_xlabel('# Clusters')
         ax.set_ylabel('Distortion (SSE)')
 
