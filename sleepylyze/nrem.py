@@ -31,7 +31,8 @@ from scipy.optimize import OptimizeWarning, curve_fit
 
 class NREM:
     """ General class for nonREM EEG segments """
-    def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False, lowpass_freq=25, lowpass_order=4):
+    def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False, lowpass_freq=25, lowpass_order=4,
+    			laplacian_chans=['F3', 'F4', 'P3', 'P4'], replace_data=False):
         """ Initialize NREM object
             
             Parameters
@@ -52,7 +53,12 @@ class NREM:
                 lowpass filter frequency *Used in visualizations ONLY*. must be < nyquist
             lowpass_order: int (default: 4)
                 Butterworth lowpass filter order (doubles for filtfilt)
+            laplacian_chans: str, list, or None (default: ['F3', 'F4', 'P3', 'P4'])
+            	channels to apply laplacian filter to [Options: 'all', list of channel names, None]
+            replace_data: bool (default: False)
+            	whether to replace primary data with laplcian filtered data
         """
+        
         if batch:
             self.load_batch(fpath, match, in_num)
         else:
@@ -64,9 +70,29 @@ class NREM:
             if epoched is True:
                 self.metadata['file_info']['epoch'] = fname.split('_')[4]
 
+            # load the data
             self.load_segment()
+
+            # apply laplacian
+            if laplacian_chans is not None:
+            	self.metadata['analysis_info']['spatial_filter'] = 'laplacian'
+            	data_lap = self.make_laplacian(laplacian_chans)
+            	# replace data
+            	if replace_data:
+            		self.metadata['analysis_info']['RawData_replaced_wLaplacian'] = 'True'
+            		self.data = data_lap
+            	else:
+            		self.metadata['analysis_info']['RawData_replaced_wLaplacian'] = 'False'
+            		self.data_lap = data_lap
+            else:
+            	self.metadata['analysis_info']['spatial_filter'] = 'None'
+
+            
+            # apply lowpass filter
             if lowpass_freq:
                 self.lowpass_raw(lowpass_freq, lowpass_order)
+
+
 
     def load_segment(self):
         """ Load eeg segment and extract sampling frequency. """
@@ -183,7 +209,7 @@ class NREM:
         self.s_freq = s_freq
 
 
-    def make_laplacian(self, chans = ['F3', 'F4', 'P3', 'P4']):
+    def make_laplacian(self, chans):
 	    """ Make laplacian spatial filter 
 	    
 	        Weights are determined by cartesian coordinate distance
@@ -199,17 +225,17 @@ class NREM:
 	            
 	        Returns
 	        -------
-	        self.data_lap: pd.DataFrame
-	            laplacian filtered data for specified channels
 	        self.metadata.lapalcian_weights: dict
-	            dict of channels by 4 nearest neighbors and weights {chan: pd.Series(weight, index=neighbor_chan)}     
+	            dict of channels by 4 nearest neighbors and weights {chan: pd.Series(weight, index=neighbor_chan)}
+	       	data_lap: pd.DataFrame
+	            laplacian filtered data for specified channels     
 	    """
 	    
 	    self.metadata['laplacian_weights'] = {}
 	        
 	    # set channel names if filtering all
 	    exclude = ['EOG_L','EOG_R', 'EKG']
-	    channels = [x for x in self.channels if x not in exclude]
+	    channels = [x[0] for x in self.data.columns if x[0] not in exclude]
 	    if chans == 'all':
 	        chans = channels
 	    # set a dict to move between casefold and raw data cols
@@ -285,8 +311,8 @@ class NREM:
 	        
 	    # set columns to match non-montaged data
 	    data_lap.columns = pd.MultiIndex.from_arrays([chans, np.repeat(('Raw'), len(chans))],names=['Channel','datatype'])
-	    # save as attribute
-	    self.data_lap = data_lap
+	    
+	    return data_lap
 
 
     ## Spindle Detection Methods ##
