@@ -183,6 +183,112 @@ class NREM:
         self.s_freq = s_freq
 
 
+    def make_laplacian(self, chans = ['F3', 'F4', 'P3', 'P4']):
+	    """ Make laplacian spatial filter 
+	    
+	        Weights are determined by cartesian coordinate distance
+	        ref1: https://hal.inria.fr/hal-01055103/document
+	        ref2: https://arxiv.org/pdf/1406.0458.pdf
+	        
+	        NOTE: Weights are solely determined by vector distance, NOT geometric arrangement
+	    
+	        Parameters
+	        ----------
+	        chans: str or list
+	            channels to calculate laplacian for ('all' or list of channel names)
+	            
+	        Returns
+	        -------
+	        self.data_lap: pd.DataFrame
+	            laplacian filtered data for specified channels
+	        self.metadata.lapalcian_weights: dict
+	            dict of channels by 4 nearest neighbors and weights {chan: pd.Series(weight, index=neighbor_chan)}     
+	    """
+	    
+	    self.metadata['laplacian_weights'] = {}
+	        
+	    # set channel names if filtering all
+	    exclude = ['EOG_L','EOG_R', 'EKG']
+	    channels = [x for x in self.channels if x not in exclude]
+	    if chans == 'all':
+	        chans = channels
+	    # set a dict to move between casefold and raw data cols
+	    cdict = {chan.casefold():chan for chan in channels}
+	    
+	    def dist(ref):
+	        """ calculate distance from reference channel """
+	        ref_coords = coords.loc[ref]
+	        rx = ref_coords['X']
+	        ry = ref_coords['Y']
+	        rz = ref_coords['Z']
+
+	        dist_dict = {}
+	        for chan in coords.index:
+	            # calculate distance
+	            cx, cy, cz = coords.loc[chan]['X'], coords.loc[chan]['Y'], coords.loc[chan]['Z']
+	            d = np.sqrt((cx-rx)**2 + (cy-ry)**2 + (cz-rz)**2)
+	            dist_dict[chan] = d
+
+	        # convert to series then sort
+	        dist_ser = pd.Series(dist_dict).sort_values()
+
+	        return dist_ser
+
+	    # load cartesian coords for all possible chans (10-5 montage)
+	    all_coords = pd.read_csv('cartesian_coords.txt')    
+	    # set all chans as lowercase & make index
+	    all_coords['Channel'] = [x.casefold() for x in all_coords.Channel]
+	    all_coords.set_index('Channel', inplace=True)
+
+	    # rename T3, T4, T5, T6 to T7, T8, P7, P8, to match change in 10-5 channel labels
+	    # ref: http://www.jichi.ac.jp/brainlab/download/TenFive.pdf
+	    rename = {'T3':'t7', 'T4':'t8', 'T5':'p7', 'T6':'p8'}
+	    channels_cf = [x.casefold() if x not in rename.keys() else rename[x] for x in channels]
+	    # grab cartesian coordinates
+	    coords = all_coords.loc[channels_cf]
+
+	    # undo renaming to revert to 10-20 conventions
+	    undo_rename = {val:key.casefold() for key, val in rename.items()}
+	    coords.rename(undo_rename, inplace=True)
+
+	    data_lap = pd.DataFrame(index=self.data.index)
+	    # calc nearest neighbors
+	    for chan in chans:
+	        c = chan.casefold()
+	        # get neighbor distance & set weights for 4 closest neighbors
+	        neighbors = dist(c)
+	        n_weights = 1 - neighbors[1:5]
+	        
+	        # calculate weighted neighbor data
+	        weighted_neighbors = pd.DataFrame(index=self.data.index)
+	        for neighbor, weight in n_weights.items():
+	            # calculated weighted values
+	            n_dat = self.data[cdict[neighbor]]*weight
+	            # add to weighted data dict
+	            weighted_neighbors[neighbor] = n_dat.values
+	        
+	        # get sum of weighted data
+	        weighted_sum = weighted_neighbors.sum(axis=1)
+	        weighted_sum.name='weighted_sum'
+
+	        # multiply ref chan by total weights
+	        c_dat = cdict[c] # match capitalization to column names
+	        c_weighted = self.data[c_dat]*n_weights.values.sum()
+
+	        # subtract weighted channel data from weighted neighbors
+	        lap = c_weighted.join(weighted_sum).diff(axis=1).weighted_sum
+	        lap.name = c
+	        data_lap[chan] = lap
+	        
+	        # set metadata
+	        self.metadata['laplacian_weights'][c] = n_weights
+	        
+	    # set columns to match non-montaged data
+	    data_lap.columns = pd.MultiIndex.from_arrays([chans, np.repeat(('Raw'), len(chans))],names=['Channel','datatype'])
+	    # save as attribute
+	    self.data_lap = data_lap
+
+
     ## Spindle Detection Methods ##
 
     # make attributes
