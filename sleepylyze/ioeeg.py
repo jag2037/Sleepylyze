@@ -154,6 +154,11 @@ class Dataset:
         self.metadata['start_date'] = (header[15].split()[0]).replace('/', '-')
         self.metadata['start_time'] = header[15].split()[1] # extract start time in hh:mm:ss
         
+        # set metadata if there's an extra 'Stamp' column inserted before the data (exists for some versions of XLTEK)
+        if header[13].split('\t')[3] == 'Stamp':
+        	self.metadata['stamp_col'] = True
+        else:
+        	self.metadata['stamp_col'] = False
 
         # Get starting time in usec for index
         s_freq = self.metadata['s_freq']
@@ -214,13 +219,20 @@ class Dataset:
             
     def load_eeg(self):
         """ Import raw EEG data """
+
+        # set the first column of data to import (depends on presence of 'Stamp' col)
+        if self.metadata['stamp_col']:
+        	start_col = 4
+        else:
+        	start_col = 3
+
         # set the last column of data to import
-        end_col = len(self.metadata['channels']) + 3 # works for MOBEE32, check for other headboxes
+        end_col = start_col + len(self.metadata['channels'])
         
         # read in only the data
         print('Importing EEG data...')
         # setting dtype to float will speed up load, but crashes if there is anything wrong with the record
-        data = pd.read_csv(self.metadata['filepath'], encoding=self.metadata['encoding'], delim_whitespace=True, header=None, skiprows=15, usecols=range(3,end_col),
+        data = pd.read_csv(self.metadata['filepath'], encoding=self.metadata['encoding'], delim_whitespace=True, header=None, skiprows=15, usecols=range(start_col,end_col),
                                dtype = float, na_values = ['AMPSAT', 'SHORT'])
         
         # create DateTimeIndex
@@ -578,9 +590,9 @@ class Dataset:
         hyp_stats['sleep_efficiency'] = (len(hyp) - len(hyp[hyp.values == 0.0]) - len(hyp[hyp.values == 6.0]))/(len(hyp) - len(hyp[hyp.values == 6.0])) * 100
         # sleep stage % (removing record breaks)
         for stage, code in stages.items():
-            if stage is not 'rbrk':
+            if stage != 'rbrk':
                 percent = len(hyp[hyp.values == code])/(len(hyp)-len(hyp[hyp.values == 6.0])) * 100
-            elif stage is 'rbrk':
+            elif stage == 'rbrk':
                 percent = len(hyp[hyp.values == code])/len(hyp)
             hyp_stats[stage]= {'%night': percent}
         # cycle stats for each sleep stage
@@ -655,6 +667,9 @@ class Dataset:
 
     def cut_EEG(self, sleepstage='all', epoch_len=None):
         """ cut dataset based on loaded hypnogram 
+
+        	*NOTE: non-epoched data updated for Pandas KeyError future warning. Epoched data to be updated.
+
         Parameters
         ----------
         stage: str or list of str
@@ -663,6 +678,10 @@ class Dataset:
             length (in seconds) to epoch the data by 
         """
 
+        # set data start and end idxs (for determining valid cut indices)
+        data_start, data_end = np.sort(self.data.index)[0], np.sort(self.data.index)[-1]
+
+        # set sleep stages to cut
         if sleepstage == 'all':
             stages = self.stage_cuts.keys()
         else:
@@ -711,7 +730,11 @@ class Dataset:
                     data = {}
                     cycs = len(self.stage_cuts[stage])
                     for c in range(1, cycs+1):
-                        data[c] = self.data.loc[(self.stage_cuts[stage][c])]
+                        # set the indices loaded from the noise log
+                        idxs = self.stage_cuts[stage][c]
+                        # exclude any indices that are outside of the loaded data
+                        valid_idxs = idxs[(idxs >= data_start) & (idxs <= data_end)]
+                        data[c] = self.data.loc[valid_idxs]
                     cut_data[stage] = data
 
             self.cut_data = cut_data

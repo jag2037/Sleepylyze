@@ -21,6 +21,7 @@ import shapely.geometry as SG
 from matplotlib.widgets import Slider
 from pandas.plotting import register_matplotlib_converters
 from scipy.signal import find_peaks, butter, sosfiltfilt
+from scipy import interpolate
 register_matplotlib_converters()
 
 
@@ -603,6 +604,9 @@ def plotLFP(d, raw=True, filtered=True, thresholds=True, spindles=True, spindle_
     return fig
 
 
+
+### Spindle Methods ###
+
 def plot_spindlepower_chan_i(n, chan, show_peaks='spins', dB=False, spin_type='true_spins'):
     """ Plot individual spindle spectra for a given channel 
 
@@ -873,260 +877,7 @@ def spec_peaks_SD(n, chan, x, labels=True):
 
     return fig
 
-### Macroarchitecture methods ###
 
-def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
-    """ 
-        Plot cycle length for each sleep stage vs cycle # 
-        -> This should show if there are trends in cycle length
-        based on number of times that stage has been cycled through
-        
-        Params
-        ------
-        d: transitions.HypStats or ioeeg.Dataset object
-        plt_stages: str or list of string (default: 'all')
-            stages to plot
-        logscale: bool (default:True)
-            plot the y-axis on a log scale
-        normx: bool (default: True)
-            normalize x-axis according to total number of cycles for that stage
-    """
-
-    if plt_stages == 'all':
-        stages = ['awake', 'rem', 's1', 's2', 'ads', 'sws']
-    elif type(plt_stages) == str:
-        stages = [plt_stages]
-    elif type(plt_stages) == list:
-        stages = plt_stages
-
-    fig, ax = plt.subplots()
-
-    for key in d.hyp_stats.keys():
-        if key in stages:
-            if d.hyp_stats[key]['n_cycles'] > 0:
-                if normx == True:
-                    x = [int(x)/d.hyp_stats[key]['n_cycles'] for x in d.hyp_stats[key]['cycle_lengths'].keys()]
-                    xlabel = 'Normalized Cycle'
-                else:
-                    x = d.hyp_stats[key]['cycle_lengths'].keys()
-                    xlabel = 'Cycle'
-                if logscale == True:
-                    y = [math.log10(y) for y in d.hyp_stats[key]['cycle_lengths'].values()]
-                    ylabel = 'Cycle length [log(seconds)]'
-                else:
-                    y = d.hyp_stats[key]['cycle_lengths'].values()
-                    ylabel = 'Cycle length (seconds)'
-                ax.plot(x, y, label = key)
-    ax.legend()
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-
-    return fig
-
-def cycles_boxplot(d, yscale='min'):
-    """ boxplot of cycle lengths 
-    
-        Params
-        ------
-        yscale: str (default: 'min')
-            y scaling (options: 'min', 'sec')
-        
-        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
-    """
-    ylist = []
-    xticklabels = []
-    for key in d.hyp_stats.keys():
-        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
-            if d.hyp_stats[key]['n_cycles'] > 0:
-                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
-                if yscale == 'sec':
-                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
-                    ylabel = 'Cycle Length (sec)'
-                elif yscale == 'min':
-                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
-                    ylabel = 'Cycle Length (min)'
-                
-    fig, ax = plt.subplots()
-    
-    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
-    
-    # change box outline & fill
-    for box in bp['boxes']:
-        box.set(color='lightgray')
-        box.set(facecolor='lightgray')
-    # change median color
-    for median in bp['medians']:
-        median.set(color='grey', lw=2)
-    # change whisker color
-    for whisker in bp['whiskers']:
-        whisker.set(color='grey', lw=2)
-    # change cap color
-    for cap in bp['caps']:
-        cap.set(color='grey', lw = 2)
-    # change the style of fliers and their fill
-    for flier in bp['fliers']:
-        flier.set(markerfacecolor='grey', marker='o', markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
-    
-    ax.set_xticklabels(xticklabels)
-    #ax.spines['top'].set_visible(False)
-    #ax.spines['right'].set_visible(False)
-    
-    plt.xlabel('\nSleep Stage')
-    plt.ylabel(ylabel)
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
-    
-    return fig
-
-def cycles_scatterbox(d, yscale='min'):
-    """ boxplot of cycle lengths w/ colored scatterplot of datapoints
-    
-        Params
-        ------
-        yscale: str (default: 'min')
-            y scaling (options: 'min', 'sec')
-        
-        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
-    """
-
-    ylist = []
-    xticklabels = []
-    colors = []
-    for key in d.hyp_stats.keys():
-        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
-            if d.hyp_stats[key]['n_cycles'] > 0:
-                # set xtick labels
-                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
-                # set y values
-                if yscale == 'sec':
-                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
-                    ylabel = 'Cycle Length (sec)'
-                elif yscale == 'min':
-                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
-                    ylabel = 'Cycle Length (min)'
-                # set colors
-                if key == 'awake':
-                    colors.append('darkgrey')
-                elif key == 's1':
-                    colors.append('orange')
-                elif key == 's2':
-                    colors.append('lime')
-                elif key == 'ads':
-                    colors.append('blue')
-                elif key == 'sws':
-                    colors.append('purple')
-
-    fig, ax = plt.subplots()
-    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
-    
-    # change box outline & fill
-    for box in bp['boxes']:
-        box.set(color='lightgray', alpha=1)
-    # change median color
-    for median in bp['medians']:
-        median.set(color='grey', lw=2)
-    # change whisker color
-    for whisker in bp['whiskers']:
-        whisker.set(color='grey', lw=2)
-    # change cap color
-    for cap in bp['caps']:
-        cap.set(color='grey', lw = 2)
-    # change the style of fliers and their fill
-    for flier in bp['fliers']:
-        flier.set(markerfacecolor='grey', marker=None, markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
-        
-    # add scatterplot for datapoints
-    for i in range(len(ylist)):
-        y = ylist[i]
-        # create jitter by randomly distributing x vals
-        x = np.random.normal(1+i, 0.1, size=len(y))
-        ax.plot(x, y, 'r.', markerfacecolor=colors[i], markeredgecolor=colors[i], markersize=12, 
-                markeredgewidth=0.8, alpha=0.5, zorder=3) #zorder sets scatter on top
-
-    ax.set_xticklabels(xticklabels)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    
-    plt.grid(axis='both', linestyle=':', linewidth=1)
-    plt.xlabel('\nSleep Stage')
-    plt.ylabel(ylabel)
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
-    
-    return fig
-    
-
-def plot_hyp(d):
-    """ plot hypnogram for ioeeg.Dataset instance """
-    fig, ax = plt.subplots(figsize = (30,5))
-    
-    ax.plot(d.hyp, color='lightseagreen', lw=2)
-    ax = plt.gca()
-    ax.set_ylim(ax.get_ylim()[::-1])
-    ax.set_yticks([0, 1, 2, 3, 4, 5])
-    ax.set_yticklabels(['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta\nSleep     ', 'SWS'])
-
-    fmt = mdates.DateFormatter('%I:%M%p')
-    ax.xaxis.set_major_formatter(fmt)
-    ax.margins(x=.01)
-    
-    plt.xlabel('Time')
-    plt.ylabel('Sleep Stage')
-    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
-    
-    return fig
-
-
-def plot_transitions(h, savefig=False, savedir=None):
-    """ plot sleep stage transition diagram. 
-        
-        NOTE: This is for preliminary visualization. For high quality
-        figures use plot_transitions.R
-            *for 3d plots use R code, or see https://stackoverflow.com/questions/16907564/how-can-i-plot-a-3d-graph-in-python-with-igraph
-            or this http://bommaritollc.com/2011/02/21/plotting-3d-graphs-with-python-igraph-and-cairo-cn220-example/
-    """
-
-    # set data
-    m = np.matrix(h.transition_perc)/2
-    net=ig.Graph.Weighted_Adjacency(m.tolist(), attr='width', loops=False)
-
-    # set node params [see https://www.cs.rhul.ac.uk/home/tamas/development/igraph/tutorial/tutorial.html]
-    node_size = np.array((h.epoch_counts['Awake'], h.epoch_counts['REM'], h.epoch_counts['Stage 1'], h.epoch_counts['Stage 2'], h.epoch_counts['Alpha-Delta'], h.epoch_counts['SWS']))
-    net.vs['size'] = node_size/4
-    net.vs['shape'] = 'circle'
-    net.vs['color'] = ['lightgrey', 'red', 'orange', 'lime', 'blue', 'purple']
-
-    label_dist = [0 if x>200 else 1.3 for x in node_size]
-    net.vs['label_dist'] = label_dist
-    net.vs['label_angle'] = [np.pi/2, np.pi, np.pi, 0, np.pi*3/2, 0]
-    net.vs['label_size'] = 12
-    net.vs['label'] = ['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta', 'SWS']
-
-    # set edge params
-    net.es['curved'] = True # this can be set to a float also (ex. 0.3)
-    net.es['arrow_size'] = 0.8
-    net.es['arrow_width'] = 1.5
-    net.es['color'] = 'darkgrey'
-
-    # set layout
-    l = [(0, 0), (-2, 2), (-1, 1), (1, 1), (0, 2), (2, 2)]
-    layout = ig.Layout(l)
-
-    # set visual style
-    visual_style = {}
-    visual_style['bbox'] = (500, 500)
-    visual_style['margin'] = 110
-
-    fig = ig.plot(net, layout=layout, **visual_style)
-
-    if savefig == True:
-        savename = h.in_num + '_TransitionPlot_' + h.start_date + '.png'
-        if savedir is None:
-            savedir = os.getcwd()
-        save = os.path.join(savedir, savename)
-        fig.save(save)
-
-    return fig
-
-### Spindle Methods ###
 
 def plot_spins(n, datatype='Raw'):
     """ plot all spindle detections by channel 
@@ -1249,16 +1000,16 @@ def plot_spindlepower_chan(n, chan, dB=True):
 
     # transform units
     if dB == True:
-        pwr = 10 * np.log10(n.spindle_psd[chan].values)
+        pwr = 10 * np.log10(n.spindle_psd_concat[chan].values)
         ylabel = 'Power (dB)'
     else:
-        pwr = n.spindle_psd[chan].values
+        pwr = n.spindle_psd_concat[chan].values
         ylabel = 'Power (mV^2/Hz)'
     
     fig, ax = plt.subplots()
     
     # plot just spectrum
-    ax.plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+    ax.plot(n.spindle_psd_concat[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
     ax.axvspan(9, 16, color='lavender', alpha=0.8)
         
     ax.set_xlim(0, 25)
@@ -1268,7 +1019,7 @@ def plot_spindlepower_chan(n, chan, dB=True):
     
     plt.xlabel('Frequency (Hz)')
     plt.ylabel(ylabel)
-    plt.title((n.metadata['file_info']['fname'].split('.')[0] + '\n\n' + chan + ' Spindle Power'), size='medium', weight='semibold')
+    plt.title((n.metadata['file_info']['fname'].split('.')[0] + '\n\n' + chan + ' Concatenated Spindle Power'), size='medium', weight='semibold')
 
     return fig
 
@@ -1312,7 +1063,7 @@ def plot_spindlepower(n, dB=True):
         ax.plot(n.spindle_psd_concat[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
         # highlight spindle range. aquamarine or lavender works here too
         spin_range = n.metadata['spindle_analysis']['spin_range']
-        ax.axvspan(spin_range[0], spin_range[1], color='lavender', alpha=0.8)
+        ax.axvspan(spin_range[0], spin_range[1], color='grey', alpha=0.2)
 
         # set subplot params
         ax.set_xlim(0, 25)
@@ -1344,7 +1095,7 @@ def plot_spindlepower_headplot(n, dB=True):
     # set channel locations
     locs = {'FPz': [4, 0],
              'Fp1': [3, 0],
-             'FP2': [5, 0],
+             'Fp2': [5, 0],
              'AF7': [1, 1],
              'AF8': [7, 1],
              'F7': [0, 2],
@@ -1386,17 +1137,17 @@ def plot_spindlepower_headplot(n, dB=True):
     for chan in locs.keys():    
         # transform units
         if dB == True:
-            pwr = 10 * np.log10(n.spindle_psd[chan].values)
+            pwr = 10 * np.log10(n.spindle_psd_concat[chan].values)
             ylabel = 'Power (dB)'
         else:
-            pwr = n.spindle_psd[chan].values
+            pwr = n.spindle_psd_concat[chan].values
             ylabel = 'Power (mV^2/Hz)'
 
         # plot spectrum
         #ax = plt.subplot()
-        ax[locs[chan][1], locs[chan][0]].plot(n.spindle_psd[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
+        ax[locs[chan][1], locs[chan][0]].plot(n.spindle_psd_concat[chan].index, pwr, color='black', alpha=0.9, linewidth=0.8)
         # highlight spindle range. aquamarine or lavender works here too
-        ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='lavender', alpha=0.8)
+        ax[locs[chan][1], locs[chan][0]].axvspan(9, 16, color='grey', alpha=0.2)
 
         # set subplot params
         ax[locs[chan][1], locs[chan][0]].set_xlim(0, 25)
@@ -1489,6 +1240,7 @@ def plot_gottselig(n, datatype='calcs', plot_peaks=True, smoothed=True):
     fig.text(0.5, 0, 'Frequency (Hz)', ha='center', size='large')
     fig.text(0, 0.5, 'Power (dB)', va='center', rotation='vertical', size='large')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + '\n\nGottselig Normalization', size='large')
+
 
     return fig
 
@@ -1718,6 +1470,535 @@ def plot_spso(n):
     return fig
 
 
+
+def plot_tstats_topo(n, col):
+    """ Plot topoplots for nrem.spindle_tstats column [col = column name] """
+    
+    # some parameters
+    N = 300             # number of points for interpolation
+    xy_center = [4,4]   # center of the plot
+    radius = 4          # radius
+
+    # set channel locations
+    locs = {'FPz': [4, 8],
+             'Fp1': [3, 8],
+             'Fp2': [5, 8],
+             'AF7': [1, 7],
+             'AF8': [7, 7],
+             'F7': [0, 6],
+             'F8': [8, 6],
+             'F3': [2, 6],
+             'F4': [6, 6],
+             'F1': [3, 6],
+             'F2': [5, 6],
+             'Fz': [4, 6],
+             'FC5': [1, 5],
+             'FC6': [7, 5],
+             'FC1': [3, 5],
+             'FC2': [5, 5],
+             'T3': [0, 4],
+             'T4': [8, 4],
+             'C3': [2, 4],
+             'C4': [6, 4],
+             'Cz': [4, 4],
+             'CP5': [1, 3],
+             'CP6': [7, 3],
+             'CP1': [3, 3],
+             'CP2': [5, 3],
+             'CPz': [4, 3],
+             'P3': [2, 2],
+             'P4': [6, 2],
+             'Pz': [4, 2],
+             'T5': [0, 2],
+             'T6': [8, 2],
+             'POz': [4, 1],
+             'PO7': [1, 1],
+             'PO8': [7, 1],
+             'O1': [2, 0],
+             'O2': [6, 0],
+             'Oz': [4, 0]}
+
+    # make figure
+    fig, ax = plt.subplots()
+    fig.subplots_adjust(hspace=0.2, wspace=0.2)
+
+    # set data
+    data = n.spindle_tstats[col]
+
+    z = []
+    x,y = [],[]
+    for chan, loc in locs.items():
+        x.append(loc[0])
+        y.append(loc[1])
+        z.append(data[chan])
+
+
+    xi = np.linspace(-2, 8, N)
+    yi = np.linspace(-2, 8, N)
+    zi = interpolate.griddata((x, y), z, (xi[None,:], yi[:,None]), method='cubic')
+
+    # set points > radius to not-a-number. They will not be plotted.
+    # the dr/2 makes the edges a bit smoother
+    dr = xi[1] - xi[0]
+    for i in range(N):
+        for j in range(N):
+            r = np.sqrt((xi[i] - xy_center[0])**2 + (yi[j] - xy_center[1])**2)
+            if (r - dr/2) > radius:
+                zi[j,i] = "nan"
+
+    # set aspect = 1 to make it a circle
+    ax.set_aspect(1)
+
+    # use different number of levels for the fill and the lines
+    # vmin and vmax set the color ranges
+#         vmin, vmax = -120, 850
+#         v = np.linspace(vmin, vmax, 60, endpoint=True)
+#         CS = ax.contourf(xi, yi, zi, v, cmap = plt.cm.jet, zorder = 1, vmin=vmin, vmax=vmax)
+    CS = ax.contourf(xi, yi, zi, 60, cmap = plt.cm.jet, zorder = 1)
+    # add contour lines
+    #ax.contour(xi, yi, zi, 15, colors = "grey", zorder = 2)
+
+
+
+    # add the data points
+    ax.scatter(x, y, marker = 'o', c = 'black', s = 15, zorder = 3)
+
+    # draw a circle
+    # change the linewidth to hide the 
+    circle = matplotlib.patches.Circle(xy = xy_center, radius = radius, edgecolor = "k", facecolor = "none")
+    ax.add_patch(circle)
+
+    # make the axis invisible 
+    for loc, spine in ax.spines.items():
+        # use ax.spines.items() in Python 3
+        spine.set_linewidth(0)
+
+    #remove the ticks
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Add some body parts. Hide unwanted parts by setting the zorder low
+    # add two ears
+    circle = matplotlib.patches.Ellipse(xy = [0,radius], width = 0.5, height = 1.0, angle = 0, edgecolor = "k", facecolor = "w", zorder = 0)
+    ax.add_patch(circle)
+    circle = matplotlib.patches.Ellipse(xy = [radius*2, radius], width = 0.5, height = 1.0, angle = 0, edgecolor = "k", facecolor = "w", zorder = 0)
+    ax.add_patch(circle)
+    # add a nose
+    xy = [[3.25,7.7], [4,8.75],[4.75,7.7]]
+    polygon = matplotlib.patches.Polygon(xy = xy, facecolor = "w", edgecolor='black', zorder = 0)
+    ax.add_patch(polygon) 
+
+    # set axes limits
+    ax.set_xlim(-0.5, radius*2+0.5)
+    ax.set_ylim(-0.5, radius*2+1)
+
+
+    # make a color bar
+    cbar = fig.colorbar(CS)
+    # set title
+    fig.suptitle(col)
+
+    return fig
+
+
+def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=True, spins_i=True, spindle_means=True, psd_concat=True):
+    """ Produce and export all spindle figures 
+    
+        Parameters
+        ----------
+        export_dir: str
+            directory to export figures
+        ext: str (default: 'png')
+            figure ext (e.g. png, eps, jpg)
+        dpi: int (default: 300)
+            dots per inch
+        transparent: bool (default: False)
+            render background as transparent
+        spindle_spectra: bool (default: True)
+            whether to plot spindle spectra subplot figure for each channel
+        spins_i: bool (default: True)
+            whether to plot indvidiual spindle spectra (spec_spins) figures for each channel
+        spindle_means: bool (default: True)
+            whether to plot spindle means and tracing overlays
+        psd_concat: bool (default: True)
+            whether to plot concated spindle spectra headplots and gottselig plots
+
+        
+        Returns
+        -------
+        *To be completed
+    
+    """
+    
+    print(f'Spindle figure export directory: {export_dir}\n')  
+    
+    # make export directory if doesn't exit
+    if not os.path.exists(export_dir):
+        os.makedirs(export_dir)
+    # set base for savename
+    fname = n.metadata['file_info']['fname'].split('.')[0]
+    
+    # make subdirectory for channel spectra
+    psd_dir = os.path.join(export_dir, 'channel_spectra')
+    if not os.path.exists(psd_dir):
+        os.makedirs(psd_dir)
+    
+    if spindle_spectra or spins_i:                       
+        # by channel
+        exclude = ['EKG', 'EOG_L', 'EOG_R']
+        for chan in n.spindles.keys():
+            if chan not in exclude:
+                print('\nExporting {chan} spectra figures...')
+                # make subdirectory for channel
+                chan_dir = os.path.join(psd_dir, chan)
+                if not os.path.exists(chan_dir):
+                        os.makedirs(chan_dir)
+
+                if spindle_spectra:
+                    print('\tExporting spindle power subplots...')
+                    # individual spindle spectra (accepted)
+                    filename = f'{fname}_SpindleSpectra_Accepted.{ext}'
+                    savename = os.path.join(chan_dir, filename)
+                    fig = plot_spindlepower_chan_i(n, chan)
+                    fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    plt.close(fig)                  
+                    # individual spindle spectra (rejected)
+                    filename = f'{fname}_SpindleSpectra_Rejected.{ext}'
+                    savename = os.path.join(chan_dir, filename)
+                    fig = plot_spindlepower_chan_i(n, chan, spin_type='rejects')
+                    fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    plt.close(fig)
+
+                if spins_i:
+                    print('\tExporting spec_spins figures...')
+                    # make subdirectory for individual spins
+                    spin_dir = os.path.join(chan_dir, 'individual_spectra')
+                    if not os.path.exists(spin_dir):
+                            os.makedirs(spin_dir)              
+                    # individual [accepted] spindles
+                    for spin in n.spindle_psd_i[chan].keys():
+                        filename = f'{fname}_SpinPSD_{chan}_Accepted_{spin}.{ext}'
+                        savename = os.path.join(spin_dir, filename)
+                        fig = spec_spins(n, chan, spin)
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                        plt.close(fig)
+                    # individual [rejected] spindles
+                    for spin in n.spindle_psd_i_rejects[chan].keys():
+                        filename = f'{fname}_SpinPSD_{chan}_Rejected_{spin}.{ext}'
+                        savename = os.path.join(spin_dir, filename)
+                        fig = spec_spins(n, chan, spin)
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                        plt.close(fig)
+    
+    
+    ## Overall
+    if spindle_means:
+        print('Exporting spindle overlays & means...')
+        # overlaid spindle tracings (raw & filtered)
+        filename = f'{fname}_spindles_raw.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spins(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        filename = f'{fname}_spindles_filt.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spins(n, datatype='spfilt')
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        # spindle means (raw & filtered)
+        filename = f'{fname}_SpindleMeans_raw.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spin_means(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        filename = f'{fname}_SpindleMeans_filt.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spin_means(n, datatype ='spfilt')
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+    
+    if psd_concat:
+        print('Exporting concatenated spindle power figures...')
+        # concatenated spectra headplot
+        filename = f'{fname}_SpectraConcat.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_spindlepower_headplot(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        # gottselig norm headplots (calcs & subtracted)
+        filename = f'{fname}_SpectraConcat_NormFit.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_gottselig_headplot(n)
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+
+        filename = f'{fname}_SpectraConcat_NormPwr.{ext}'
+        savename = os.path.join(export_dir, filename)
+        fig = plot_gottselig_headplot(n, datatype='normed_pwr')
+        fig.savefig(savename, dpi=dpi, transparent=transparent)
+        plt.close(fig)
+    
+    print('\nDone.')
+
+
+### Macroarchitecture methods ###
+
+def plot_sleepcycles(d, plt_stages='all', logscale=True, normx=True):
+    """ 
+        Plot cycle length for each sleep stage vs cycle # 
+        -> This should show if there are trends in cycle length
+        based on number of times that stage has been cycled through
+        
+        Params
+        ------
+        d: transitions.HypStats or ioeeg.Dataset object
+        plt_stages: str or list of string (default: 'all')
+            stages to plot
+        logscale: bool (default:True)
+            plot the y-axis on a log scale
+        normx: bool (default: True)
+            normalize x-axis according to total number of cycles for that stage
+    """
+
+    if plt_stages == 'all':
+        stages = ['awake', 'rem', 's1', 's2', 'ads', 'sws']
+    elif type(plt_stages) == str:
+        stages = [plt_stages]
+    elif type(plt_stages) == list:
+        stages = plt_stages
+
+    fig, ax = plt.subplots()
+
+    for key in d.hyp_stats.keys():
+        if key in stages:
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                if normx == True:
+                    x = [int(x)/d.hyp_stats[key]['n_cycles'] for x in d.hyp_stats[key]['cycle_lengths'].keys()]
+                    xlabel = 'Normalized Cycle'
+                else:
+                    x = d.hyp_stats[key]['cycle_lengths'].keys()
+                    xlabel = 'Cycle'
+                if logscale == True:
+                    y = [math.log10(y) for y in d.hyp_stats[key]['cycle_lengths'].values()]
+                    ylabel = 'Cycle length [log(seconds)]'
+                else:
+                    y = d.hyp_stats[key]['cycle_lengths'].values()
+                    ylabel = 'Cycle length (seconds)'
+                ax.plot(x, y, label = key)
+    ax.legend()
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    return fig
+
+def cycles_boxplot(d, yscale='min'):
+    """ boxplot of cycle lengths 
+    
+        Params
+        ------
+        yscale: str (default: 'min')
+            y scaling (options: 'min', 'sec')
+        
+        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
+    """
+    ylist = []
+    xticklabels = []
+    for key in d.hyp_stats.keys():
+        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
+                if yscale == 'sec':
+                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
+                    ylabel = 'Cycle Length (sec)'
+                elif yscale == 'min':
+                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
+                    ylabel = 'Cycle Length (min)'
+                
+    fig, ax = plt.subplots()
+    
+    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
+    
+    # change box outline & fill
+    for box in bp['boxes']:
+        box.set(color='lightgray')
+        box.set(facecolor='lightgray')
+    # change median color
+    for median in bp['medians']:
+        median.set(color='grey', lw=2)
+    # change whisker color
+    for whisker in bp['whiskers']:
+        whisker.set(color='grey', lw=2)
+    # change cap color
+    for cap in bp['caps']:
+        cap.set(color='grey', lw = 2)
+    # change the style of fliers and their fill
+    for flier in bp['fliers']:
+        flier.set(markerfacecolor='grey', marker='o', markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
+    
+    ax.set_xticklabels(xticklabels)
+    #ax.spines['top'].set_visible(False)
+    #ax.spines['right'].set_visible(False)
+    
+    plt.xlabel('\nSleep Stage')
+    plt.ylabel(ylabel)
+    plt.suptitle(d.in_num + ' (' + d.metadata['start_date'] + ')')
+    
+    return fig
+
+def cycles_scatterbox(d, yscale='min'):
+    """ boxplot of cycle lengths w/ colored scatterplot of datapoints
+    
+        Params
+        ------
+        yscale: str (default: 'min')
+            y scaling (options: 'min', 'sec')
+        
+        Note: see style example here http://blog.bharatbhole.com/creating-boxplots-with-matplotlib/
+    """
+
+    ylist = []
+    xticklabels = []
+    colors = []
+    for key in d.hyp_stats.keys():
+        if type(d.hyp_stats[key]) == dict and 'n_cycles' in d.hyp_stats[key].keys():
+            if d.hyp_stats[key]['n_cycles'] > 0:
+                # set xtick labels
+                xticklabels.append(key + '\n(n='+ str(d.hyp_stats[key]['n_cycles']) + ')')
+                # set y values
+                if yscale == 'sec':
+                    ylist.append(list(d.hyp_stats[key]['cycle_lengths'].values()))
+                    ylabel = 'Cycle Length (sec)'
+                elif yscale == 'min':
+                    ylist.append([y/60. for y in d.hyp_stats[key]['cycle_lengths'].values()])
+                    ylabel = 'Cycle Length (min)'
+                # set colors
+                if key == 'awake':
+                    colors.append('darkgrey')
+                elif key == 's1':
+                    colors.append('orange')
+                elif key == 's2':
+                    colors.append('lime')
+                elif key == 'ads':
+                    colors.append('blue')
+                elif key == 'sws':
+                    colors.append('purple')
+
+    fig, ax = plt.subplots()
+    bp = ax.boxplot(ylist, notch=False, patch_artist=True)
+    
+    # change box outline & fill
+    for box in bp['boxes']:
+        box.set(color='lightgray', alpha=1)
+    # change median color
+    for median in bp['medians']:
+        median.set(color='grey', lw=2)
+    # change whisker color
+    for whisker in bp['whiskers']:
+        whisker.set(color='grey', lw=2)
+    # change cap color
+    for cap in bp['caps']:
+        cap.set(color='grey', lw = 2)
+    # change the style of fliers and their fill
+    for flier in bp['fliers']:
+        flier.set(markerfacecolor='grey', marker=None, markeredgecolor='white', markersize=8, alpha=0.5, lw=.01)
+        
+    # add scatterplot for datapoints
+    for i in range(len(ylist)):
+        y = ylist[i]
+        # create jitter by randomly distributing x vals
+        x = np.random.normal(1+i, 0.1, size=len(y))
+        ax.plot(x, y, 'r.', markerfacecolor=colors[i], markeredgecolor=colors[i], markersize=12, 
+                markeredgewidth=0.8, alpha=0.5, zorder=3) #zorder sets scatter on top
+
+    ax.set_xticklabels(xticklabels)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    plt.grid(axis='both', linestyle=':', linewidth=1)
+    plt.xlabel('\nSleep Stage')
+    plt.ylabel(ylabel)
+    plt.suptitle(d.in_num + ' (' + d.start_date + ')')
+    
+    return fig
+    
+
+def plot_hyp(d):
+    """ plot hypnogram for ioeeg.Dataset instance """
+    fig, ax = plt.subplots(figsize = (30,5))
+    
+    ax.plot(d.hyp, color='lightseagreen', lw=2)
+    ax = plt.gca()
+    ax.set_ylim(ax.get_ylim()[::-1])
+    ax.set_yticks([0, 1, 2, 3, 4, 5])
+    ax.set_yticklabels(['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta\nSleep     ', 'SWS'])
+
+    fmt = mdates.DateFormatter('%I:%M%p')
+    ax.xaxis.set_major_formatter(fmt)
+    ax.margins(x=.01)
+    
+    plt.xlabel('Time')
+    plt.ylabel('Sleep Stage')
+    plt.suptitle(d.metadata['in_num'] + ' (' + d.metadata['start_date'] + ')')
+    
+    return fig
+
+
+def plot_transitions(h, savefig=False, savedir=None):
+    """ plot sleep stage transition diagram. 
+        
+        NOTE: This is for preliminary visualization. For high quality
+        figures use plot_transitions.R
+            *for 3d plots use R code, or see https://stackoverflow.com/questions/16907564/how-can-i-plot-a-3d-graph-in-python-with-igraph
+            or this http://bommaritollc.com/2011/02/21/plotting-3d-graphs-with-python-igraph-and-cairo-cn220-example/
+    """
+
+    # set data
+    m = np.matrix(h.transition_perc)/2
+    net=ig.Graph.Weighted_Adjacency(m.tolist(), attr='width', loops=False)
+
+    # set node params [see https://www.cs.rhul.ac.uk/home/tamas/development/igraph/tutorial/tutorial.html]
+    node_size = np.array((h.epoch_counts['Awake'], h.epoch_counts['REM'], h.epoch_counts['Stage 1'], h.epoch_counts['Stage 2'], h.epoch_counts['Alpha-Delta'], h.epoch_counts['SWS']))
+    net.vs['size'] = node_size/4
+    net.vs['shape'] = 'circle'
+    net.vs['color'] = ['lightgrey', 'red', 'orange', 'lime', 'blue', 'purple']
+
+    label_dist = [0 if x>200 else 1.3 for x in node_size]
+    net.vs['label_dist'] = label_dist
+    net.vs['label_angle'] = [np.pi/2, np.pi, np.pi, 0, np.pi*3/2, 0]
+    net.vs['label_size'] = 12
+    net.vs['label'] = ['Awake', 'REM', 'Stage 1', 'Stage 2', 'Alpha-Delta', 'SWS']
+
+    # set edge params
+    net.es['curved'] = True # this can be set to a float also (ex. 0.3)
+    net.es['arrow_size'] = 0.8
+    net.es['arrow_width'] = 1.5
+    net.es['color'] = 'darkgrey'
+
+    # set layout
+    l = [(0, 0), (-2, 2), (-1, 1), (1, 1), (0, 2), (2, 2)]
+    layout = ig.Layout(l)
+
+    # set visual style
+    visual_style = {}
+    visual_style['bbox'] = (500, 500)
+    visual_style['margin'] = 110
+
+    fig = ig.plot(net, layout=layout, **visual_style)
+
+    if savefig == True:
+        savename = h.in_num + '_TransitionPlot_' + h.start_date + '.png'
+        if savedir is None:
+            savedir = os.getcwd()
+        save = os.path.join(savedir, savename)
+        fig.save(save)
+
+    return fig
+
+
 ### EKG Methods ###
 
 def plotEKG(ekg, rpeaks=False):
@@ -1822,3 +2103,6 @@ def plotPS(ekg, method, dB=False, bands=False):
     plt.suptitle(title)
 
     return fig
+
+
+
