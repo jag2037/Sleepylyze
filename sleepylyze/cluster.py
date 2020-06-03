@@ -54,7 +54,7 @@ def fmt_kmeans(n):
     return psd_1d, f_idx
 
 
-def calc_kmeans(n, n_clusters, train_split = 30):
+def calc_kmeans(n, n_clusters, train_split = None):
     """ calc k-means clustering on spindle spectra
 
         Params
@@ -63,8 +63,9 @@ def calc_kmeans(n, n_clusters, train_split = 30):
             post-spindle detections and analysis
         n_clusters: int
             number of clusters
-        train_split: int (default: 30)
-            percent of the data to use for training the kmeans model
+        train_split: int or None (default: None)
+            percent of the data to use for training the kmeans model.
+            If none, use all of the data
             
         Returns
         -------
@@ -77,27 +78,44 @@ def calc_kmeans(n, n_clusters, train_split = 30):
     # shuffle the array to prevent grabbing a time-biased set
     np.random.shuffle(psd_1d)
 
-    # specify the training data
-    train_len = int(psd_1d.shape[0]*(train_split/100))
-    X_train_psd = TimeSeriesScalerMeanVariance().fit_transform(psd_1d[:train_len])
-    X_test_psd = TimeSeriesScalerMeanVariance().transform(psd_1d[train_len:])
-    
-    # create the model and predict
-    ### sklearn kMeans (first convert to 2d)
-    X_test_2d = np.array([x.ravel() for x in X_test_psd])
-    X_train_2d = np.array([x.ravel() for x in X_train_psd])
-    km_psd = KMeans(n_clusters, random_state=0).fit(X_train_2d)
-    y_train_pred = km_psd.predict(X_train_2d)
-    y_test_pred = km_psd.predict(X_test_2d)
-    
-    if n_clusters > 1:
-        # calculate calinski_harabasz_score(X, labels)
-        ch_score_train = calinski_harabasz_score(X_train_2d, y_train_pred)
-        ch_score_test = calinski_harabasz_score(X_test_2d, y_test_pred)
-    else:
+    if train_split is not None:
+        # specify the training data
+        train_len = int(psd_1d.shape[0]*(train_split/100))
+        X_train_psd = TimeSeriesScalerMeanVariance().fit_transform(psd_1d[:train_len])
+        X_test_psd = TimeSeriesScalerMeanVariance().transform(psd_1d[train_len:])
+        
+        # create the model and predict
+        ### sklearn kMeans (first convert to 2d)
+        X_test_2d = np.array([x.ravel() for x in X_test_psd])
+        X_train_2d = np.array([x.ravel() for x in X_train_psd])
+        km_psd = KMeans(n_clusters, random_state=0).fit(X_train_2d)
+        y_train_pred = km_psd.predict(X_train_2d)
+        y_test_pred = km_psd.predict(X_test_2d)
+        
+        if n_clusters > 1:
+            # calculate calinski_harabasz_score(X, labels)
+            ch_score_train = calinski_harabasz_score(X_train_2d, y_train_pred)
+            ch_score_test = calinski_harabasz_score(X_test_2d, y_test_pred)
+        else:
+            ch_score_train, ch_score_test = None, None
+        result = {'X_train':X_train_psd, 'y_train_pred':y_train_pred, 'ch_score_train':ch_score_train, 'X_test':X_test_psd, 'y_test_pred':y_test_pred, 'ch_score_test':ch_score_test}
+
+    elif train_split is None:
+        # use all of the data
+        X_psd = TimeSeriesScalerMeanVariance().fit_transform(psd_1d)
+        # create the model and predict
+        ### sklearn kMeans (first convert to 2d)
+        X_2d = np.array([x.ravel() for x in X_psd])
+        km_psd = KMeans(n_clusters, random_state=0).fit(X_2d)
+        y_pred = km_psd.predict(X_2d)
+
+        # set test-train comparison scores to None
         ch_score_train, ch_score_test = None, None
+
+        result = {'X':X_psd, 'y_pred':y_pred}
+
     
-    return TimeSeriesScalerMeanVariance(), km_psd, f_idx, {'X_train':X_train_psd, 'y_train_pred':y_train_pred, 'ch_score_train':ch_score_train, 'X_test':X_test_psd, 'y_test_pred':y_test_pred, 'ch_score_test':ch_score_test}
+    return TimeSeriesScalerMeanVariance(), km_psd, f_idx, result
 
 
 
@@ -156,17 +174,25 @@ def pick_clusters(n, clusters, train_split, plot_clusts=True, plot_scree=True):
     distortions = []
     clust_figs = []
     for n_clusters in range(1, clusters):
-        # make and fit the model to trianing data
+        # make and fit the model to training data
         scaler, km_psd, f_idx, psd = calc_kmeans(n, n_clusters, train_split)
+
+        # set x and y variables
+        if train_split is not None:
+            X = psd['X_train']
+            y_pred = psd['y_train_pred']    
+        elif train_split is None:
+            X = psd['X']
+            y_pred = psd['y_pred']
         
         if plot_clusts:
             # plot the kmeans for each cluster
-            fig = plot_kmeans(n, km_psd, f_idx, X=psd['X_train'], y_pred=psd['y_train_pred'])
+            fig = plot_kmeans(n, km_psd, f_idx, X=X, y_pred=y_pred)
             clust_figs.append(fig)
 
         # calculate distortions for the scree plot
         cents = np.reshape(km_psd.cluster_centers_, (n_clusters, len(f_idx)))
-        x = np.reshape(psd['X_train'], (len(psd['X_train']), len(f_idx)))
+        x = np.reshape(X, (len(X), len(f_idx)))
         distortions.append(sum(np.min(cdist(x, cents, 'euclidean'), axis=1)) / x.shape[0])
 
 
@@ -180,3 +206,162 @@ def pick_clusters(n, clusters, train_split, plot_clusts=True, plot_scree=True):
         ax.set_ylabel('Distortion (SSE)')
 
     return clust_figs, scree_fig
+
+
+def run_kmeans(n, n_clusters, train_split):
+    """ run kmeans clustering 
+        
+        Params
+        ------
+        n: nrem.NREM object
+        n_clusters: int
+            number of clusters to use
+        train_split: int or None (default: None)
+            percent of the data to use for training the kmeans model.
+            If none, use all of the data
+
+    """
+    
+    print('Fitting the kmeans model...')
+    scaler, km, f_idx, result = calc_kmeans(n, n_clusters, train_split)
+
+    print('Formatting data...')
+    # scale the data & reformat
+    psd_1d, f_idx = fmt_kmeans(n)
+    psd_1d_scaled = scaler.transform(psd_1d)
+    psd_2d = np.array([x.ravel() for x in psd_1d_scaled])
+    print('Assigning labels...')
+    # predict labels
+    labels = km.predict(psd_2d)
+    # add labels to the stats df
+    n.spindle_stats_i['cluster'] = labels
+    print('Labels assigned to cluster column in n.spindle_stats_i.\nDone.')
+
+
+### histograms ###
+
+def make_quadrants(n):
+    """ make left-right/anterior-posterior quadrants for plotting """
+    stats = n.spindle_stats_i
+    
+    # quads overall
+    al = stats[(stats.AP == 'A') & (stats.RL == 'L')]
+    ar = stats[(stats.AP == 'A') & (stats.RL == 'R')]
+    pl = stats[(stats.AP == 'P') & (stats.RL == 'L')]
+    pr = stats[(stats.AP == 'P') & (stats.RL == 'R')]
+    
+    quads = {'al':al, 'ar':ar, 'pl':pl, 'pr':pr}
+    
+    # make quads by cluster
+    al_c0 = al[al['cluster']==0]
+    al_c1 = al[al['cluster']==1]
+    ar_c0 = ar[ar['cluster']==0]
+    ar_c1 = ar[ar['cluster']==1]
+
+    pl_c0 = pl[pl['cluster']==0]
+    pl_c1 = pl[pl['cluster']==1]
+    pr_c0 = pr[pr['cluster']==0]
+    pr_c1 = pr[pr['cluster']==1]
+    
+    quads_c0 = {'al_c0':al_c0, 'ar_c0':ar_c0, 'pl_c0':pl_c0, 'pr_c0':pr_c0}
+    quads_c1 = {'al_c1':al_c1, 'ar_c1':ar_c1, 'pl_c1':pl_c1, 'pr_c1':pr_c1}
+    
+    return quads, (quads_c0, quads_c1)
+
+
+def plot_dist(in_num, quads):
+    """ plot cluster distribution """
+    
+    fig, axs = plt.subplots(2, 2, sharey=True)
+    fig.subplots_adjust(hspace=0.5)
+
+    # get cluter assignments for each spindle
+    quads_c = [q.cluster for q in quads.values()]
+    for ax, quad in zip(axs.flatten(), quads_c):
+        ax.hist(quad[quad==0], bins=[0,1,2], align='left', alpha=0.5, label = 'Cluster 0')
+        ax.hist(quad[quad==1], bins=[0,1,2], align='left', alpha=0.5, label = 'Cluster 1')
+        clust_ratio = np.round((quad==0).sum()/len(quad), 2)*100
+        ax.set_title(f'{clust_ratio}% cluster 0')
+        ax.set_xlabel('Cluster')
+        ax.set_ylabel('spindle count')
+    fig.suptitle(f'{in_num} Cluster Distribution')
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+    
+    return fig
+
+
+def plot_peakfreq(in_num, quads_clust):
+    """ Plot peak frequency distribution by cluster """
+    fig, axs = plt.subplots(2, 2, sharey=True)
+    fig.subplots_adjust(hspace=0.5)
+
+    quads_c0 = [q.dominant_freq_Hz for q in quads_clust[0].values()]
+    quads_c1 = [q.dominant_freq_Hz for q in quads_clust[1].values()]
+    for ax, quad_c0, quad_c1 in zip(axs.flatten(), quads_c0, quads_c1):
+        ax.hist(quad_c0, align='left', alpha=0.5, label= 'Cluster 0')
+        ax.hist(quad_c1, align='left', alpha=0.5, label = 'Cluster 1')
+        ax.set_xlabel('Frequency (Hz)')
+        ax.set_ylabel('spindle count')
+
+    fig.suptitle(f'{in_num} Dominant Spectral Peak Frequency')
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+    
+    return fig
+
+
+def plot_totalpeaks(in_num, quads_clust):
+    """ Plot # of total peaks by cluster """
+    fig, axs = plt.subplots(2, 2, sharey=True)
+    fig.subplots_adjust(hspace=0.5)
+
+    quads_c0 = [q.total_peaks for q in quads_clust[0].values()]
+    quads_c1 = [q.total_peaks for q in quads_clust[1].values()]
+    for ax, quad_c0, quad_c1 in zip(axs.flatten(), quads_c0, quads_c1):
+        ax.hist(quad_c0, align='left', bins=[0,1,2,3,4,5], alpha=0.5, label= 'Cluster 0')
+        ax.hist(quad_c1, align='left', bins=[0,1,2,3,4,5], alpha=0.5, label = 'Cluster 1')
+        ax.set_xlabel('Peaks')
+        ax.set_ylabel('spindle count')
+
+    fig.suptitle('# of Spectral Peaks')
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+    
+    return fig
+
+def plot_duration(in_num, quads_clust):
+    """ Plot spindle duration by cluster """
+    fig, axs = plt.subplots(2, 2, sharey=True)
+    fig.subplots_adjust(hspace=0.5)
+
+    quads_c0 = [q.dur_ms for q in quads_clust[0].values()]
+    quads_c1 = [q.dur_ms for q in quads_clust[1].values()]
+    for ax, quad_c0, quad_c1 in zip(axs.flatten(), quads_c0, quads_c1):
+        ax.hist(quad_c0, align='left', alpha=0.5, label= 'Cluster 0')
+        ax.hist(quad_c1, align='left', alpha=0.5, label = 'Cluster 1')
+        ax.set_xlabel('ms')
+        ax.set_ylabel('spindle count')
+    fig.suptitle(f'{in_num} Spindle Duration')
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+    
+    return fig
+
+def plot_peakratio(in_num, quads_clust):
+    """ Plot second peak pwr as fraction of dominant peak power by cluster """
+    fig, axs = plt.subplots(2, 2, sharey=True)
+    fig.subplots_adjust(hspace=0.5)
+
+    quads_c0 = [q.peak2_ratio for q in quads_clust[0].values()]
+    quads_c1 = [q.peak2_ratio for q in quads_clust[1].values()]
+    for ax, quad_c0, quad_c1 in zip(axs.flatten(), quads_c0, quads_c1):
+        ax.hist(quad_c0, align='left', alpha=0.5, label= 'Cluster 0')
+        ax.hist(quad_c1, align='left', alpha=0.5, label = 'Cluster 1')
+        ax.set_xlabel('Power Ratio\n(% of primary peak)')
+        ax.set_ylabel('spindle count')
+    fig.suptitle(f'{in_num} secondary peak power ')
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+    
+    return fig
