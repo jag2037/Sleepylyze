@@ -35,11 +35,12 @@ def fmt_pca(n):
 	return psd_data, f_idx
 
 
-def calc_pca(in_num, psd_data, n_components):
+def calc_pca(n, n_components):
     """ calc PCA on spindle spectra 
 		
 		Parameters
 		----------
+		n: sleepylyze.nrem.NREM object
 		psd_data: 2 dimensional numpy.ndarray (x, y)
 			dimensions (# of spindles, length of spindle frequency range)
 		n_components: int
@@ -55,6 +56,9 @@ def calc_pca(in_num, psd_data, n_components):
 			subplots of 1/2/3 principle components and scree plot
 
     """
+    in_num = n.metadata['file_info']['in_num']
+    psd_data, f_idx = fmt_pca(n)
+
     pca = PCA(n_components=n_components)
     pca_result = pca.fit_transform(psd_data)
 
@@ -67,7 +71,7 @@ def calc_pca(in_num, psd_data, n_components):
     ax.set_ylabel('Explained Variance')
     ax.set_xlabel('Principle Component')
     
-    return pca, pca_result, fig
+    return pca, f_idx, pca_result, fig
 
 
 def plot_components(in_num, pca, f_idx, n_components):
