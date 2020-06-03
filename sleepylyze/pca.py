@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import matplotlib
 import matplotlib.pyplot as plt
 
 from tslearn.preprocessing import TimeSeriesScalerMeanVariance
@@ -58,11 +59,6 @@ def calc_pca(in_num, psd_data, n_components):
     pca_result = pca.fit_transform(psd_data)
 
     fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-    # Plot the 1st principal component aginst the 2nd and use the 3rd for color
-    # ax[0].scatter(pca_result[:, 0], pca_result[:, 1], c=pca_result[:, 2])
-    # ax[0].set_xlabel('1st principal component')
-    # ax[0].set_ylabel('2nd principal component')
-    # ax[0].set_title('first 3 principal components')
 
     # plot components w/ variance explained
     ax.plot(pca.explained_variance_, marker='o')
@@ -127,3 +123,207 @@ def plot_c1c2(in_num, pca_result):
 	ax.set_title(f'{in_num}')
 
 	return fig
+
+def plot_clust(n, pca_result):
+	""" plot component 1 vs 2 colored by cluster """
+	fig, ax = plt.subplots(figsize=(8, 8))
+
+	plot = ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=0.5, c=n.spindle_stats_i.cluster.values, cmap='RdYlBu')
+	ax.set_xlabel('PCA 1')
+	ax.set_ylabel('PCA 2')
+	ax.set_title(n.metadata['file_info']['in_num'])
+
+	# plot an empty scatter to create legend
+	for clust in [0, 1]:
+	    # 2 specifies # of discrete colors
+	    c = plt.get_cmap('Spectral', 2)(clust)
+	    hx = matplotlib.colors.rgb2hex(c[:-1])
+	    legend = ax.scatter([], [], c=hx, alpha=1, cmap='Spectral', label=f'KMeans Cluster {clust}')
+	ax.legend()
+
+	return fig
+
+def plot_location(n, pca_result):
+	""" plot component 1 vs 2 colored by location """
+	in_num = n.metadata['file_info']['in_num']
+	fig, ax = plt.subplots(figsize=(8, 8))
+
+	# convert anterior-posterior to numbers for color
+	cdict = {'A':0, 'C':0.5, 'P':1}
+	ap = [cdict[a] for a in n.spindle_stats_i.AP]
+	ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=0.5, c=ap, cmap='RdYlBu')
+	ax.set_xlabel('PCA 1')
+	ax.set_ylabel('PCA 2')
+	ax.set_title(f'{in_num} Spatial Distribution')
+
+
+	cmap = plt.get_cmap('RdYlBu', 2)
+	cols = cmap(np.linspace(0, 1, 3))
+	# plot an empty scatter to create legend
+	for e, label in enumerate(['Frontal', 'Central', 'Parieto-ocipital']):
+	    # get hex color
+	    hx = matplotlib.colors.rgb2hex(cols[e])
+	    legend = ax.scatter([], [], c=hx, alpha=1, label=label)
+	ax.legend()
+
+	return fig
+
+def plot_duration(n, pca_result):
+	""" plot component 1 vs 2 colored by spindle duration """
+	fig, ax = plt.subplots(figsize=(10, 8))
+
+	plot = ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=1, c=n.spindle_stats_i.dur_ms.values, cmap='RdYlBu')
+	ax.set_xlabel('PCA 1')
+	ax.set_ylabel('PCA 2')
+	ax.set_title(n.metadata['file_info']['in_num'])
+
+	fig.colorbar(plot, label='Spindle Duration (ms)')
+
+	return fig
+
+def plot_peakfreq(n, pca_result):
+	""" plot component 1 vs 2 colored by spindle peak frequency """
+	fig, ax = plt.subplots(figsize=(10, 8))
+
+	plot = ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=1, c=n.spindle_stats_i.dominant_freq_Hz, cmap='RdYlBu')
+	ax.set_xlabel('PCA 1')
+	ax.set_ylabel('PCA 2')
+	ax.set_title(n.metadata['file_info']['in_num'])
+
+	fig.colorbar(plot, label='Spindle Peak Frequency (Hz)')
+
+	return fig
+
+
+
+def feature_scatter(n, pca_result):
+    """ Plot PC1 vs PC2 with points colored by feature (kmeans cluster, location, peak freq, duration)"""
+    
+    fig, axs = plt.subplots(1, 4, gridspec_kw={'width_ratios': [0.8, 0.8, 1, 1]}, figsize=(32, 8))
+
+    for e, ax in enumerate(axs.flatten()):
+        if e == 0:
+            # plot cluster
+            plot = ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=0.5, c=n.spindle_stats_i.cluster.values, cmap='RdYlBu')
+            ax.set_xlabel('PC 1')
+            ax.set_ylabel('PC 2')
+            ax.set_title('Kmeans Cluster')
+            # plot an empty scatter to create legend
+            for clust in [0, 1]:
+                # 2 specifies # of discrete colors
+                c = plt.get_cmap('Spectral', 2)(clust)
+                hx = matplotlib.colors.rgb2hex(c[:-1])
+                legend = ax.scatter([], [], c=hx, alpha=1, cmap='Spectral', label=f'Cluster {clust}')
+            ax.legend()
+
+        elif e == 3:
+            # plot duration
+            plot = ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=1, c=n.spindle_stats_i.dur_ms.values, cmap='RdYlBu')
+            ax.set_xlabel('PC 1')
+            ax.set_ylabel('PC 2')
+            ax.set_title('Duration')
+            fig.colorbar(plot, ax=ax, label='Spindle Duration (ms)')
+
+        elif e == 2:
+            # plot frequency
+            plot = ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=1, c=n.spindle_stats_i.dominant_freq_Hz, cmap='RdYlBu')
+            ax.set_xlabel('PC 1')
+            ax.set_ylabel('PC 2')
+            ax.set_title('Peak Frequency')
+            fig.colorbar(plot, ax=ax, label='Spindle Peak Frequency (Hz)')
+
+        elif e == 1:
+            # plot location
+            # convert anterior-posterior to numbers for color
+            cdict = {'A':0, 'C':0.5, 'P':1}
+            ap = [cdict[a] for a in n.spindle_stats_i.AP]
+            ax.scatter(x=pca_result[:,0], y=pca_result[:,1], alpha=0.5, c=ap, cmap='RdYlBu')
+            ax.set_xlabel('PC 1')
+            ax.set_ylabel('PC 2')
+            ax.set_title(f'Spatial Distribution')
+
+
+            cmap = plt.get_cmap('RdYlBu', 2)
+            cols = cmap(np.linspace(0, 1, 3))
+            # plot an empty scatter to create legend
+            for e, label in enumerate(['Frontal', 'Central', 'Parieto-ocipital']):
+                # get hex color
+                hx = matplotlib.colors.rgb2hex(cols[e])
+                legend = ax.scatter([], [], c=hx, alpha=1, label=label)
+            ax.legend()
+
+    params = {'legend.fontsize': 'medium',
+                  'axes.titlesize' : 20,
+                'axes.labelsize' : 16,
+                'xtick.labelsize' : 16,
+                'ytick.labelsize' : 16}
+    plt.rcParams.update(params)
+
+    fig.suptitle(n.metadata['file_info']['in_num'], size=22, weight='bold')
+    fig.tight_layout()
+    
+    return fig
+
+
+def plot_spectra(n, pca, pca_result, components):
+    """ Plot individual spindle spectra colored by PCA component weight
+    
+        Parameters
+        ----------
+        n: nrem.NREM object
+            w/ spindles detected and PCA run
+        components: list of int
+            components to plot
+    """
+
+    spin_range = n.metadata['spindle_analysis']['spin_range']
+    
+    psd_list = np.array([list(chan_dict.values()) for chan_dict in n.spindle_psd_i.values()])
+    psd_flat = [item for sublist in psd_list for item in sublist]
+    f_idx = psd_flat[0][(psd_flat[0].index >= spin_range[0]) & (psd_flat[0].index <= spin_range[1])].index
+
+    fig, ax = plt.subplots(len(components), 2, figsize=(4*len(components),3*len(components)), gridspec_kw={'width_ratios': [0.8, 1]})
+
+    for pc in components:
+        row = pc-1
+        # plot the components
+        ## if len(components) <2, this will throw an error bc of the 2x2 calling of subplots
+        ax[row, 0].plot(f_idx, pca.components_[row], color='black', lw=1.5)
+        ax[row, 0].set_xlim(f_idx[0], f_idx[-1])
+        ax[row, 0].set_ylabel(f'PC{pc}')
+        ax[row, 0].set_xlabel('Frequency (Hz)')
+        ax[row, 0].set_title('Principle Component')
+                        
+        # plot individual spindle spectra
+        for spin, psd in enumerate(psd_flat):
+            psd_spin = psd[(psd.index >= spin_range[0]) & (psd.index <= spin_range[1])]
+            # subtract 1 from pc bc pc 1 = pca_result[:, 0]
+            pc_val = pca_result[:,pc-1][spin]
+            ax[row, 1].plot(psd_spin, c=plt.cm.RdYlBu(pc_val), alpha=0.5)
+
+        # set labels
+        ax[row, 1].set_ylabel('Power (mv$^2$/Hz)')
+        ax[row, 1].set_xlabel('Frequency (Hz)')
+        ax[row, 1].set_title('Spindle Spectra')
+        # set y-axis to scientific notation
+        ax[row, 1].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+
+        # create colorbar
+        pc_vals = np.array(pca_result[:,pc-1])
+        colors = np.array([plt.cm.RdYlBu(pc_val) for pc_val in pc_vals])
+        norm = matplotlib.colors.Normalize(vmin=pc_vals.min(), vmax=pc_vals.max())
+        cmap = matplotlib.cm.ScalarMappable(norm=norm, cmap=matplotlib.cm.RdYlBu)
+        cmap.set_array([])
+        plt.colorbar(cmap, ax=ax[row, 1], label=f'PC Weight')
+             
+    params = {'legend.fontsize': 'medium',
+              'axes.titlesize' : 16,
+            'axes.labelsize' : 16,
+            'xtick.labelsize' : 16,
+            'ytick.labelsize' : 16}
+    plt.rcParams.update(params)
+
+    fig.suptitle(n.metadata['file_info']['in_num'], size=18, weight='semibold')
+    fig.tight_layout()
+    
+    return fig
