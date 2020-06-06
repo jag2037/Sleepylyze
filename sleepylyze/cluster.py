@@ -208,7 +208,7 @@ def pick_clusters(n, clusters, train_split, plot_clusts=True, plot_scree=True):
     return clust_figs, scree_fig
 
 
-def run_kmeans(n, n_clusters, train_split):
+def run_kmeans(n, n_clusters, train_split, plot_clusts=True):
     """ run kmeans clustering 
         
         Params
@@ -219,11 +219,23 @@ def run_kmeans(n, n_clusters, train_split):
         train_split: int or None (default: None)
             percent of the data to use for training the kmeans model.
             If none, use all of the data
+        plot_clusts: bool (default: True)
+            whether to return a figure of cluster centers
 
     """
     
     print('Fitting the kmeans model...')
     scaler, km, f_idx, result = calc_kmeans(n, n_clusters, train_split)
+    if plot_clusts:
+        # set x and y variables
+        if train_split is not None:
+            X = result['X_train']
+            y_pred = result['y_train_pred']    
+        elif train_split is None:
+            X = result['X']
+            y_pred = result['y_pred']
+        # plot the kmeans for each cluster
+        fig = plot_kmeans(n, km, f_idx, X=X, y_pred=y_pred)
 
     print('Formatting data...')
     # scale the data & reformat
@@ -236,6 +248,8 @@ def run_kmeans(n, n_clusters, train_split):
     # add labels to the stats df
     n.spindle_stats_i['cluster'] = labels
     print('Labels assigned to cluster column in n.spindle_stats_i.\nDone.')
+
+    return fig
 
 
 ### histograms ###
