@@ -2,11 +2,15 @@
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from tslearn.preprocessing import TimeSeriesScalerMeanVariance
 from scipy.spatial.distance import cdist
+from scipy.stats import ttest_ind, levene, bartlett
 from sklearn.metrics import calinski_harabasz_score
 from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
+from mne.connectivity import phase_slope_index, spectral_connectivity
 
 
 def fmt_kmeans(n):
@@ -248,6 +252,305 @@ def run_kmeans(n, n_clusters, train_split, plot_clusts=True):
     # add labels to the stats df
     n.spindle_stats_i['cluster'] = labels
     print('Labels assigned to cluster column in n.spindle_stats_i.\nDone.')
+
+    return fig
+
+def zpad(spin, sf, zpad_len, zpad_mult):
+    """ zero-pad individual raw spindle data. for use with cluster.calc_cohpsi. 
+        
+        Parameters
+        ----------
+        spin: np.array
+            spindle EEG mV values
+        sf: float
+            EEG sampling frequency
+        zpad_len: float or None
+            length in seconds to zero-pad the spindle to
+        zpad_mult: float
+            multiple of spindle length to zpad out to (or this OR zpad_len)
+        
+    """
+    # subtract mean to zero-center spindle for zero-padding
+    data = spin - np.mean(spin)
+    zpad_samples=0
+    zpad_seconds=0
+    tx=0
+
+    if (zpad_len is not None) & (zpad_mult is not None):
+        print('Only zpad_len or zpad_mult can be used. Please pick one. Abort.')
+        return 
+    
+    if zpad_len is not None:
+        # zeropad the spindle
+        total_len = zpad_len*sf
+        zpad_samples = total_len - len(data)
+        zpad_seconds = zpad_samples/sf
+        if zpad_samples > 0:
+            padding = np.repeat(0, zpad_samples)
+            data_pad = np.append(data, padding)
+        else:
+            spin_len = len(data)/sf
+            data_pad = data
+    elif zpad_mult is not None:
+        zpad_samples = len(data)*zpad_mult
+        zpad_seconds = zpad_samples/sf
+        padding = np.repeat(0, zpad_samples)
+        data_pad = np.append(data, padding)
+    else:
+        data_pad = data
+
+    return data_pad
+
+
+def calc_cohpsi(n, zpad_len=None, zpad_mult=None, bw=1.5, adapt=True):
+    """ Calculate coherence and phase slope index between F3-P3 and F4-P4 for clusters 0 and 1 
+        Notes: 
+            - F3, F4, P3, and P4 should be laplacian filtered
+            - zpad_len typically needs to be longer than in nrem module bc we're looking @ union of overlapping
+                spindle events
+
+
+        Parameters
+        ----------
+        zpand_len: int or float (default: 5)
+            length to zpad spindle events to
+        zpad_mult: float
+            multiple of spindle length to zpad out to (or this OR zpad_len)
+        bw: float (default: 1.5)
+            multitaper bandwidth
+        adapt: bool (default: True)
+            whether to adaptively combine tapers for multitaper
+
+        Returns
+        -------
+        coh_params: dict
+            parameters used to calculate values
+        coh_df: pd.DataFrame
+            dataframe of calculated values for each spindle event
+    """
+
+    # subset spindle # by channel and cluster
+    # left
+    f3_c0 = n.spindle_stats_i[(n.spindle_stats_i.chan=='F3') & (n.spindle_stats_i.cluster == 0)]
+    f3_c1 = n.spindle_stats_i[(n.spindle_stats_i.chan=='F3') & (n.spindle_stats_i.cluster == 1)]
+    p3_c0 = n.spindle_stats_i[(n.spindle_stats_i.chan=='P3') & (n.spindle_stats_i.cluster == 0)]
+    p3_c1 = n.spindle_stats_i[(n.spindle_stats_i.chan=='P3') & (n.spindle_stats_i.cluster == 1)]
+
+    # right
+    f4_c0 = n.spindle_stats_i[(n.spindle_stats_i.chan=='F4') & (n.spindle_stats_i.cluster == 0)]
+    f4_c1 = n.spindle_stats_i[(n.spindle_stats_i.chan=='F4') & (n.spindle_stats_i.cluster == 1)]
+    p4_c0 = n.spindle_stats_i[(n.spindle_stats_i.chan=='P4') & (n.spindle_stats_i.cluster == 0)]
+    p4_c1 = n.spindle_stats_i[(n.spindle_stats_i.chan=='P4') & (n.spindle_stats_i.cluster == 1)]
+
+    # pull the spindle data corresponding to the indiviudal spindles from each cluster
+    #left
+    f3_c0_spinevents = {k:v for k, v in n.spindles['F3'].items() if k in f3_c0.spin.values}
+    f3_c1_spinevents = {k:v for k, v in n.spindles['F3'].items() if k in f3_c1.spin.values}
+    p3_c0_spinevents = {k:v for k, v in n.spindles['P3'].items() if k in p3_c0.spin.values}
+    p3_c1_spinevents = {k:v for k, v in n.spindles['P3'].items() if k in p3_c1.spin.values}
+
+    # right
+    f4_c0_spinevents = {k:v for k, v in n.spindles['F4'].items() if k in f4_c0.spin.values}
+    f4_c1_spinevents = {k:v for k, v in n.spindles['F4'].items() if k in f4_c1.spin.values}
+    p4_c0_spinevents = {k:v for k, v in n.spindles['P4'].items() if k in p4_c0.spin.values}
+    p4_c1_spinevents = {k:v for k, v in n.spindles['P4'].items() if k in p4_c1.spin.values}
+
+    # create lists to zip and loop through
+    spin_events_f = [f3_c0_spinevents, f3_c1_spinevents, f4_c0_spinevents, f4_c1_spinevents]
+    spin_events_p = [p3_c0_spinevents, p3_c1_spinevents, p4_c0_spinevents, p4_c1_spinevents]
+    spin_maps = dict([('lc0', {}), ('lc1', {}), ('rc0', {}), ('rc1', {})])
+    fp_spin_events = {'f3p3_c0':{}, 'f3p3_c1':{}, 'f4p4_c0':{}, 'f4p4_c1':{}}
+
+    # create a map of indices between frontal and parietal overlapping spindles
+    for spin_map, spin_event_f, spin_event_p in zip(spin_maps.values(), spin_events_f, spin_events_p):
+        # for each frontal spindle, check for overlap with each parietal spindle
+        for f_spin, f_dat in spin_event_f.items():
+            # pull timestamps for the f spindle
+            f_time = f_dat.time.values
+            p_overlap = []
+            # check the timestamps against all p spindles
+            for p_spin, p_dat in spin_event_p.items():
+                p_time = p_dat.time.values
+                # if there are any common timestamps
+                if any(t in p_time for t in f_time):
+                    # append the spindle index
+                    p_overlap.append(p_spin)
+            spin_map[f_spin] = p_overlap
+
+    # get the union of timestamps for overlapping spindles
+    for (fp_label, fp_spins), (sp_label, spin_map), spin_event_f, spin_event_p in zip(fp_spin_events.items(), spin_maps.items(), spin_events_f, spin_events_p):
+        for f_spin, p_spin_list in spin_map.items():
+            # get timestamps for the frontal spindle
+            f_timestamps = spin_event_f[f_spin].time.values
+            # get a list of timestamps for the parietal spindle (in case of >1 overlap)
+            p_timestamps_list = [spin_event_p[p].time.values for p in p_spin_list]
+            # flatten the list of p_timestamps
+            p_timestamps = np.array([t for sublist in p_timestamps_list for t in sublist])
+            # merge the union of the timestamps
+            f_df = pd.DataFrame(f_timestamps, columns=['timestamp'])
+            p_df = pd.DataFrame(p_timestamps, columns=['timestamp'])
+            fp_df = pd.merge(f_df, p_df, how='outer')
+            fp_timestamps = sorted(fp_df.timestamp.values)
+            # use f_spin as key to preserve relationship between other spindle data
+            fp_spins[f_spin] = fp_timestamps 
+
+    ## run coherence and PSI for each spindle
+
+    # set data, min/max frequencies of interest to min/max spindle range
+    fmin, fmax = n.metadata['spindle_analysis']['spin_range']
+    data = n.data
+
+    psi_dicts = {'f3p3_c0':{}, 'f3p3_c1':{}, 'f4p4_c0':{}, 'f4p4_c1':{}}
+    data_chans = [('F3', 'P3'), ('F3', 'P3'), ('F4', 'P4'), ('F4', 'P4')]
+    
+    # create columns and empty rows list for coh_df
+    cols=['label', 'fspin_event', 'chans', 'f_chan', 'p_chan', 'cluster', 'clust_text', 'coherence', 'coh_freqs', 'psi', 'plv', 'plv_freqs', 'pli', 'pli_freqs']
+    rows = []
+
+    # create dict to save out events
+    f_psi_data = {'f3':{}, 'f4':{}}
+    p_psi_data = {'p3':{}, 'p4':{}}
+
+    # run calculations for each spindle event
+    sf = n.s_freq
+    for chans, (events_label, events_dict), (psi_label, psi_dict) in zip(data_chans, fp_spin_events.items(), psi_dicts.items()):
+        for spin, ts in events_dict.items():
+            # set channel names
+            f_chan = psi_label[:2]
+            p_chan = psi_label[2:4]
+            # pull and zero-pad the data
+            f_dat = data[(chans[0], 'Raw')].loc[ts].values
+            f_dat_zpad = zpad(f_dat, sf, zpad_len=zpad_len, zpad_mult=zpad_mult)
+            p_dat = data[(chans[1], 'Raw')].loc[ts].values
+            p_dat_zpad = zpad(p_dat, sf, zpad_len=zpad_len, zpad_mult=zpad_mult)
+            # save to dicts
+            f_psi_data[f_chan][spin] = f_dat_zpad
+            p_psi_data[p_chan][spin] = p_dat_zpad
+
+            # reformat for calculations
+            spin_dat = np.array([f_dat_zpad, p_dat_zpad])
+            psi_dat = spin_dat.reshape(1, spin_dat.shape[0], spin_dat.shape[1])
+            # calc psi
+            try:
+                psi_arr, psi_freqs, times, n_epochs, n_tapers = phase_slope_index(psi_dat, sfreq=n.s_freq, 
+                                                                              mt_bandwidth=bw, mt_adaptive=adapt, fmin=fmin, fmax=fmax)
+                psi = psi_arr[1][0]
+            except ValueError:
+                psi = None
+                pass
+            # calc coherence
+            try:
+                coh_arr, coh_freqs, times, n_epochs, n_tapers = spectral_connectivity(psi_dat, method='coh', sfreq=n.s_freq, 
+                                                                                  mt_bandwidth=bw, mt_adaptive=adapt, fmin=fmin, fmax=fmax)
+                coh = coh_arr[1][0]
+            except ValueError:
+                coh, coh_freqs = None, None
+                pass
+            # calc phase lag index
+            try:
+                pli_arr, pli_freqs, times, n_epochs, n_tapers = spectral_connectivity(psi_dat, method='pli', sfreq=n.s_freq, 
+                                                                                  mt_bandwidth=bw, mt_adaptive=adapt, fmin=fmin, fmax=fmax)
+                pli = pli_arr[1][0]
+            except ValueError:
+                pli = None
+                pass
+            # calc phase locking value
+            try:
+                plv_arr, plv_freqs, times, n_epochs, n_tapers = spectral_connectivity(psi_dat, method='plv', sfreq=n.s_freq, 
+                                                                                  mt_bandwidth=bw, mt_adaptive=adapt, fmin=fmin, fmax=fmax)
+                plv = plv_arr[1][0]
+            except ValueError:
+                plv = None
+                pass
+            
+            # create the row & append to rows list
+            c = psi_label.split('_')[0]
+            clust = psi_label.split('_')[1][1]
+            if int(clust) == 0:
+                clust_txt = 'zero'
+            elif int(clust) == 1:
+                clust_txt = 'one'
+            vals = [psi_label, spin, c, f_chan, p_chan, clust, clust_txt, coh, coh_freqs, psi, plv, plv_freqs, pli, pli_freqs]
+            row = {c:v for c, v in zip(cols, vals)}
+            rows.append(row)
+
+    # convert rows into dataframe
+    coh_df = pd.DataFrame(rows)
+
+    # save params
+    coh_params = {'data_chans': data_chans, 'zpad_len': zpad_len, 'bw':bw, 'adapt':adapt}
+
+    return coh_params, coh_df, f_psi_data, p_psi_data
+
+
+def psi_stats(coh_df, equal_var):
+    """ run equal variance and t-tests on psi by cluster """
+    stats = {}
+    clusters = ['0', '1']
+    clust_psi = {}
+
+    for c in clusters:
+        # pull psi values and remove Nones
+        psi = np.array([x[0] for x in coh_df[coh_df.cluster == c].psi if x is not None])
+        clust_psi[c] = psi
+        # get desciptive statistics
+        mean = psi.mean()
+        std = psi.std()
+        stats[c] = {'mean': mean, 'std':std}
+    
+    # test for unequal variance
+    # levene = not normal distributions; bartlett = normal distributions
+    lev = levene(clust_psi['0'], clust_psi['1'])
+    bart = bartlett(clust_psi['0'], clust_psi['1'])
+    stats['levene_notnormdist'] = lev
+    stats['bartlett_normdist'] = bart
+    
+    stats['t_test'] = {'equal_var':equal_var}
+    ttest = ttest_ind(clust_psi['0'], clust_psi['1'], equal_var = True)
+    stats['t_test']['result'] = ttest
+    
+    return stats
+
+
+def plot_coh(coh_df):
+    """ Plot mean coherence for each label in coh_df (f3-p3_c0, f3-p3_c1, f4-p4_c0, f4-p4_c1) 
+        Note: This will throw an error if all spindles are not the same length (e.g. no zero-padding)
+    """
+    # mean coherence
+    fig, axs = plt.subplots(4, 1, figsize =(8, 12))
+
+    labels = set(coh_df.label.values)
+    for label, ax in zip(labels, axs.flatten()):
+        data = coh_df[coh_df.label == label].coherence
+        coh_mean = data.mean()
+        coh_std = np.array(data).std()
+        
+        coh_freqs = coh_df[coh_df.label == label].coh_freqs.iloc[0]
+        ser = pd.Series(coh_mean, coh_freqs)
+        ax.plot(ser)
+        ax.fill_between(x=coh_freqs, y1=(coh_mean-coh_std), y2=(coh_mean+coh_std), alpha= 0.2)
+        ax.set_title(label)
+
+    fig.tight_layout()
+    
+    return fig
+
+def plot_psi(coh_df, group='label'):
+    """ Plot phase slope index
+
+        Parameters
+        ----------
+        coh_df: pd.DataFarme
+            df of coherence/psi values
+        group: str (default: 'label')
+            how to group the data [options: 'label', 'clust_text', 'chans']
+    """
+
+    fig, ax = plt.subplots()
+
+    df_notna = coh_df[coh_df.psi.notna()]
+    ax = sns.swarmplot(y=group, x='psi', data=df_notna)
+    ax.axvline(x=0, color='black', linestyle=':')
 
     return fig
 
