@@ -1980,6 +1980,13 @@ class NREM:
                 so_filtdata = self.sofiltEEG[chan]['Filtered'].loc[start:end]
                 spso_filtdata = self.spsofiltEEG[chan]['Filtered'].loc[start:end]
                 
+                # find & drop any NaN insertions at 1ms sfreq (likely artifact from blocking data)
+                nan_idx = [e for e, x in enumerate(np.diff(so_data.index)) if int(x) == 3000000]
+                if len(nan_idx) > 0:
+                    so_data = so_data.drop(so_data.index[nan_idx])
+                    so_filtdata = so_filtdata.drop(so_filtdata.index[nan_idx])
+                    spso_filtdata = spso_filtdata.drop(spso_filtdata.index[nan_idx])
+                
                 # set new index so that each SO is zero-centered around the negative peak
                 ms1 = list(range(-2000, 0, int(1/self.metadata['analysis_info']['s_freq']*1000)))
                 ms2 = [-x for x in ms1[::-1]]
