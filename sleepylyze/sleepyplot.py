@@ -1440,7 +1440,7 @@ def plot_spso_chan_subplots(n, chan, so_dtype='sofilt', sp_dtype='spfilt'):
     fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
 
-def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True):
+def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True, so_tracings=True):
     """ Plot individual slow oscillations with overriding spindle detections 
     
         Parameters
@@ -1456,14 +1456,21 @@ def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracing
             whether to plot spindle tracings
         plot_dist: bool (default: True)
             whether to plot spindle distribution
+        so_tracings: bool (default: True)
+            whether to plot so tracings (if False, will plot SO mean)
     """
     
     fig, ax = plt.subplots(figsize=(10, 10))
-    fig.subplots_adjust(hspace=0.4)
     
+    so_dict = {}
     for so_id, df in n.spso_aggregates[chan].items():
-        # plot slow oscillation
-        ax.plot(df[so_dtype], color='black', alpha=0.2)
+        if so_tracings:
+            # plot slow oscillation
+            ax.plot(df[so_dtype], color='black', alpha=0.2)
+        else:
+            # grab the slow oscillations to calculate mean
+            so_dict[chan+'_'+str(so_id)] = df[df.index.notna()][so_dtype]
+
         # grab spindle columns
         spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
         for spin in spin_cols:
@@ -1477,10 +1484,13 @@ def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracing
                 hx = matplotlib.colors.rgb2hex(c[:-1])
                 ax.plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
 
-        ax.tick_params(axis='x', rotation=15., pad=.1)
-        ax.tick_params(axis='y', rotation=0, pad=.1)
-        ax.set_ylabel('Ampltiude (mV)')
-        ax.set_xlabel('Time (ms)')
+    # plot SO mean
+    if so_tracings == False:
+        so_df = pd.DataFrame(so_dict)
+        mean = so_df.mean(axis=1)
+        sd = so_df.std(axis=1)
+        ax.plot(mean, color='black')
+        ax.fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
 
     if plot_dist:
         # plot normalized distribution of each cluster for each timepoint
@@ -1495,13 +1505,18 @@ def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracing
         ax1.set_ylabel('Proportion of spindles present')
         ax1.legend()
 
+    ax.tick_params(axis='x', rotation=15., pad=.1)
+    ax.tick_params(axis='y', rotation=0, pad=.1)
+    ax.set_ylabel('Ampltiude (mV)')
+    ax.set_xlabel('Time (ms)')
+
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
     fig.tight_layout()
     
     return fig
 
 
-def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True):
+def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True, so_tracings=True):
     """ Plot individual slow oscillations with overriding spindle detections 
     
         Parameters
@@ -1515,15 +1530,22 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
             whether to plot spindle tracings
         plot_dist: bool (default: True)
             whether to plot spindle distribution
+        so_tracings: bool (default: True)
+            whether to plot SO tracings (if set to False, mean SO will be plotted)
     """
     
     fig, ax = plt.subplots(figsize=(10, 10))
-    fig.subplots_adjust(hspace=0.4)
     
+    so_dict = {}
     for chan in n.spso_aggregates.keys():
         for so_id, df in n.spso_aggregates[chan].items():
-            # plot slow oscillation
-            ax.plot(df[so_dtype], color='black', alpha=0.2)
+            if so_tracings:
+                # plot slow oscillation
+                ax.plot(df[so_dtype], color='black', alpha=0.2)
+            else:
+                # grab the slow oscillations to calculate mean
+                so_dict[chan+'_'+str(so_id)] = df[df.index.notna()][so_dtype]
+
             # grab spindle columns
             spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
             for spin in spin_cols:
@@ -1537,10 +1559,13 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
                     hx = matplotlib.colors.rgb2hex(c[:-1])
                     ax.plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
 
-            ax.tick_params(axis='x', rotation=15., pad=.1)
-            ax.tick_params(axis='y', rotation=0, pad=.1)
-            ax.set_ylabel('Ampltiude (mV)')
-            ax.set_xlabel('Time (ms)')
+    # plot SO mean
+    if so_tracings == False:
+        so_df = pd.DataFrame(so_dict)
+        mean = so_df.mean(axis=1)
+        sd = so_df.std(axis=1)
+        ax.plot(mean, color='black')
+        ax.fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
 
     if plot_dist:
         # plot normalized distribution of each cluster for each timepoint
@@ -1554,6 +1579,11 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
             ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
         ax1.set_ylabel('Proportion of spindles present')
         ax1.legend()
+
+    ax.tick_params(axis='x', rotation=15., pad=.1)
+    ax.tick_params(axis='y', rotation=0, pad=.1)
+    ax.set_ylabel('Ampltiude (mV)')
+    ax.set_xlabel('Time (ms)')
 
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
     fig.tight_layout()
