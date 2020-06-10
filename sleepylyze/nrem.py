@@ -1996,8 +1996,8 @@ class NREM:
                 so[chan][i] = pd.DataFrame(index=id_ms)
                 so[chan][i].index.name='id_ms'
                 
-                # if the SO is not a full 2s from the beginning
-                if start < self.data.index[0]:
+                # if the SO is not a full 2s from the beginning OR if there's a data break < 2seconds before the peak
+                if (start < self.data.index[0]) or (start < so_data.index[0]):
                     # extend the df index to the full 2s
                     time_freq = str(int(1/self.metadata['analysis_info']['s_freq']*1000000))+'us'
                     time = pd.date_range(start=start, end=end, freq=time_freq)
@@ -2011,8 +2011,8 @@ class NREM:
                     spsofiltdata_extended = list(nans) + list(spso_filtdata.values)
                     so[chan][i]['spsofilt'] = spsofiltdata_extended
 
-                # if the SO is not a full 2s from the end
-                elif end > self.data.index[-1]:
+                # if the SO is not a full 2s from the end OR if there's a data break < 2seconds after the peak
+                elif (end > self.data.index[-1]) or (end > so_data.index[-1]):
                     # extend the df index to the full 2s
                     time_freq = str(int(1/self.metadata['analysis_info']['s_freq']*1000000))+'us'
                     time = pd.date_range(start=start, end=end, freq=time_freq)
