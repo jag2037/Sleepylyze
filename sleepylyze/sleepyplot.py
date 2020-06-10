@@ -1489,8 +1489,9 @@ def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracing
         so_df = pd.DataFrame(so_dict)
         mean = so_df.mean(axis=1)
         sd = so_df.std(axis=1)
-        ax.plot(mean, color='black')
-        ax.fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
+        if len(mean) > 0:
+            ax.plot(mean, color='black')
+            ax.fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
 
     if plot_dist:
         # plot normalized distribution of each cluster for each timepoint
@@ -1564,8 +1565,9 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
         so_df = pd.DataFrame(so_dict)
         mean = so_df.mean(axis=1)
         sd = so_df.std(axis=1)
-        ax.plot(mean, color='black')
-        ax.fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
+        if len(mean) > 0:
+            ax.plot(mean, color='black')
+            ax.fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
 
     if plot_dist:
         # plot normalized distribution of each cluster for each timepoint
@@ -1587,6 +1589,98 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
 
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
     fig.tight_layout()
+    
+    return fig
+
+
+def plot_spso_headplot(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True, so_tracings=True):
+    """ Plot headplot of slow oscillations with spindle distribution by cluster
+
+        Parameters
+        ----------
+        chan: str
+            channel to plot
+        so_dtype: str (default: 'sofilt')
+            slow oscillation data to plot [Options: 'sofilt', 'spsofilt']
+        sp_dtype: str (default: 'spsofilt')
+            spindle data to plot [Options: 'spfilt', 'spsofilt']
+            *Note: spfilt is broken ATM
+        spin_tracings: bool (default: False)
+            whether to plot spindle tracings
+        plot_dist: bool (default: True)
+            whether to plot spindle distribution
+    """
+
+    # set channel locations
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'FP2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
+            'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
+    
+    fig, ax = plt.subplots(9,9, figsize=(15, 13))
+    plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
+    
+    for chan in locs.keys():
+        so_dict = {}
+        for so_id, df in n.spso_aggregates[chan].items():
+            if so_tracings:
+                # plot slow oscillation
+                ax[locs[chan][1], locs[chan][0]].plot(df[so_dtype], color='black', alpha=0.2)
+            else:
+                # grab the slow oscillations to calculate mean
+                so_dict[chan+'_'+str(so_id)] = df[df.index.notna()][so_dtype]
+
+            # grab spindle columns
+            spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
+            for spin in spin_cols:
+                # get index & cluster of spindle
+                spin_idx = int(spin_cols[0].split('_')[1])
+                clust = int(n.spindle_stats_i[(n.spindle_stats_i.chan == chan) & (n.spindle_stats_i.spin == spin_idx)].cluster.values)
+
+                if spin_tracings:
+                    # plot spindle
+                    c = plt.get_cmap('RdYlBu', 2)(clust)
+                    hx = matplotlib.colors.rgb2hex(c[:-1])
+                    ax[locs[chan][1], locs[chan][0]].plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
+
+        # plot SO mean
+        if so_tracings == False:
+            so_df = pd.DataFrame(so_dict)
+            mean = so_df.mean(axis=1)
+            sd = so_df.std(axis=1)
+            if len(mean) > 0:
+                ax[locs[chan][1], locs[chan][0]].plot(mean, color='black')
+                ax[locs[chan][1], locs[chan][0]].fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
+
+        if plot_dist:
+            # plot normalized distribution of each cluster for each timepoint
+            ax1 = ax[locs[chan][1], locs[chan][0]].twinx()
+            for clust, dct in n.spin_dist['by_chan'][chan].items():
+                # set color
+                c = plt.get_cmap('RdYlBu', 2)(int(clust))
+                hx = matplotlib.colors.rgb2hex(c[:-1])
+                # plot normed distribution
+                ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
+                ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
+                ax1.tick_params(axis='both', labelsize='x-small')
+
+        ax[locs[chan][1], locs[chan][0]].set_title(chan, size='small')
+        ax[locs[chan][1], locs[chan][0]].tick_params(axis='x', rotation=0, pad=.1, labelsize='x-small')
+        ax[locs[chan][1], locs[chan][0]].tick_params(axis='y', rotation=0, pad=.1, labelsize='x-small')
+    
+    # remove unused plots
+    coords = [[x, y] for x in range(0, 9) for y in range(0,9)]
+    unused = [c for c in coords if  c not in locs.values()]
+    for u in unused:
+        fig.delaxes(ax[u[1], u[0]])
+
+    #fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+    
+    # set labels
+    fig.text(0.5, 0.9, n.metadata['file_info']['fname'].split('.')[0], ha='center', size='large', weight='semibold')
+    fig.text(0.5, 0.08, 'Time (ms)', ha='center', size='large', weight='semibold')
+    fig.text(0.08, 0.5, 'Amplitude (mV)', va='center', rotation='vertical', size='large', weight='semibold')
+    fig.text(0.93, 0.5, 'Proportion of Spindles Present', va='center', rotation=270, size='large', weight='semibold')
     
     return fig
 
