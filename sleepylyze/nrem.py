@@ -2092,7 +2092,7 @@ class NREM:
                     spso_agg = so[chan][so_idx]
                     for s in spins:
                         # add spindle filtered and spso filtered data for each spindle
-                        spso_agg = spso_agg.join(self.spfiltEEG[(chan, 'Filtered')].loc[spindles[chan][s].time.values].rename('spfilt_spin_'+str(s)), 
+                        spso_agg = spso_agg.join(self.spfiltEEG[(chan, 'Filtered')].loc[spindles[chan][s].time.values].rename('spin_'+str(s)+'_spfilt'), 
                             on='time', how='outer')
                     spso_aggregates[chan][so_idx] = spso_agg
 
