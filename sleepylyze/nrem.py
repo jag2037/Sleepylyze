@@ -2126,7 +2126,7 @@ class NREM:
                     spin_label = chan + '_' + str(spin_idx)
                     spin_dist_bool['all'][str(clust)][spin_label] = df[df.index.notna()][spin].notna().values
                     spin_dist_bool['by_chan'][chan][str(clust)][spin_idx] = df[df.index.notna()][spin].notna().values
-                    idx = df[df.index.notna()].index
+        idx = df[df.index.notna()].index
 
         # create series & normalize from dataframe
         for clust, dct in spin_dist_bool['all'].items():
@@ -2162,4 +2162,4 @@ class NREM:
         self.align_spindles()
 
         # calculate spindle distribution along SOs
-        self.spso_dist()
+        self.spso_distribution()
