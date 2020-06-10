@@ -1986,7 +1986,7 @@ class NREM:
                     so_data = so_data.drop(so_data.index[nan_idx])
                     so_filtdata = so_filtdata.drop(so_filtdata.index[nan_idx])
                     spso_filtdata = spso_filtdata.drop(spso_filtdata.index[nan_idx])
-                
+
                 # set new index so that each SO is zero-centered around the negative peak
                 ms1 = list(range(-2000, 0, int(1/self.metadata['analysis_info']['s_freq']*1000)))
                 ms2 = [-x for x in ms1[::-1]]
@@ -2034,61 +2034,132 @@ class NREM:
         self.so = so
         print('Dataframes created. Slow oscillation data stored in obj.so.')
 
-    def analyze_spso(self):
-        """ starter code to calculate placement of spindles on the slow oscillation """
-        
+    
+    def align_spindles(self):
+        """ Align spindles along slow oscillations """
         print('Aligning spindles to slow oscillations...')
+        so = self.so
+        data = self.data
+        spindles = self.spindles
+
         # create a dictionary of SO indices
         so_dict = {}
-        for chan in self.so:
-            so_dict[chan] = [self.so[chan][i].time.values for i in self.so[chan]]
+        for chan in so:
+            so_dict[chan] = [so[chan][i].time.values for i in so[chan]]
         
         # flatten the dictionary into a boolean df
-        so_bool = pd.DataFrame(index = self.data.index)
+        so_bool_dict = {}
         for chan in so_dict:
             if chan not in ['EOG_L', 'EOG_R', 'EKG']:
                 so_flat = [time for so in so_dict[chan] for time in so]
-                so_bool[chan] = np.isin(self.data.index.values, so_flat)
+                so_bool_dict[chan] = np.isin(data.index.values, so_flat)
+        so_bool = pd.DataFrame(so_bool_dict, index=data.index)
         
         # create a spindle boolean df
-        spin_bool = pd.DataFrame(index = self.data.index)
-        for chan in self.spindle_events:
+        spin_bool_dict = {}
+        for chan in spindles.keys():
             if chan not in ['EOG_L', 'EOG_R', 'EKG']:
-                spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
-                spin_bool[chan] = np.isin(self.data.index.values, spins_flat)
+                spins_tlist = [df.time.values for df in spindles[chan].values()]
+                spins_flat = [time for spindle in spins_tlist for time in spindle]
+                spin_bool_dict[chan] = np.isin(data.index.values, spins_flat)
+        spin_bool = pd.DataFrame(spin_bool_dict, index=data.index)
                 
         # create a map of slow oscillations to spindles
         so_spin_map = {}
-        for chan in self.spindle_events:
+        for chan in spindles.keys():
             so_spin_map[chan] = {}
             so_flat = [time for so in so_dict[chan] for time in so]
             # for each spindle
-            for e_spin, spin in enumerate(self.spindle_events[chan]):
-                spin_trough = np.datetime64(self.data[chan]['Raw'].loc[self.spindle_events[chan][e_spin]].idxmin())
+            for e_spin, spin in spindles[chan].items():
+                # grab the trough of the filtered spindle
+                spin_trough = np.datetime64(spin.loc[0].time)
                 # if spindle trough overlaps w/ SO +/- 2s:
                 if spin_trough in so_flat:
-                        for e_so, so in enumerate(so_dict[chan]):
-                            if spin_trough in so:
+                        for e_so, so_times in enumerate(so_dict[chan]):
+                            if spin_trough in so_times:
                                 try:
                                     so_spin_map[chan][e_so].append(e_spin)
                                 except KeyError:
                                     so_spin_map[chan][e_so] = [e_spin]
 
+        print('Compiling aggregate dataframe...')
         # Make aggregate dataframe
         spso_aggregates = {}
-        for chan in self.so.keys():
+        for chan in so.keys():
             if chan not in ['EOG_L', 'EOG_R', 'EKG']:
                 spso_aggregates[chan] = {}
-                for so, spins in so_spin_map[chan].items(): 
-                    spso_agg = self.so[chan][so]
+                for so_idx, spins in so_spin_map[chan].items(): 
+                    spso_agg = so[chan][so_idx]
                     for s in spins:
-                        spso_agg = spso_agg.join(self.spfiltEEG[(chan, 'Filtered')].loc[self.spindle_events[chan][s]].rename('spin_'+str(s)), 
+                        # add spindle filtered and spso filtered data for each spindle
+                        spso_agg = spso_agg.join(self.spfiltEEG[(chan, 'Filtered')].loc[spindles[chan][s].time.values].rename('spfilt_spin_'+str(s)), 
                             on='time', how='outer')
-                    spso_aggregates[chan][so] = spso_agg
+                    spso_aggregates[chan][so_idx] = spso_agg
 
         self.so_bool = so_bool
         self.spin_bool = spin_bool
         self.so_spin_map = so_spin_map
         self.spso_aggregates = spso_aggregates
 
-        print('Alignment complete. Aggregate data stored in obj.spso_aggregates.')
+        print('Alignment complete. Aggregate data stored in obj.spso_aggregates.\n')
+
+    def spso_distribution(self):
+        """ get distribution of spindles along slow oscillations by cluster """
+
+        print('Calculating spindle distribution along slow oscillations...')
+        # create dicts to hold result
+        spin_dist_bool = {'all':{'0':{}, '1':{}}, 'by_chan':{}}
+        spin_dist = {'all':{'0':{}, '1':{}}, 'by_chan':{}}
+        
+        # Make boolean arrays of spindle distribution
+        for chan in self.spso_aggregates.keys():
+            spin_dist_bool['by_chan'][chan] = {'0':{}, '1':{}}
+            # iterrate over individual SO dataframes
+            for so_id, df in self.spso_aggregates[chan].items():
+                # grab spindle columns
+                spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
+                for spin in spin_cols:
+                    # get index & cluster of spindle
+                    spin_idx = int(spin_cols[0].split('_')[1])
+                    clust = int(n.spindle_stats_i[(n.spindle_stats_i.chan == chan) & (n.spindle_stats_i.spin == spin_idx)].cluster.values)
+                    # set spindle column & idx labels, save boolean values to dict
+                    spin_label = chan + '_' + str(spin_idx)
+                    spin_dist_bool['all'][str(clust)][spin_label] = df[df.index.notna()][spin].notna().values
+                    spin_dist_bool['by_chan'][chan][str(clust)][spin_idx] = df[df.index.notna()][spin].notna().values
+                    idx = df[df.index.notna()].index
+
+        # create series & normalize from dataframe
+        for clust, dct in spin_dist_bool['all'].items():
+             # calculate # of spindles at each timedelta
+            bool_df = pd.DataFrame(dct, index=idx)
+            dist_ser = bool_df.sum(axis=1)
+            # normalize the values to total # of spindles in that cluster
+            dist_norm = dist_ser/len(bool_df.columns)
+            spin_dist['all'][str(clust)]['dist'] = dist_ser
+            spin_dist['all'][str(clust)]['dist_norm'] = dist_norm
+
+        # Get distribution by channel
+        for chan, clst_dict in spin_dist_bool['by_chan'].items():
+            spin_dist['by_chan'][chan] = {'0':{}, '1':{}}
+            for clust, dct in clst_dict.items():
+                 # calculate # of spindles at each timedelta
+                bool_df = pd.DataFrame(dct, index=idx)
+                dist_ser = bool_df.sum(axis=1)
+                # normalize the values to total # of spindles in that cluster
+                dist_norm = dist_ser/len(bool_df.columns)
+                spin_dist['by_chan'][chan][str(clust)]['dist'] = dist_ser
+                spin_dist['by_chan'][chan][str(clust)]['dist_norm'] = dist_norm
+
+        self.spin_dist_bool = spin_dist_bool
+        self.spin_dist = spin_dist
+        print('Done. Distributions (overall and by channel) stored in obj.spin_dist_bool & obj.spin_dist\n')
+
+
+    def analyze_spso(self):
+        """ starter code to calculate placement of spindles on the slow oscillation """
+        
+        # align spindles & SOs
+        self.align_spindles()
+
+        # calculate spindle distribution along SOs
+        self.spso_dist()
