@@ -1411,8 +1411,8 @@ def plot_spsomap(n):
     ax.legend()
 
 
-def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spfilt'):
-    """ Plot individual slow oscillations with overriding spindle detections """
+def plot_spso_chan_subplots(n, chan, so_dtype='sofilt', sp_dtype='spfilt'):
+    """ Subplot individual slow oscillations with overriding spindle detections (one subplot per SO) """
     
     if sp_dtype == 'spfilt':
         spin_data = n.spfiltEEG
@@ -1440,36 +1440,128 @@ def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spfilt'):
     fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
 
+def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True):
+    """ Plot individual slow oscillations with overriding spindle detections 
+    
+        Parameters
+        ----------
+        chan: str
+            channel to plot
+        so_dtype: str (default: 'sofilt')
+            slow oscillation data to plot [Options: 'sofilt', 'spsofilt']
+        sp_dtype: str (default: 'spsofilt')
+            spindle data to plot [Options: 'spfilt', 'spsofilt']
+            *Note: spfilt is broken ATM
+        spin_tracings: bool (default: False)
+            whether to plot spindle tracings
+        plot_dist: bool (default: True)
+            whether to plot spindle distribution
+    """
+    
+    fig, ax = plt.subplots(figsize=(10, 10))
+    fig.subplots_adjust(hspace=0.4)
+    
+    for so_id, df in n.spso_aggregates[chan].items():
+        # plot slow oscillation
+        ax.plot(df[so_dtype], color='black', alpha=0.2)
+        # grab spindle columns
+        spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
+        for spin in spin_cols:
+            # get index & cluster of spindle
+            spin_idx = int(spin_cols[0].split('_')[1])
+            clust = int(n.spindle_stats_i[(n.spindle_stats_i.chan == chan) & (n.spindle_stats_i.spin == spin_idx)].cluster.values)
 
-def plot_spso(n):
-    """ Plot individual slow oscillations with overriding spindle detections """
-    
-    ncols = 6
-    nrows = len(n.spso_aggregates)//ncols + (len(n.spso_aggregates) % ncols > 0) 
-    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, sharex=True, figsize=(15, 7))
-    
-    for ax, (chan, so_keys) in zip(axs.flatten(), n.spso_aggregates.items()):
-        
-        color_so=iter(plt.cm.winter(np.linspace(0, 1, len(so_keys))))
-        for so in so_keys:
-            ax.plot(n.spso_aggregates[chan][so]['sofilt'], c='black', alpha=0.3, lw=1)
-            for spin in n.spso_aggregates[chan][so].columns[4:]:
-                ax.plot(n.spso_aggregates[chan][so][spin], c=np.random.rand(3,), alpha=0.8, lw=1)
-        ax.set_title(chan)
-    
-    # delete extra subplots
-    for e, ax in enumerate(axs.flatten()):
-        if e >= len(n.spso_aggregates):
-            fig.delaxes(ax)
-        
-    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
-    fig.text(0.5, 0, 'Time (ms)', ha='center')
-    fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
+            if spin_tracings:
+                # plot spindle
+                c = plt.get_cmap('RdYlBu', 2)(clust)
+                hx = matplotlib.colors.rgb2hex(c[:-1])
+                ax.plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
+
+        ax.tick_params(axis='x', rotation=15., pad=.1)
+        ax.tick_params(axis='y', rotation=0, pad=.1)
+        ax.set_ylabel('Ampltiude (mV)')
+        ax.set_xlabel('Time (ms)')
+
+    if plot_dist:
+        # plot normalized distribution of each cluster for each timepoint
+        ax1 = ax.twinx()
+        for clust, dct in n.spin_dist['by_chan'][chan].items():
+            # set color
+            c = plt.get_cmap('RdYlBu', 2)(int(clust))
+            hx = matplotlib.colors.rgb2hex(c[:-1])
+            # plot normed distribution
+            ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
+            ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
+        ax1.set_ylabel('Proportion of spindles present')
+        ax1.legend()
+
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+    fig.tight_layout()
     
     return fig
 
 
+def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True):
+    """ Plot individual slow oscillations with overriding spindle detections 
+    
+        Parameters
+        ----------
+        so_dtype: str (default: 'sofilt')
+            slow oscillation data to plot [Options: 'sofilt', 'spsofilt']
+        sp_dtype: str (default: 'spsofilt')
+            spindle data to plot [Options: 'spfilt', 'spsofilt']
+            *Note: spfilt is broken ATM
+        spin_tracings: bool (default: False)
+            whether to plot spindle tracings
+        plot_dist: bool (default: True)
+            whether to plot spindle distribution
+    """
+    
+    fig, ax = plt.subplots(figsize=(10, 10))
+    fig.subplots_adjust(hspace=0.4)
+    
+    for chan in n.spso_aggregates.keys():
+        for so_id, df in n.spso_aggregates[chan].items():
+            # plot slow oscillation
+            ax.plot(df[so_dtype], color='black', alpha=0.2)
+            # grab spindle columns
+            spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
+            for spin in spin_cols:
+                # get index & cluster of spindle
+                spin_idx = int(spin_cols[0].split('_')[1])
+                clust = int(n.spindle_stats_i[(n.spindle_stats_i.chan == chan) & (n.spindle_stats_i.spin == spin_idx)].cluster.values)
+                
+                if spin_tracings:
+                    # plot spindle
+                    c = plt.get_cmap('RdYlBu', 2)(clust)
+                    hx = matplotlib.colors.rgb2hex(c[:-1])
+                    ax.plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
+
+            ax.tick_params(axis='x', rotation=15., pad=.1)
+            ax.tick_params(axis='y', rotation=0, pad=.1)
+            ax.set_ylabel('Ampltiude (mV)')
+            ax.set_xlabel('Time (ms)')
+
+    if plot_dist:
+        # plot normalized distribution of each cluster for each timepoint
+        ax1 = ax.twinx()
+        for clust, dct in n.spin_dist['all'].items():
+            # set color
+            c = plt.get_cmap('RdYlBu', 2)(int(clust))
+            hx = matplotlib.colors.rgb2hex(c[:-1])
+            # plot normed distribution
+            ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
+            ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
+        ax1.set_ylabel('Proportion of spindles present')
+        ax1.legend()
+
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+    fig.tight_layout()
+    
+    return fig
+
+
+#### Topoplot methods ####
 
 def plot_tstats_topo(n, col):
     """ Plot topoplots for nrem.spindle_tstats column [col = column name] """
@@ -1600,6 +1692,8 @@ def plot_tstats_topo(n, col):
 
     return fig
 
+
+#### Export Methods ####
 
 def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=True, spins_i=True, spindle_means=True, psd_concat=True):
     """ Produce and export all spindle figures 
