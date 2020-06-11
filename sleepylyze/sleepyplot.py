@@ -1612,7 +1612,7 @@ def plot_spso_headplot(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=
     """
 
     # set channel locations
-    locs = {'FPz': [4, 0],'Fp1': [3, 0],'FP2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
             'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
             'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
             'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
@@ -1652,6 +1652,11 @@ def plot_spso_headplot(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=
                 ax[locs[chan][1], locs[chan][0]].plot(mean, color='black')
                 ax[locs[chan][1], locs[chan][0]].fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
 
+        ax[locs[chan][1], locs[chan][0]].set_title(chan, size='small')
+        ax[locs[chan][1], locs[chan][0]].tick_params(axis='x', rotation=0, pad=.1, labelsize='x-small')
+        ax[locs[chan][1], locs[chan][0]].tick_params(axis='y', rotation=0, pad=.1, labelsize='x-small')
+        ax[locs[chan][1], locs[chan][0]].spines['top'].set_visible(False)
+
         if plot_dist:
             # plot normalized distribution of each cluster for each timepoint
             ax1 = ax[locs[chan][1], locs[chan][0]].twinx()
@@ -1663,10 +1668,7 @@ def plot_spso_headplot(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=
                 ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
                 ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
                 ax1.tick_params(axis='both', labelsize='x-small')
-
-        ax[locs[chan][1], locs[chan][0]].set_title(chan, size='small')
-        ax[locs[chan][1], locs[chan][0]].tick_params(axis='x', rotation=0, pad=.1, labelsize='x-small')
-        ax[locs[chan][1], locs[chan][0]].tick_params(axis='y', rotation=0, pad=.1, labelsize='x-small')
+                ax1.spines['top'].set_visible(False)
     
     # remove unused plots
     coords = [[x, y] for x in range(0, 9) for y in range(0,9)]

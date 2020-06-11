@@ -2121,7 +2121,7 @@ class NREM:
                 for spin in spin_cols:
                     # get index & cluster of spindle
                     spin_idx = int(spin_cols[0].split('_')[1])
-                    clust = int(n.spindle_stats_i[(n.spindle_stats_i.chan == chan) & (n.spindle_stats_i.spin == spin_idx)].cluster.values)
+                    clust = int(self.spindle_stats_i[(self.spindle_stats_i.chan == chan) & (self.spindle_stats_i.spin == spin_idx)].cluster.values)
                     # set spindle column & idx labels, save boolean values to dict
                     spin_label = chan + '_' + str(spin_idx)
                     spin_dist_bool['all'][str(clust)][spin_label] = df[df.index.notna()][spin].notna().values
