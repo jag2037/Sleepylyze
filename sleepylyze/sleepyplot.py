@@ -947,12 +947,17 @@ def plot_spin_means(n, datatype='Raw', spins=True, count=True, buffer=False, err
     
     exclude = ['EKG', 'EOG_L', 'EOG_R']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
-    ncols = 6
-    nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
-    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, sharex=True, figsize=(18, 10))
-    fig.subplots_adjust(hspace=0.5)
     
-    for chan, ax in zip(n.spindles.keys(), axs.flatten()):
+    # set channel locations
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
+            'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
+    
+    fig, ax = plt.subplots(9,9, figsize=(15, 13))
+    plt.subplots_adjust(hspace=0.3, wspace=0.3)
+    
+    for chan in n.spindles.keys():
         if chan not in exclude:
             # if buffer:
             #     data = n.spindle_buffer_means
@@ -961,11 +966,11 @@ def plot_spin_means(n, datatype='Raw', spins=True, count=True, buffer=False, err
             #                     color=buff_color, alpha=0.2)
             if spins:
                 data = n.spindle_means[datatype]
-                ax.plot(data[(chan, 'mean')], alpha=1, color=spin_color, label='Spindle Average', lw=1)
-                ax.fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
+                ax[locs[chan][1], locs[chan][0]].plot(data[(chan, 'mean')], alpha=1, color=spin_color, label='Spindle Average', lw=1)
+                ax[locs[chan][1], locs[chan][0]].fill_between(data.index, data[(chan, 'mean')] - data[(chan, err)], data[(chan, 'mean')] + data[(chan, err)], 
                                 color=spin_color, alpha=0.2)
                 if count:
-                    ax1 = ax.twinx()
+                    ax1 = ax[locs[chan][1], locs[chan][0]].twinx()
                     ax1.plot(data[chan, 'count'], color=count_color, alpha=0.3)
                     ax1.fill_between(data.index, 0, data[(chan, 'count')], color=count_color, alpha=0.3)
                     max_count = len(n.spindles[chan])
@@ -975,14 +980,15 @@ def plot_spin_means(n, datatype='Raw', spins=True, count=True, buffer=False, err
                     ax1.tick_params(axis='y', labelsize=8) #color=count_color)
 
             # set subplot params
-            ax.set_xlim([-1800, 1800])
-            ax.set_title(chan, fontsize='medium')
-            ax.tick_params(axis='both', which='both', labelsize=8)
+            ax[locs[chan][1], locs[chan][0]].set_xlim([-1800, 1800])
+            ax[locs[chan][1], locs[chan][0]].set_title(chan, fontsize='medium')
+            ax[locs[chan][1], locs[chan][0]].tick_params(axis='both', which='both', labelsize=8)
 
-    # delete empty subplots --> this can probably be combined with previous loop
-    for i, ax in enumerate(axs.flatten()):
-        if i >= len(eeg_chans):
-            fig.delaxes(ax)
+    # remove unused plots
+    coords = [[x, y] for x in range(0, 9) for y in range(0,9)]
+    unused = [c for c in coords if  c not in locs.values()]
+    for u in unused:
+        fig.delaxes(ax[u[1], u[0]])
 
     # set figure params
     #fig.legend()   
@@ -1092,44 +1098,11 @@ def plot_spindlepower_headplot(n, dB=True):
         NOTE: only for FS128 (12-11-19)
     """
     
-    # set channel locations
-    locs = {'FPz': [4, 0],
-             'Fp1': [3, 0],
-             'Fp2': [5, 0],
-             'AF7': [1, 1],
-             'AF8': [7, 1],
-             'F7': [0, 2],
-             'F8': [8, 2],
-             'F3': [2, 2],
-             'F4': [6, 2],
-             'F1': [3, 2],
-             'F2': [5, 2],
-             'Fz': [4, 2],
-             'FC5': [1, 3],
-             'FC6': [7, 3],
-             'FC1': [3, 3],
-             'FC2': [5, 3],
-             'T3': [0, 4],
-             'T4': [8, 4],
-             'C3': [2, 4],
-             'C4': [6, 4],
-             'Cz': [4, 4],
-             'CP5': [1, 5],
-             'CP6': [7, 5],
-             'CP1': [3, 5],
-             'CP2': [5, 5],
-             'CPz': [4, 5],
-             'P3': [2, 6],
-             'P4': [6, 6],
-             'Pz': [4, 6],
-             'T5': [0, 6],
-             'T6': [8, 6],
-             'POz': [4, 7],
-             'PO7': [1, 7],
-             'PO8': [7, 7],
-             'O1': [2, 8],
-             'O2': [6, 8],
-             'Oz': [4, 8]}
+# set channel locations
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
+            'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
     
     fig, ax = plt.subplots(9,9, figsize=(12, 12))
     plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
@@ -1261,43 +1234,10 @@ def plot_gottselig_headplot(n, datatype='calcs', plot_peaks=True, smoothed=True)
     """
     
     # set channel locations
-    locs = {'FPz': [4, 0],
-             'Fp1': [3, 0],
-             'FP2': [5, 0],
-             'AF7': [1, 1],
-             'AF8': [7, 1],
-             'F7': [0, 2],
-             'F8': [8, 2],
-             'F3': [2, 2],
-             'F4': [6, 2],
-             'F1': [3, 2],
-             'F2': [5, 2],
-             'Fz': [4, 2],
-             'FC5': [1, 3],
-             'FC6': [7, 3],
-             'FC1': [3, 3],
-             'FC2': [5, 3],
-             'T3': [0, 4],
-             'T4': [8, 4],
-             'C3': [2, 4],
-             'C4': [6, 4],
-             'Cz': [4, 4],
-             'CP5': [1, 5],
-             'CP6': [7, 5],
-             'CP1': [3, 5],
-             'CP2': [5, 5],
-             'CPz': [4, 5],
-             'P3': [2, 6],
-             'P4': [6, 6],
-             'Pz': [4, 6],
-             'T5': [0, 6],
-             'T6': [8, 6],
-             'POz': [4, 7],
-             'PO7': [1, 7],
-             'PO8': [7, 7],
-             'O1': [2, 8],
-             'O2': [6, 8],
-             'Oz': [4, 8]}
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
+            'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
     
     fig, ax = plt.subplots(9,9, figsize=(12, 12))
     plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
@@ -1363,35 +1303,43 @@ def plot_so(n, datatype='Raw'):
             Data to plot [Options: 'Raw', 'sofilt']
     """
     
+    # set channel locations
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
+            'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
+
     exclude = ['EKG', 'EOG_L', 'EOG_R']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
-    ncols = 6
-    nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
-    fig, axs = plt.subplots(nrows = nrows, ncols = ncols, sharex=True, figsize=(15, 7))
-    fig.subplots_adjust(hspace=0.5)
+
+    fig, ax = plt.subplots(9,9, figsize=(15, 13))
+    plt.subplots_adjust(hspace=0.3, wspace=0.3)
     
-    for chan, ax in zip(n.so.keys(), axs.flatten()):
+    for chan in n.so.keys():
         if chan not in exclude:
             # set color iterator -- for other colors look at ocean, gnuplot, prism
             color=iter(plt.cm.nipy_spectral(np.linspace(0, 1, len(n.so[chan]))))
             for i in n.so[chan]:
                 c = next(color)
-                ax.plot(n.so[chan][i][datatype], c=c, alpha=1, lw=0.8)
+                ax[locs[chan][1], locs[chan][0]].plot(n.so[chan][i][datatype], c=c, alpha=1, lw=0.8)
             # set subplot params
-            ax.set_xlim([-2500, 2500])
-            ax.set_title(chan, fontsize='medium')
-            ax.tick_params(axis='both', which='both', labelsize=8)
+            ax[locs[chan][1], locs[chan][0]].set_xlim([-2500, 2500])
+            ax[locs[chan][1], locs[chan][0]].set_title(chan, fontsize='medium')
+            ax[locs[chan][1], locs[chan][0]].tick_params(axis='both', which='both', labelsize=8)
 
-    # delete empty subplots --> this can probably be combined with previous loop
-    for i, ax in enumerate(axs.flatten()):
-        if i >= len(eeg_chans):
-            fig.delaxes(ax)
+    # remove unused plots
+    coords = [[x, y] for x in range(0, 9) for y in range(0,9)]
+    unused = [c for c in coords if  c not in locs.values()]
+    for u in unused:
+        fig.delaxes(ax[u[1], u[0]])
                  
     # set figure params   
     fig.tight_layout(pad=1, rect=[0, 0, 1, 0.95])
     fig.text(0.5, 0, 'Time (ms)', ha='center')
     fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+
+    fig.tight_layout()
 
     return fig
 
@@ -1579,6 +1527,7 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
             # plot normed distribution
             ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
             ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
+            ax1.set_ylim(0, 1.0)
         ax1.set_ylabel('Proportion of spindles present')
         ax1.legend()
 
@@ -1667,6 +1616,7 @@ def plot_spso_headplot(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=
                 # plot normed distribution
                 ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
                 ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
+                ax1.set_ylim(0, 1.0)
                 ax1.tick_params(axis='both', labelsize='x-small')
                 ax1.spines['top'].set_visible(False)
     
