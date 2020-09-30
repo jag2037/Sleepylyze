@@ -32,7 +32,7 @@ from scipy.optimize import OptimizeWarning, curve_fit
 class NREM:
     """ General class for nonREM EEG segments """
     def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False, lowpass_freq=25, lowpass_order=4,
-                laplacian_chans=['F3', 'F4', 'P3', 'P4'], replace_data=False):
+                laplacian_chans=None, replace_data=False):
         """ Initialize NREM object
             
             Parameters
@@ -53,8 +53,9 @@ class NREM:
                 lowpass filter frequency *Used in visualizations ONLY*. must be < nyquist
             lowpass_order: int (default: 4)
                 Butterworth lowpass filter order (doubles for filtfilt)
-            laplacian_chans: str, list, or None (default: ['F3', 'F4', 'P3', 'P4'])
+            laplacian_chans: str, list, or None (default: None)
                 channels to apply laplacian filter to [Options: 'all', list of channel names, None]
+                For leading/lagging analysis, was using ['F3', 'F4', 'P3', 'P4']
             replace_data: bool (default: False)
                 whether to replace primary data with laplcian filtered data
         """
@@ -1840,23 +1841,33 @@ class NREM:
         # add channel to main dataframe
         self.spsofiltEEG[i] = filt_chan
 
-    def get_so(self, i, posx_thres, npeak_thres, negpos_thres):
-        """ Detect slow oscillations. Based on detection algorithm from Molle 2011 
+    def get_so(self, i, method, posx_thres, negposx_thres, npeak_thres, negpos_thres):
+        """ Detect slow oscillations. Based on detection algorithm from Molle 2011 & Massimini 2004. 
             
             Parameters
             ----------
+            method: str (default: 'ratio')
+                SO detection method. [Options: 'absolute', 'ratio'] 
+                'absolute' employs absolute voltage values for npeak_thres and negpos_thres. 
+                'ratio' sets npeak_thres to None and negpos_thres to 1.75x the negative peak 
+                voltage for a given detection (ratio derived from Massimini 2004)
+                * NOTE: 'ratio' should be used if reference is a single scalp electrode (e.g. FCz), which would
+                result in variable absolute amplitudes according to electrode location
             posx_thres: list of float (default: [0.9, 2])
-                threshold of consecutive positive-negative zero crossings in seconds
+                threshold of consecutive positive-negative zero crossings in seconds. Equivalent to Hz range
+                for slow oscillations
+            negposx_thres: int (default: 300)
+                minimum time (in milliseconds) between positive-to-negative and negative-to-positive zero crossing
             npeak_thres: int (default: -80)
                 negative peak threshold in microvolts
             negpos_thres: int (default: 140)
                 minimum amplitude threshold for negative to positive peaks
         """
 
-        self.so_events[i] = {}
-        n = 0
+        so_events = {}
+        nx = 0
         
-        # convert thresholds (time to timedelta & uv to mv)
+        # convert thresholds
         posx_thres_td = [pd.Timedelta(s, 's') for s in posx_thres]
         npeak_mv = npeak_thres*(10**-3)
         negpos_mv = negpos_thres*(10**-3)
@@ -1867,33 +1878,74 @@ class NREM:
         # get zero-crossings
         mask = chan_dat > 0
         # shift pos/neg mask by 1 and compare
+        ## insert a false value at position 0 on the mask shift
         mask_shift = np.insert(np.array(mask), 0, None)
+        ## remove the last value of the shifted mask and set the index 
+        ## to equal the original mask 
         mask_shift = pd.Series(mask_shift[:-1], index=mask.index)
-        # pos-neg are True; neg-pos are False
+        # neg-pos are True; pos-neg are False
         so_zxings = mask[mask != mask_shift]
-        self.so_zxings = so_zxings
+        
+        # make empty lists for start and end times of vetted SO periods
+        pn_pn_starts = []
+        pn_pn_ends = []
+        cols = ['start', 'end']
 
-        # get intervals between subsequent positive-negative crossings
-        pn_xings = so_zxings[so_zxings==True]
-        intvls = pn_xings.index.to_series().diff()
+        # for each zero-crossing
+        for e, (idx, xing) in enumerate(so_zxings.items()):
+            # if it's not the last or second-to-last crossing
+            if e not in [len(so_zxings)-1, len(so_zxings)-2]:
+                # if it's positive-to-negative
+                if xing == False:
+                    # check the distance to the next negative-to-positive
+                    pn_np_intvl = so_zxings.index[e+1] - idx
+                    # if it's >= 300ms
+                    if pn_np_intvl >= pd.to_timedelta(negposx_thres, 'ms'):
+                        # if it's not the last or second-to-last crossing
+                        if e not in [len(so_zxings)-1, len(so_zxings)-2]:
+                            # if the next positive-to-negative crossing is within threshold
+                            pn_pn_intvl = so_zxings.index[e+2] - idx
+                            if posx_thres_td[0] <= pn_pn_intvl <= posx_thres_td[1]:
+                                # grab the next positive to negative crossing that completes the SO
+                                # period and add values to lists
+                                pn_pn_starts.append(idx)
+                                pn_pn_ends.append(so_zxings.index[e+2])
 
-        # loop through intervals
-        for e, v in enumerate(intvls):
-            # if interval is between >=0.9sec and <=2sec
-            if e != 0 and posx_thres_td[0] <= v <= posx_thres_td[1]:
-                # find negative & positive peaks
-                npeak_time = chan_dat.loc[intvls.index[e-1]:intvls.index[e]].idxmin()
-                npeak_val = chan_dat.loc[npeak_time]
-                ppeak_time = chan_dat.loc[intvls.index[e-1]:intvls.index[e]].idxmax()
-                ppeak_val = chan_dat.loc[ppeak_time]
+        # turn start and end lists into dataframe
+        so_periods = pd.DataFrame(list(zip(pn_pn_starts, pn_pn_ends)), columns=cols)
+
+        # loop through so_periods df
+        for idx, row in so_periods.iterrows():
+            # find negative & positive peaks
+            npeak_time = chan_dat.loc[row.start:row.end].idxmin()
+            npeak_val = chan_dat.loc[npeak_time]
+            ppeak_time = chan_dat.loc[row.start:row.end].idxmax()
+            ppeak_val = chan_dat.loc[ppeak_time]
+
+            # check absolute value thresholds if method is absolute
+            if method == 'absolute':
                 # if negative peak is < than threshold
                 if npeak_val < npeak_mv:
                     # if negative-positive peak amplitude is >= than threshold
                     if np.abs(npeak_val) + np.abs(ppeak_val) >= negpos_mv:
-                        self.so_events[i][n] = {'zcross1': intvls.index[e-1], 'zcross2': intvls.index[e], 'npeak': npeak_time, 
+                        so_events[nx] = {'pn_zcross1': row.start, 'pn_zcross2': row.end, 'npeak': npeak_time, 
                                            'ppeak': ppeak_time, 'npeak_minus2s': npeak_time - datetime.timedelta(seconds=2), 
                                            'npeak_plus2s': npeak_time + datetime.timedelta(seconds=2)}
-                        n += 1
+                        nx += 1
+            
+            # otherwise check ratio thresholds
+            elif method == 'ratio':
+                # npeak_val can be anything
+                # if negative-positive peak amplitude is >= 1.75x npeak_val
+                if np.abs(npeak_val) + np.abs(ppeak_val) >= 1.75*np.abs(npeak_val):
+                    so_events[nx] = {'pn_zcross1': row.start, 'pn_zcross2': row.end, 'npeak': npeak_time, 
+                                       'ppeak': ppeak_time, 'npeak_minus2s': npeak_time - datetime.timedelta(seconds=2), 
+                                       'npeak_plus2s': npeak_time + datetime.timedelta(seconds=2)}
+
+                    nx += 1
+                    
+        self.so_zxings = so_zxings
+        self.so_events[i] = so_events
 
     def soMultiIndex(self):
         """ combine dataframes into a multiIndex dataframe"""
@@ -1910,8 +1962,8 @@ class NREM:
         # # combine & custom sort --> what was this for??
         # self.so_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
 
-    def detect_so(self, wn=[0.1, 4], order=2, posx_thres = [0.9, 2], npeak_thres = -80, negpos_thres = 140,
-                    spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8):
+    def detect_so(self, wn=[0.1, 4], order=2, method='ratio', posx_thres = [0.9, 2], negposx_thres = 300, npeak_thres = -80, 
+        negpos_thres = 140, spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8):
         """ Detect slow oscillations by channel
         
             TO DO: Update docstring
@@ -1922,8 +1974,17 @@ class NREM:
                 Butterworth filter window
             order: int (default: 2)
                 Butterworth filter order (default of 2x2 from Massimini et al., 2004)
+            method: str (default: 'ratio')
+                SO detection method. [Options: 'absolute', 'ratio'] 
+                'absolute' employs absolute voltage values for npeak_thres and negpos_thres. 
+                'ratio' sets npeak_thres to None and negpos_thres to 1.75x the negative peak 
+                voltage for a given detection (ratio derived from Massimini 2004)
+                * NOTE: 'ratio' should be used if reference is a single scalp electrode (e.g. FCz), which would
+                result in variable absolute amplitudes according to electrode location
             posx_thres: list of float (default: [0.9, 2])
                 threshold of consecutive positive-negative zero crossings in seconds
+            negposx_thres: int (default: 300)
+                minimum time (in milliseconds) between positive-to-negative and negative-to-positive zero crossing
             npeak_thres: int (default: -80)
                 negative peak threshold in microvolts
             negpos_thres: int (default: 140)
@@ -1956,7 +2017,7 @@ class NREM:
                 self.spsofilt(i)
 
                 # Detect SO
-                self.get_so(i, posx_thres, npeak_thres, negpos_thres)
+                self.get_so(i, method, posx_thres, negposx_thres, npeak_thres, negpos_thres)
                 
         # combine dataframes
         print('Combining dataframes...')
@@ -1973,7 +2034,7 @@ class NREM:
         for chan in self.so_events.keys():
             so[chan] = {}
             for i, s in self.so_events[chan].items():
-                # create individual df for each spindle
+                # create individual df for each SO
                 start = self.so_events[chan][i]['npeak_minus2s']
                 end = self.so_events[chan][i]['npeak_plus2s']
                 so_data = self.data[chan]['Raw'].loc[start:end]
