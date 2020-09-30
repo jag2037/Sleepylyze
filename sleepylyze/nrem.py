@@ -2000,8 +2000,9 @@ class NREM:
             self.so_rejects
         """
         
-        self.metadata['so_analysis'] = {'so_filtwindow': wn, 'so_filtorder_half': order, 'posx_thres': posx_thres,
-                                        'npeak_thres': npeak_thres, 'negpos_thres': negpos_thres}
+        self.metadata['so_analysis'] = {'so_filtwindow': wn, 'so_filtorder_half': order, 'method': method, 
+                                        'posx_thres': posx_thres, 'negposx_thres': negposx_thres, 'npeak_thres': npeak_thres, 
+                                        'negpos_thres': negpos_thres}
         
         # set attributes
         self.so_attributes()
