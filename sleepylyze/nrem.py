@@ -1846,13 +1846,14 @@ class NREM:
             
             Parameters
             ----------
-            method: str (default: 'ratio')
+            method: str (default: 'absolute')
                 SO detection method. [Options: 'absolute', 'ratio'] 
                 'absolute' employs absolute voltage values for npeak_thres and negpos_thres. 
                 'ratio' sets npeak_thres to None and negpos_thres to 1.75x the negative peak 
                 voltage for a given detection (ratio derived from Massimini 2004)
-                * NOTE: 'ratio' should be used if reference is a single scalp electrode (e.g. FCz), which would
-                result in variable absolute amplitudes according to electrode location
+                * NOTE: the idea was to use 'ratio' if reference is a single scalp electrode (e.g. FCz), which would
+                result in variable absolute amplitudes according to electrode location. In practice this doesn't 
+                seem to pull accurate SOs. Needs a minimum threshold for the negative peak
             posx_thres: list of float (default: [0.9, 2])
                 threshold of consecutive positive-negative zero crossings in seconds. Equivalent to Hz range
                 for slow oscillations
@@ -1962,7 +1963,7 @@ class NREM:
         # # combine & custom sort --> what was this for??
         # self.so_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
 
-    def detect_so(self, wn=[0.1, 4], order=2, method='ratio', posx_thres = [0.9, 2], negposx_thres = 300, npeak_thres = -80, 
+    def detect_so(self, wn=[0.1, 4], order=2, method='absolute', posx_thres = [0.9, 2], negposx_thres = 300, npeak_thres = -80, 
         negpos_thres = 140, spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8):
         """ Detect slow oscillations by channel
         
