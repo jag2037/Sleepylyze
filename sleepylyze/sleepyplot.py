@@ -1771,7 +1771,7 @@ def plot_tstats_topo(n, col):
 
 #### Export Methods ####
 
-def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=True, spins_i=True, spindle_means=True, psd_concat=True):
+def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=True, spins_i=False, spindle_means=True, psd_concat=True):
     """ Produce and export all spindle figures 
     
         Parameters
@@ -1814,11 +1814,11 @@ def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, sp
         os.makedirs(psd_dir)
     
     if spindle_spectra or spins_i:                       
-        # by channel
+        # by channels
         exclude = ['EKG', 'EOG_L', 'EOG_R']
         for chan in n.spindles.keys():
             if chan not in exclude:
-                print('\nExporting {chan} spectra figures...')
+                print(f'\nExporting {chan} spectra figures...')
                 # make subdirectory for channel
                 chan_dir = os.path.join(psd_dir, chan)
                 if not os.path.exists(chan_dir):
