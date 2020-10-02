@@ -646,24 +646,13 @@ class Dataset:
             if chngdir == 'Y':
                 savedir = input('New save directory: ') 
                 if not os.path.exists(savedir):
-                    createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
-                    if createdir == 'Y':
-                        os.makedirs(savedir)
-                    else:
-                        savedir = input('Try again. Save directory: ')
-                        if not os.path.exists(savedir):
-                            print(savedir + ' does not exist. Aborting. ')
-                            return
+                    print(savedir + ' does not exist. New directory created.')
+                    os.makedirs(savedir)
+                    
         else:
             if not os.path.exists(savedir):
-                createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
-                if createdir == 'Y':
-                    os.makedirs(savedir)
-                else:
-                    savedir = input('Try again. Save directory: ')
-                    if not os.path.exists(savedir):
-                        print(savedir + ' does not exist. Aborting. ')
-                        return
+                print(savedir + ' does not exist. New directory created.')
+                os.makedirs(savedir)
         
         # export hypnogram stats
         stats_savename = self.metadata['in_num'] + '_SleepStats_' + self.metadata['start_date'] + '.txt'
@@ -835,8 +824,7 @@ class Dataset:
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
-                        stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [skip]: ')
-                    if stg == 'skip':
+                        print('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset.\nValid options: awake rem s1 s2 ads sws rcbrk\nSkipping.')
                         continue
                     for cyc in self.cut_data[stg].keys():
                         df = self.cut_data[stg][cyc]

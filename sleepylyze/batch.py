@@ -112,11 +112,36 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
     idx4_6 = mins_elapsed[mins_elapsed.between(240.5, 360)].index
     idx6_8 = mins_elapsed[mins_elapsed.between(360.5, 480)].index
     
+    dfs = []
+    df_names = []
     # cut dataframe into blocks by elapsed sleep (0-2, 2-4, 4-6, 6-8)
     df_two = s2_df[(s2_df.index > idx0_2[0]) & (s2_df.index < idx0_2[-1])]
-    df_four = s2_df[(s2_df.index > idx2_4[0]) & (s2_df.index < idx2_4[-1])]
-    df_six = s2_df[(s2_df.index > idx4_6[0]) & (s2_df.index < idx4_6[-1])]
-    df_eight = s2_df[(s2_df.index > idx6_8[0]) & (s2_df.index < idx6_8[-1])]
+    dfs.append(df_two)
+    df_names.append('0-2hrs')
+    try:
+        df_four = s2_df[(s2_df.index > idx2_4[0]) & (s2_df.index < idx2_4[-1])]
+    except IndexError:
+        print('<2 hrs sleep. Passing block 2-4hrs.')
+        pass
+    else:
+        dfs.append(df_four)
+        df_names.append('2-4hrs')
+    try:
+        df_six = s2_df[(s2_df.index > idx4_6[0]) & (s2_df.index < idx4_6[-1])]
+    except IndexError:
+        print('<4 hrs sleep. Passing block 4-6hrs.')
+        pass
+    else:
+        dfs.append(df_six)
+        df_names.append('4-6hrs')
+    try:
+        df_eight = s2_df[(s2_df.index > idx6_8[0]) & (s2_df.index < idx6_8[-1])]
+    except IndexError:
+        print('<6 hrs sleep. Passing block 6-8hrs.')
+        pass
+    else:
+        dfs.append(df_eight)
+        df_names.append('6-8hrs')
     
     if export:
         # export blocked data
@@ -125,7 +150,7 @@ def calc_elapsed_sleep(in_num, hyp_file, fpath, savedir, export=True):
             os.makedirs(savedir)
 
         print('Saving files...')
-        for df, hrs in zip([df_two, df_four, df_six, df_eight], ['0-2hrs', '2-4hrs', '4-6hrs', '6-8hrs']):
+        for df, hrs in zip(dfs, df_names):
             try:
                 date = df.index[0].strftime('%Y-%m-%d')
             # if the df is empty, pass
