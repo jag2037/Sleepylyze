@@ -5,13 +5,11 @@
 
     TO DO: 
         - ** update analyze_spindles for psd_i removal
-        - For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
         - Optimize self.create_spindfs() method
         - Assign NREM attributes to slots on init
         - Update docstrings
-
-        - !! recalculate ISI for 2-hr blocks
-        - Update export for spindle_psd_i
+        
+        - ** Export SO and SPSO analyses
 """
 
 import datetime
@@ -32,7 +30,7 @@ from scipy.optimize import OptimizeWarning, curve_fit
 class NREM:
     """ General class for nonREM EEG segments """
     def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False, lowpass_freq=25, lowpass_order=4,
-                laplacian_chans=['F3', 'F4', 'P3', 'P4'], replace_data=False):
+                laplacian_chans=None, replace_data=False):
         """ Initialize NREM object
             
             Parameters
@@ -53,8 +51,9 @@ class NREM:
                 lowpass filter frequency *Used in visualizations ONLY*. must be < nyquist
             lowpass_order: int (default: 4)
                 Butterworth lowpass filter order (doubles for filtfilt)
-            laplacian_chans: str, list, or None (default: ['F3', 'F4', 'P3', 'P4'])
+            laplacian_chans: str, list, or None (default: None)
                 channels to apply laplacian filter to [Options: 'all', list of channel names, None]
+                For leading/lagging analysis, was using ['F3', 'F4', 'P3', 'P4']
             replace_data: bool (default: False)
                 whether to replace primary data with laplcian filtered data
         """
@@ -1841,23 +1840,34 @@ class NREM:
         # add channel to main dataframe
         self.spsofiltEEG[i] = filt_chan
 
-    def get_so(self, i, posx_thres, npeak_thres, negpos_thres):
-        """ Detect slow oscillations. Based on detection algorithm from Molle 2011 
+    def get_so(self, i, method, posx_thres, negposx_thres, npeak_thres, negpos_thres):
+        """ Detect slow oscillations. Based on detection algorithm from Molle 2011 & Massimini 2004. 
             
             Parameters
             ----------
+            method: str (default: 'absolute')
+                SO detection method. [Options: 'absolute', 'ratio'] 
+                'absolute' employs absolute voltage values for npeak_thres and negpos_thres. 
+                'ratio' sets npeak_thres to None and negpos_thres to 1.75x the negative peak 
+                voltage for a given detection (ratio derived from Massimini 2004)
+                * NOTE: the idea was to use 'ratio' if reference is a single scalp electrode (e.g. FCz), which would
+                result in variable absolute amplitudes according to electrode location. In practice this doesn't 
+                seem to pull accurate SOs. Needs a minimum threshold for the negative peak
             posx_thres: list of float (default: [0.9, 2])
-                threshold of consecutive positive-negative zero crossings in seconds
+                threshold of consecutive positive-negative zero crossings in seconds. Equivalent to Hz range
+                for slow oscillations
+            negposx_thres: int (default: 300)
+                minimum time (in milliseconds) between positive-to-negative and negative-to-positive zero crossing
             npeak_thres: int (default: -80)
                 negative peak threshold in microvolts
             negpos_thres: int (default: 140)
                 minimum amplitude threshold for negative to positive peaks
         """
 
-        self.so_events[i] = {}
-        n = 0
+        so_events = {}
+        nx = 0
         
-        # convert thresholds (time to timedelta & uv to mv)
+        # convert thresholds
         posx_thres_td = [pd.Timedelta(s, 's') for s in posx_thres]
         npeak_mv = npeak_thres*(10**-3)
         negpos_mv = negpos_thres*(10**-3)
@@ -1868,33 +1878,74 @@ class NREM:
         # get zero-crossings
         mask = chan_dat > 0
         # shift pos/neg mask by 1 and compare
+        ## insert a false value at position 0 on the mask shift
         mask_shift = np.insert(np.array(mask), 0, None)
+        ## remove the last value of the shifted mask and set the index 
+        ## to equal the original mask 
         mask_shift = pd.Series(mask_shift[:-1], index=mask.index)
-        # pos-neg are True; neg-pos are False
+        # neg-pos are True; pos-neg are False
         so_zxings = mask[mask != mask_shift]
-        self.so_zxings = so_zxings
+        
+        # make empty lists for start and end times of vetted SO periods
+        pn_pn_starts = []
+        pn_pn_ends = []
+        cols = ['start', 'end']
 
-        # get intervals between subsequent positive-negative crossings
-        pn_xings = so_zxings[so_zxings==True]
-        intvls = pn_xings.index.to_series().diff()
+        # for each zero-crossing
+        for e, (idx, xing) in enumerate(so_zxings.items()):
+            # if it's not the last or second-to-last crossing
+            if e not in [len(so_zxings)-1, len(so_zxings)-2]:
+                # if it's positive-to-negative
+                if xing == False:
+                    # check the distance to the next negative-to-positive
+                    pn_np_intvl = so_zxings.index[e+1] - idx
+                    # if it's >= 300ms
+                    if pn_np_intvl >= pd.to_timedelta(negposx_thres, 'ms'):
+                        # if it's not the last or second-to-last crossing
+                        if e not in [len(so_zxings)-1, len(so_zxings)-2]:
+                            # if the next positive-to-negative crossing is within threshold
+                            pn_pn_intvl = so_zxings.index[e+2] - idx
+                            if posx_thres_td[0] <= pn_pn_intvl <= posx_thres_td[1]:
+                                # grab the next positive to negative crossing that completes the SO
+                                # period and add values to lists
+                                pn_pn_starts.append(idx)
+                                pn_pn_ends.append(so_zxings.index[e+2])
 
-        # loop through intervals
-        for e, v in enumerate(intvls):
-            # if interval is between >=0.9sec and <=2sec
-            if e != 0 and posx_thres_td[0] <= v <= posx_thres_td[1]:
-                # find negative & positive peaks
-                npeak_time = chan_dat.loc[intvls.index[e-1]:intvls.index[e]].idxmin()
-                npeak_val = chan_dat.loc[npeak_time]
-                ppeak_time = chan_dat.loc[intvls.index[e-1]:intvls.index[e]].idxmax()
-                ppeak_val = chan_dat.loc[ppeak_time]
+        # turn start and end lists into dataframe
+        so_periods = pd.DataFrame(list(zip(pn_pn_starts, pn_pn_ends)), columns=cols)
+
+        # loop through so_periods df
+        for idx, row in so_periods.iterrows():
+            # find negative & positive peaks
+            npeak_time = chan_dat.loc[row.start:row.end].idxmin()
+            npeak_val = chan_dat.loc[npeak_time]
+            ppeak_time = chan_dat.loc[row.start:row.end].idxmax()
+            ppeak_val = chan_dat.loc[ppeak_time]
+
+            # check absolute value thresholds if method is absolute
+            if method == 'absolute':
                 # if negative peak is < than threshold
                 if npeak_val < npeak_mv:
                     # if negative-positive peak amplitude is >= than threshold
                     if np.abs(npeak_val) + np.abs(ppeak_val) >= negpos_mv:
-                        self.so_events[i][n] = {'zcross1': intvls.index[e-1], 'zcross2': intvls.index[e], 'npeak': npeak_time, 
+                        so_events[nx] = {'pn_zcross1': row.start, 'pn_zcross2': row.end, 'npeak': npeak_time, 
                                            'ppeak': ppeak_time, 'npeak_minus2s': npeak_time - datetime.timedelta(seconds=2), 
                                            'npeak_plus2s': npeak_time + datetime.timedelta(seconds=2)}
-                        n += 1
+                        nx += 1
+            
+            # otherwise check ratio thresholds
+            elif method == 'ratio':
+                # npeak_val can be anything
+                # if negative-positive peak amplitude is >= 1.75x npeak_val
+                if np.abs(npeak_val) + np.abs(ppeak_val) >= 1.75*np.abs(npeak_val):
+                    so_events[nx] = {'pn_zcross1': row.start, 'pn_zcross2': row.end, 'npeak': npeak_time, 
+                                       'ppeak': ppeak_time, 'npeak_minus2s': npeak_time - datetime.timedelta(seconds=2), 
+                                       'npeak_plus2s': npeak_time + datetime.timedelta(seconds=2)}
+
+                    nx += 1
+                    
+        self.so_zxings = so_zxings
+        self.so_events[i] = so_events
 
     def soMultiIndex(self):
         """ combine dataframes into a multiIndex dataframe"""
@@ -1911,8 +1962,8 @@ class NREM:
         # # combine & custom sort --> what was this for??
         # self.so_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
 
-    def detect_so(self, wn=[0.1, 4], order=2, posx_thres = [0.9, 2], npeak_thres = -80, negpos_thres = 140,
-                    spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8):
+    def detect_so(self, wn=[0.1, 4], order=2, method='absolute', posx_thres = [0.9, 2], negposx_thres = 300, npeak_thres = -80, 
+        negpos_thres = 140, spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8):
         """ Detect slow oscillations by channel
         
             TO DO: Update docstring
@@ -1923,8 +1974,17 @@ class NREM:
                 Butterworth filter window
             order: int (default: 2)
                 Butterworth filter order (default of 2x2 from Massimini et al., 2004)
+            method: str (default: 'ratio')
+                SO detection method. [Options: 'absolute', 'ratio'] 
+                'absolute' employs absolute voltage values for npeak_thres and negpos_thres. 
+                'ratio' sets npeak_thres to None and negpos_thres to 1.75x the negative peak 
+                voltage for a given detection (ratio derived from Massimini 2004)
+                * NOTE: 'ratio' should be used if reference is a single scalp electrode (e.g. FCz), which would
+                result in variable absolute amplitudes according to electrode location
             posx_thres: list of float (default: [0.9, 2])
                 threshold of consecutive positive-negative zero crossings in seconds
+            negposx_thres: int (default: 300)
+                minimum time (in milliseconds) between positive-to-negative and negative-to-positive zero crossing
             npeak_thres: int (default: -80)
                 negative peak threshold in microvolts
             negpos_thres: int (default: 140)
@@ -1940,8 +2000,9 @@ class NREM:
             self.so_rejects
         """
         
-        self.metadata['so_analysis'] = {'so_filtwindow': wn, 'so_filtorder_half': order, 'posx_thres': posx_thres,
-                                        'npeak_thres': npeak_thres, 'negpos_thres': negpos_thres}
+        self.metadata['so_analysis'] = {'so_filtwindow': wn, 'so_filtorder_half': order, 'method': method, 
+                                        'posx_thres': posx_thres, 'negposx_thres': negposx_thres, 'npeak_thres': npeak_thres, 
+                                        'negpos_thres': negpos_thres}
         
         # set attributes
         self.so_attributes()
@@ -1957,7 +2018,7 @@ class NREM:
                 self.spsofilt(i)
 
                 # Detect SO
-                self.get_so(i, posx_thres, npeak_thres, negpos_thres)
+                self.get_so(i, method, posx_thres, negposx_thres, npeak_thres, negpos_thres)
                 
         # combine dataframes
         print('Combining dataframes...')
@@ -1974,13 +2035,20 @@ class NREM:
         for chan in self.so_events.keys():
             so[chan] = {}
             for i, s in self.so_events[chan].items():
-                # create individual df for each spindle
+                # create individual df for each SO
                 start = self.so_events[chan][i]['npeak_minus2s']
                 end = self.so_events[chan][i]['npeak_plus2s']
                 so_data = self.data[chan]['Raw'].loc[start:end]
                 so_filtdata = self.sofiltEEG[chan]['Filtered'].loc[start:end]
                 spso_filtdata = self.spsofiltEEG[chan]['Filtered'].loc[start:end]
                 
+                # find & drop any NaN insertions at 1ms sfreq (likely artifact from blocking data)
+                nan_idx = [e for e, x in enumerate(np.diff(so_data.index)) if int(x) == 3000000]
+                if len(nan_idx) > 0:
+                    so_data = so_data.drop(so_data.index[nan_idx])
+                    so_filtdata = so_filtdata.drop(so_filtdata.index[nan_idx])
+                    spso_filtdata = spso_filtdata.drop(spso_filtdata.index[nan_idx])
+
                 # set new index so that each SO is zero-centered around the negative peak
                 ms1 = list(range(-2000, 0, int(1/self.metadata['analysis_info']['s_freq']*1000)))
                 ms2 = [-x for x in ms1[::-1]]
@@ -1990,8 +2058,8 @@ class NREM:
                 so[chan][i] = pd.DataFrame(index=id_ms)
                 so[chan][i].index.name='id_ms'
                 
-                # if the SO is not a full 2s from the beginning
-                if start < self.data.index[0]:
+                # if the SO is not a full 2s from the beginning OR if there's a data break < 2seconds before the peak
+                if (start < self.data.index[0]) or (start < so_data.index[0]):
                     # extend the df index to the full 2s
                     time_freq = str(int(1/self.metadata['analysis_info']['s_freq']*1000000))+'us'
                     time = pd.date_range(start=start, end=end, freq=time_freq)
@@ -2005,8 +2073,8 @@ class NREM:
                     spsofiltdata_extended = list(nans) + list(spso_filtdata.values)
                     so[chan][i]['spsofilt'] = spsofiltdata_extended
 
-                # if the SO is not a full 2s from the end
-                elif end > self.data.index[-1]:
+                # if the SO is not a full 2s from the end OR if there's a data break < 2seconds after the peak
+                elif (end > self.data.index[-1]) or (end > so_data.index[-1]):
                     # extend the df index to the full 2s
                     time_freq = str(int(1/self.metadata['analysis_info']['s_freq']*1000000))+'us'
                     time = pd.date_range(start=start, end=end, freq=time_freq)
@@ -2028,61 +2096,190 @@ class NREM:
         self.so = so
         print('Dataframes created. Slow oscillation data stored in obj.so.')
 
-    def analyze_spso(self):
-        """ starter code to calculate placement of spindles on the slow oscillation """
-        
+    
+    def align_spindles(self):
+        """ Align spindles along slow oscillations """
         print('Aligning spindles to slow oscillations...')
+        so = self.so
+        data = self.data
+        spindles = self.spindles
+
         # create a dictionary of SO indices
         so_dict = {}
-        for chan in self.so:
-            so_dict[chan] = [self.so[chan][i].time.values for i in self.so[chan]]
+        for chan in so:
+            so_dict[chan] = [so[chan][i].time.values for i in so[chan]]
         
         # flatten the dictionary into a boolean df
-        so_bool = pd.DataFrame(index = self.data.index)
+        so_bool_dict = {}
         for chan in so_dict:
             if chan not in ['EOG_L', 'EOG_R', 'EKG']:
                 so_flat = [time for so in so_dict[chan] for time in so]
-                so_bool[chan] = np.isin(self.data.index.values, so_flat)
+                so_bool_dict[chan] = np.isin(data.index.values, so_flat)
+        so_bool = pd.DataFrame(so_bool_dict, index=data.index)
         
         # create a spindle boolean df
-        spin_bool = pd.DataFrame(index = self.data.index)
-        for chan in self.spindle_events:
+        spin_bool_dict = {}
+        for chan in spindles.keys():
             if chan not in ['EOG_L', 'EOG_R', 'EKG']:
-                spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
-                spin_bool[chan] = np.isin(self.data.index.values, spins_flat)
+                spins_tlist = [df.time.values for df in spindles[chan].values()]
+                spins_flat = [time for spindle in spins_tlist for time in spindle]
+                spin_bool_dict[chan] = np.isin(data.index.values, spins_flat)
+        spin_bool = pd.DataFrame(spin_bool_dict, index=data.index)
                 
         # create a map of slow oscillations to spindles
         so_spin_map = {}
-        for chan in self.spindle_events:
+        for chan in spindles.keys():
             so_spin_map[chan] = {}
             so_flat = [time for so in so_dict[chan] for time in so]
             # for each spindle
-            for e_spin, spin in enumerate(self.spindle_events[chan]):
-                spin_trough = np.datetime64(self.data[chan]['Raw'].loc[self.spindle_events[chan][e_spin]].idxmin())
+            for e_spin, spin in spindles[chan].items():
+                # grab the trough of the filtered spindle
+                spin_trough = np.datetime64(spin.loc[0].time)
                 # if spindle trough overlaps w/ SO +/- 2s:
                 if spin_trough in so_flat:
-                        for e_so, so in enumerate(so_dict[chan]):
-                            if spin_trough in so:
+                        for e_so, so_times in enumerate(so_dict[chan]):
+                            if spin_trough in so_times:
                                 try:
                                     so_spin_map[chan][e_so].append(e_spin)
                                 except KeyError:
                                     so_spin_map[chan][e_so] = [e_spin]
 
+        print('Compiling aggregate dataframe...')
         # Make aggregate dataframe
         spso_aggregates = {}
-        for chan in self.so.keys():
+        for chan in so.keys():
             if chan not in ['EOG_L', 'EOG_R', 'EKG']:
                 spso_aggregates[chan] = {}
-                for so, spins in so_spin_map[chan].items(): 
-                    spso_agg = self.so[chan][so]
+                for so_idx, spins in so_spin_map[chan].items(): 
+                    spso_agg = so[chan][so_idx]
                     for s in spins:
-                        spso_agg = spso_agg.join(self.spfiltEEG[(chan, 'Filtered')].loc[self.spindle_events[chan][s]].rename('spin_'+str(s)), 
+                        # add spindle filtered and spso filtered data for each spindle
+                        spso_agg = spso_agg.join(self.spfiltEEG[(chan, 'Filtered')].loc[spindles[chan][s].time.values].rename('spin_'+str(s)+'_spfilt'), 
                             on='time', how='outer')
-                    spso_aggregates[chan][so] = spso_agg
+                    spso_aggregates[chan][so_idx] = spso_agg
 
         self.so_bool = so_bool
         self.spin_bool = spin_bool
         self.so_spin_map = so_spin_map
         self.spso_aggregates = spso_aggregates
 
-        print('Alignment complete. Aggregate data stored in obj.spso_aggregates.')
+        print('Alignment complete. Aggregate data stored in obj.spso_aggregates.\n')
+
+    def spso_distribution(self):
+        """ get distribution of spindles along slow oscillations by cluster """
+
+        print('Calculating spindle distribution along slow oscillations...')
+        # create dicts to hold result
+        spin_dist_bool = {'all':{'0':{}, '1':{}}, 'by_chan':{}}
+        spin_dist = {'all':{'0':{}, '1':{}}, 'by_chan':{}}
+        
+        # Make boolean arrays of spindle distribution
+        for chan in self.spso_aggregates.keys():
+            spin_dist_bool['by_chan'][chan] = {'0':{}, '1':{}}
+            # iterrate over individual SO dataframes
+            for so_id, df in self.spso_aggregates[chan].items():
+                # grab spindle columns
+                spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
+                for spin in spin_cols:
+                    # get index & cluster of spindle
+                    spin_idx = int(spin_cols[0].split('_')[1])
+                    clust = int(self.spindle_stats_i[(self.spindle_stats_i.chan == chan) & (self.spindle_stats_i.spin == spin_idx)].cluster.values)
+                    # set spindle column & idx labels, save boolean values to dict
+                    spin_label = chan + '_' + str(spin_idx)
+                    spin_dist_bool['all'][str(clust)][spin_label] = df[df.index.notna()][spin].notna().values
+                    spin_dist_bool['by_chan'][chan][str(clust)][spin_idx] = df[df.index.notna()][spin].notna().values
+        idx = df[df.index.notna()].index
+
+        # create series & normalize from dataframe
+        for clust, dct in spin_dist_bool['all'].items():
+             # calculate # of spindles at each timedelta
+            bool_df = pd.DataFrame(dct, index=idx)
+            dist_ser = bool_df.sum(axis=1)
+            # normalize the values to total # of spindles in that cluster
+            dist_norm = dist_ser/len(bool_df.columns)
+            spin_dist['all'][str(clust)]['dist'] = dist_ser
+            spin_dist['all'][str(clust)]['dist_norm'] = dist_norm
+
+        # Get distribution by channel
+        for chan, clst_dict in spin_dist_bool['by_chan'].items():
+            spin_dist['by_chan'][chan] = {'0':{}, '1':{}}
+            for clust, dct in clst_dict.items():
+                 # calculate # of spindles at each timedelta
+                bool_df = pd.DataFrame(dct, index=idx)
+                dist_ser = bool_df.sum(axis=1)
+                # normalize the values to total # of spindles in that cluster
+                dist_norm = dist_ser/len(bool_df.columns)
+                spin_dist['by_chan'][chan][str(clust)]['dist'] = dist_ser
+                spin_dist['by_chan'][chan][str(clust)]['dist_norm'] = dist_norm
+
+        self.spin_dist_bool = spin_dist_bool
+        self.spin_dist = spin_dist
+        print('Done. Distributions (overall and by channel) stored in obj.spin_dist_bool & obj.spin_dist\n')
+
+
+    def analyze_spso(self):
+        """ starter code to calculate placement of spindles on the slow oscillation """
+        
+        # align spindles & SOs
+        self.align_spindles()
+
+        # calculate spindle distribution along SOs
+        self.spso_distribution()
+
+
+    def export_spso(self, export_dir, spso_aggregates=True, spin_dist=True, spin_dist_bychan=False):
+        """ Export spindle-S0 analyses
+            TO DO: 
+            * Add support for exporting spindle-SO distribution by channel
+            * Add stats
+
+            Parameters
+            ----------
+            spso_aggregates: bool (default: True)
+                export aligned aggregates of spindles and slow oscillations
+            spin_dist: bool (default: True)
+                export % distribution of spindles along zero-centered slow oscillations by cluster
+            spin_dist_bychan: bool (default: False)
+                export % distribution of spindles along zero-centered slow oscillations by cluster by channel
+                * not completed *
+
+            Returns
+            -------
+            *To be completed
+
+        """
+
+        spso_dir = os.path.join(export_dir, 'spindle_SO')
+        print(f'SPSO export directory: {spso_dir}\n')    
+        # make export directory if doesn't exit
+        if not os.path.exists(spso_dir):
+            os.makedirs(spso_dir)
+
+        # set base for savename
+        fname = self.metadata['file_info']['fname'].split('.')[0]
+
+        # export spindle-SO aggregates
+        if spso_aggregates:      
+            print('Exporting spso aggregates...')
+            filename = f'{fname}_spso_aggregates.xlsx'
+            savename = os.path.join(spso_dir, filename)
+            writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+            for chan in self.spso_aggregates.keys():
+                for so in self.spso_aggregates[chan].keys():
+                    tab = '_SO'.join([chan, str(so)])
+                    self.spso_aggregates[chan][so].to_excel(writer, sheet_name=tab)
+            writer.save()
+
+        # export spindle distribution along SO
+        if spin_dist:
+            print('Exporting spindle-SO distribution...')
+            filename = f'{fname}_spso_distribution.xlsx'
+            savename = os.path.join(spso_dir, filename)
+            writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+            for clust in n.spin_dist['all'].keys():
+                for dtype in n.spin_dist['all'][clust].keys():
+                    tab = f'clust{clust}_SO_{dtype}'
+                    self.spin_dist['all'][clust][dtype].to_excel(writer, sheet_name=tab)
+            writer.save()
+            
+        print('Done.')

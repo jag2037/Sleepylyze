@@ -6,6 +6,8 @@
         Update docstrings
         Add support for earlier headboxes
         Incorporate metadata pSQL metadata table update
+    NOTE:
+        For new headboxes, add HBSN from exported XLTEK file to the correct montage
 """
 
 import datetime
@@ -181,8 +183,8 @@ class Dataset:
             if chans != expected_chans: # this may not be a proper check
                 print('WARNING: Not all expected channels for this headbox were detected. Proceeding with detected channels')
         
-        if hbsn == 125:
-            hbid = "MOBEE 32" # EKG only used for one pt (IN343C??)
+        if hbsn in [125, 254, 245]:
+            hbid = "MOBEE 32" # EKG used for IN363Mv2 (& IN343C??). FPZ is ground. A2 is EOG2.
             print('Headbox:', hbid)
             expected_chans = 35
             check_chans(chans, expected_chans)
@@ -212,6 +214,16 @@ class Dataset:
                 'T5','PO7','FPz','Fz','Cz','CPz','Pz','POz','Oz','Fp2','F4','FC2','C4','CP2','P4','O2',
                 'AF8','F8','FC6','T4','CP6','T6','PO8','F1','F2','EOG_L','EOG_R','EKG']
                 # remove any chans here?
+            channels = channels_all
+
+        elif hbsn == 207:
+            hbid = "EMU40"
+            print('Headbox:', hbid)
+            expected_chans = 40
+            check_chans(chans, expected_chans)
+            channels_all = ['Fp1','F7','T3','T5','O1','F3','C3','P3','EMGref','Fz','Cz','Fp2','F8','T4',
+                'T6','O2','F4','C4','P4','EMG','FPz','Pz','EMG1','EMG2','FC5','FC6','FC1','FC2','CP5',
+                'CP6','CP1','CP2','PO7','PO8','F1','F2','CPz','POz','Oz','EKG']
             channels = channels_all
 
         self.metadata['hbid'] = hbid
