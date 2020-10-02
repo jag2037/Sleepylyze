@@ -5,13 +5,11 @@
 
     TO DO: 
         - ** update analyze_spindles for psd_i removal
-        - For self.detect_spindles(), move attributes into metadata['analysis_info'] dict
         - Optimize self.create_spindfs() method
         - Assign NREM attributes to slots on init
         - Update docstrings
-
-        - !! recalculate ISI for 2-hr blocks
-        - Update export for spindle_psd_i
+        
+        - ** Export SO and SPSO analyses
 """
 
 import datetime
@@ -2226,3 +2224,61 @@ class NREM:
 
         # calculate spindle distribution along SOs
         self.spso_distribution()
+
+
+    def export_spso(self, export_dir, spso_aggregates=True, spin_dist=True, spin_dist_bychan=False):
+        """ Export spindle-S0 analyses
+            TO DO: 
+            * Add support for exporting spindle-SO distribution by channel
+            * Add stats
+
+            Parameters
+            ----------
+            spso_aggregates: bool (default: True)
+                export aligned aggregates of spindles and slow oscillations
+            spin_dist: bool (default: True)
+                export % distribution of spindles along zero-centered slow oscillations by cluster
+            spin_dist_bychan: bool (default: False)
+                export % distribution of spindles along zero-centered slow oscillations by cluster by channel
+                * not completed *
+
+            Returns
+            -------
+            *To be completed
+
+        """
+
+        spso_dir = os.path.join(export_dir, 'spindle_SO')
+        print(f'SPSO export directory: {spso_dir}\n')    
+        # make export directory if doesn't exit
+        if not os.path.exists(spso_dir):
+            os.makedirs(spso_dir)
+
+        # set base for savename
+        fname = self.metadata['file_info']['fname'].split('.')[0]
+
+        # export spindle-SO aggregates
+        if spso_aggregates:      
+            print('Exporting spso aggregates...')
+            filename = f'{fname}_spso_aggregates.xlsx'
+            savename = os.path.join(spso_dir, filename)
+            writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+            for chan in self.spso_aggregates.keys():
+                for so in self.spso_aggregates[chan].keys():
+                    tab = '_SO'.join([chan, str(so)])
+                    self.spso_aggregates[chan][so].to_excel(writer, sheet_name=tab)
+            writer.save()
+
+        # export spindle distribution along SO
+        if spin_dist:
+            print('Exporting spindle-SO distribution...')
+            filename = f'{fname}_spso_distribution.xlsx'
+            savename = os.path.join(spso_dir, filename)
+            writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+            for clust in n.spin_dist['all'].keys():
+                for dtype in n.spin_dist['all'][clust].keys():
+                    tab = f'clust{clust}_SO_{dtype}'
+                    self.spin_dist['all'][clust][dtype].to_excel(writer, sheet_name=tab)
+            writer.save()
+            
+        print('Done.')
