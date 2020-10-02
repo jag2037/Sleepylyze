@@ -646,24 +646,13 @@ class Dataset:
             if chngdir == 'Y':
                 savedir = input('New save directory: ') 
                 if not os.path.exists(savedir):
-                    createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
-                    if createdir == 'Y':
-                        os.makedirs(savedir)
-                    else:
-                        savedir = input('Try again. Save directory: ')
-                        if not os.path.exists(savedir):
-                            print(savedir + ' does not exist. Aborting. ')
-                            return
+                    print(savedir + ' does not exist. New directory created.')
+                    os.makedirs(savedir)
+                    
         else:
             if not os.path.exists(savedir):
-                createdir = input(savedir + ' does not exist. Create directory? [Y/N] ')
-                if createdir == 'Y':
-                    os.makedirs(savedir)
-                else:
-                    savedir = input('Try again. Save directory: ')
-                    if not os.path.exists(savedir):
-                        print(savedir + ' does not exist. Aborting. ')
-                        return
+                print(savedir + ' does not exist. New directory created.')
+                os.makedirs(savedir)
         
         # export hypnogram stats
         stats_savename = self.metadata['in_num'] + '_SleepStats_' + self.metadata['start_date'] + '.txt'
