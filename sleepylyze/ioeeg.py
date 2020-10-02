@@ -824,8 +824,7 @@ class Dataset:
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
-                        stg = input('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset. Options: awake rem s1 s2 ads sws rcbrk\nSpecify correct code from options or [skip]: ')
-                    if stg == 'skip':
+                        print('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset.\nValid options: awake rem s1 s2 ads sws rcbrk\nSkipping.')
                         continue
                     for cyc in self.cut_data[stg].keys():
                         df = self.cut_data[stg][cyc]
