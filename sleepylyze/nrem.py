@@ -2275,8 +2275,8 @@ class NREM:
             filename = f'{fname}_spso_distribution.xlsx'
             savename = os.path.join(spso_dir, filename)
             writer = pd.ExcelWriter(savename, engine='xlsxwriter')
-            for clust in n.spin_dist['all'].keys():
-                for dtype in n.spin_dist['all'][clust].keys():
+            for clust in self.spin_dist['all'].keys():
+                for dtype in self.spin_dist['all'][clust].keys():
                     tab = f'clust{clust}_SO_{dtype}'
                     self.spin_dist['all'][clust][dtype].to_excel(writer, sheet_name=tab)
             writer.save()
