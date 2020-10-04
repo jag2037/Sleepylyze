@@ -245,7 +245,7 @@ class Dataset:
         print('Importing EEG data...')
         # setting dtype to float will speed up load, but crashes if there is anything wrong with the record
         data = pd.read_csv(self.metadata['filepath'], encoding=self.metadata['encoding'], delim_whitespace=True, header=None, skiprows=15, usecols=range(start_col,end_col),
-                               dtype = float, na_values = ['AMPSAT', 'SHORT'])
+                               dtype = float, na_values = ['AMPSAT', 'SHORT', '---'])
         
         # create DateTimeIndex
         ind_freq = str(int(1/self.metadata['s_freq']*1000000))+'us'
@@ -547,7 +547,8 @@ class Dataset:
         # reindex to match EEG/EKG data
         ## --> add warning here if index start date isn't found in EEG data
         ind_freq = str(int(1/self.metadata['s_freq']*1000000))+'us'
-        ind_start = start_date + ' ' + start_sec + '.000'
+        # set the ms value to the same ms as the first value of the data (in case it's not 0)
+        ind_start = start_date + ' ' + start_sec + '.' + str(self.data.index[0]).split('.')[-1]
         ind = pd.date_range(start = ind_start, periods=len(scores), freq=ind_freq)
         scores.index = ind
 
