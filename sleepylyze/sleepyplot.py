@@ -258,7 +258,8 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
-def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=True, win_width=15):
+def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=True, win_width=15, raw_lowpass=True, 
+        lowpass_freq=25, lowpass_order=4):
     """ vizualize multichannel EEG w/ option for double panel raw and/or filtered. Optimized for
         inspecting spindle detections (title/axis labels removed for space)
         Spindles rejected based on time-domain criteria are plotted in red; rejections based on 
@@ -280,6 +281,12 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
         for inspecting long segments of EEG with a set window
     win_width: int (default: 15)
         If using slider option, number of seconds to set window width
+    raw_lowpass: bool (default: True)
+        Whether to plot the lowpass filtered raw data [in place of the unchanged raw data]
+    lowpass_freq: int (default: 25)
+        Frequency to lowpass the raw data for visualization (if not already applied)
+    lowpass_order: int (default: 4)
+        Butterworth lowpass filter order to be used if lowpass_raw is not None (doubles for filtfilt)
         
     Returns
     -------
@@ -292,19 +299,41 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     else:
         figsize = (14, 7)
         
-    data = []
+        data = []
     title = []
     
     # import data
     if raw == True:
-        raw = d.data
-        data.append(raw)
-        title.append('Raw')
-    if filtered == True:    
+        if not raw_lowpass:
+            # use the unchanged raw data
+            raw_data = d.data
+        elif raw_lowpass:
+            # use the lowpass filtered raw data
+            try:
+                # check if filtered data exists
+                raw_lowpass_data = d.data_lowpass
+            except AttributeError:
+                # apply lowpass filter
+                d.lowpass_raw(lowpass_freq, lowpass_order)
+                raw_lowpass_data = d.data_lowpass
+
+    if filtered == True:
         filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
+    
+    # set data to plot (title corresponds to multiindex level 2 in data df)
+    if raw == True:
+        if not raw_lowpass:
+            # plot the unchanged data
+            data.append(raw_data)
+            title.append('Raw')
+        elif raw_lowpass:
+            # plot the lowpass data
+            data.append(raw_lowpass_data)
+            title.append('raw_lowpass')
+    if filtered == True:    
         data.append(filtd)
         title.append('Filtered')
-    
+ 
 
     # flatten events list by channel for plotting
     if spindles == True:
@@ -1830,14 +1859,22 @@ def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, sp
                     filename = f'{fname}_SpindleSpectra_Accepted.{ext}'
                     savename = os.path.join(chan_dir, filename)
                     fig = plot_spindlepower_chan_i(n, chan)
-                    fig.savefig(savename, dpi=dpi, transparent=transparent)
-                    plt.close(fig)                  
+                    try:
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    except AttributeError:
+                        pass
+                    else:
+                        plt.close(fig)                  
                     # individual spindle spectra (rejected)
                     filename = f'{fname}_SpindleSpectra_Rejected.{ext}'
                     savename = os.path.join(chan_dir, filename)
                     fig = plot_spindlepower_chan_i(n, chan, spin_type='rejects')
-                    fig.savefig(savename, dpi=dpi, transparent=transparent)
-                    plt.close(fig)
+                    try:
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    except AttributeError:
+                        pass
+                    else:
+                        plt.close(fig)
 
                 if spins_i:
                     print('\tExporting spec_spins figures...')
