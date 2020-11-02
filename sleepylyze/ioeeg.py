@@ -548,7 +548,14 @@ class Dataset:
         ## --> add warning here if index start date isn't found in EEG data
         ind_freq = str(int(1/self.metadata['s_freq']*1000000))+'us'
         # set the ms value to the same ms as the first value of the data (in case it's not 0)
-        ind_start = start_date + ' ' + start_sec + '.' + str(self.data.index[0]).split('.')[-1]
+        d_start = str(self.data.index[0])
+        # if the data starts with a non-zero millisecond value, grab it
+        if len(d_start.split('.')) > 1:
+            start_us = d_start.split('.')[-1]
+        else:
+            # otherwise set it to zero
+            start_us = '000'
+        ind_start = start_date + ' ' + start_sec + '.' + start_us
         ind = pd.date_range(start = ind_start, periods=len(scores), freq=ind_freq)
         scores.index = ind
 
@@ -570,7 +577,9 @@ class Dataset:
 
         # get cycle blocks for each stage (detect non-consecutive indices & assign cycles)
         stages = {'awake': 0.0, 'rem': 1.0, 's1': 2.0, 's2': 3.0, 'ads': 4.0, 'sws': 5.0, 'rbrk': 6.0}
-        ms = pd.Timedelta(1/self.metadata['s_freq']*1000, 'ms')
+        # ms = pd.Timedelta(1/self.metadata['s_freq']*1000, 'ms')
+        # hacky way to get the ms precision right for sampling frequencies that don't divide evently (e.g. 256 Hz)
+        ms = pd.Timedelta(float(str(1/self.metadata['s_freq']*1000)[:5]), 'ms')
         self.sleepstages = stages
 
         print('Assigning sleep stages & cycles...')
