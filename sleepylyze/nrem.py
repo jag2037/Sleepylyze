@@ -2211,6 +2211,69 @@ class NREM:
                 spin_dist['by_chan'][chan][str(clust)]['dist'] = dist_ser
                 spin_dist['by_chan'][chan][str(clust)]['dist_norm'] = dist_norm
 
+
+        # use channel distributions to get distirbutions by location
+        # assign anterior-posterior characters
+        a_chars = ['f']
+        p_chars = ['p', 'o', 't']
+        c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
+
+        spin_dist_bool['AP'] = {'A':{}, 'P':{}}
+        spin_dist_bool['LR'] = {'L':{}, 'R':{}}
+        spin_dist_bool['quads'] = {'al':{}, 'ar':{}, 'pl':{}, 'pr':{}}
+
+        # recategorize channels into AP/RL/quads dicts
+        for chan, spso_dict in spin_dist_bool['by_chan'].items():
+            # assign anterior-posterior
+            if chan.casefold() in c_chans:
+                ap = 'C' 
+            elif any((c.casefold() in a_chars) for c in chan):
+                ap = 'A'
+            elif any((c.casefold() in p_chars) for c in chan):
+                ap = 'P'
+            # assign RL
+            if chan[-1] == 'z':
+                rl = 'C'
+            elif int(chan[-1]) % 2 == 0:
+                rl = 'R'
+            else:
+                rl = 'L'
+
+            for clust, clust_dict in spso_dict.items():
+                for spin, dct in clust_dict.items():
+                    # give dict a new name
+                    dname = chan + '_' + clust + '_' + str(spin)
+                    # move item into proper dicts
+                    if ap == 'A':
+                        spin_dist_bool['AP']['A'][dname] = dct
+                        if rl == 'R':
+                            spin_dist_bool['LR']['R'][dname] = dct
+                            spin_dist_bool['quads']['ar'][dname] = dct
+                        elif rl == 'L':
+                            spin_dist_bool['LR']['L'][dname] = dct
+                            spin_dist_bool['quads']['al'][dname] = dct
+                    elif ap == 'P':
+                        spin_dist_bool['AP']['P'][dname] = dct
+                        if rl == 'R':
+                            spin_dist_bool['LR']['R'][dname] = dct
+                            spin_dist_bool['quads']['pr'][dname] = dct
+                        elif rl == 'L':
+                            spin_dist_bool['LR']['L'][dname] = dct
+                            spin_dist_bool['quads']['pl'][dname] = dct
+
+        # git distributions for dicts
+        dicts = ['AP', 'LR', 'quads']
+        for d in dicts:
+            spin_dist[d] = {}
+            for group, bool_dict in spin_dist_bool[d].items():
+                spin_dist[d][group] = {}
+                bool_df = pd.DataFrame(bool_dict, index=idx)
+                dist_ser = bool_df.sum(axis=1)
+                # normalize the values to total # of spindles in that dict
+                dist_norm = dist_ser/len(bool_df.columns)
+                spin_dist[d][group]['dist'] = dist_ser
+                spin_dist[d][group]['dist_norm'] = dist_norm
+
         self.spin_dist_bool = spin_dist_bool
         self.spin_dist = spin_dist
         print('Done. Distributions (overall and by channel) stored in obj.spin_dist_bool & obj.spin_dist\n')
@@ -2272,13 +2335,22 @@ class NREM:
         # export spindle distribution along SO
         if spin_dist:
             print('Exporting spindle-SO distribution...')
-            filename = f'{fname}_spso_distribution.xlsx'
-            savename = os.path.join(spso_dir, filename)
-            writer = pd.ExcelWriter(savename, engine='xlsxwriter')
-            for clust in self.spin_dist['all'].keys():
-                for dtype in self.spin_dist['all'][clust].keys():
-                    tab = f'clust{clust}_SO_{dtype}'
-                    self.spin_dist['all'][clust][dtype].to_excel(writer, sheet_name=tab)
-            writer.save()
+            # 'all' is by cluster here
+            comps = ['all', 'AP', 'LR', 'quads']
+            for c in comps:
+                if c == 'all':
+                    filename = f'{fname}_spso_distribution_clust.xlsx'
+                else:
+                    filename = f'{fname}_spso_distribution_{c}.xlsx'
+                savename = os.path.join(spso_dir, filename)
+                writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+                for group in self.spin_dist[c].keys():
+                    for dtype in self.spin_dist[c][group].keys():
+                        if c == 'all':
+                            tab = f'clust{group}_SO_{dtype}'
+                        else:
+                            tab = f'{group}_SO_{dtype}'
+                        self.spin_dist[c][group][dtype].to_excel(writer, sheet_name=tab)
+                writer.save()
             
         print('Done.')
