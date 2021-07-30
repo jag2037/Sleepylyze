@@ -1477,6 +1477,9 @@ class NREM:
         samp_per_hz = len(psd)/(psd.index[-1]-psd.index[0])
         bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
         distance = samp_per_hz*bw_hz
+        # distance must be >= 1
+        if distance < 1:
+            distance = 1
         # set minimum width in samples for a peak to be considered a peak
         width = samp_per_hz*pk_width_hz
         # set the moving window sample length equal to the psd bandwidth
