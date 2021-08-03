@@ -1459,68 +1459,72 @@ class NREM:
         """
 
         print('Calculating concatenated frequency-domain statistics...')
-        
-        spin_range = self.metadata['spindle_analysis']['spin_range']
-        # pull minimum width (in Hz) for a peak to be considered a peak
-        pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
-         #exclude non-EEG channels
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
 
-        # create fstats dataframe & peaks dict
-        cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
-        spindle_fstats = pd.DataFrame(columns=cols)
-        psd_concat_norm_peaks = {}
+        # skip if no spindles detected
+        if len(self.spindle_psd_concat) == 0:
+            print('No spindles detected. Done.')
+        else:
+            spin_range = self.metadata['spindle_analysis']['spin_range']
+            # pull minimum width (in Hz) for a peak to be considered a peak
+            pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
+             #exclude non-EEG channels
+            exclude = ['EOG_L', 'EOG_R', 'EKG']
 
-        # set the parameters for picking peaks
-        # set minimum distance between adjacent peaks equal to spectral resolution
-        psd = self.spindle_psd_concat[list(self.spindle_psd_concat.keys())[0]]
-        samp_per_hz = len(psd)/(psd.index[-1]-psd.index[0])
-        bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
-        distance = samp_per_hz*bw_hz
-        # distance must be >= 1
-        if distance < 1:
-            distance = 1
-        # set minimum width in samples for a peak to be considered a peak
-        width = samp_per_hz*pk_width_hz
-        # set the moving window sample length equal to the psd bandwidth
-        mw_samples = int(distance)
+            # create fstats dataframe & peaks dict
+            cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
+            spindle_fstats = pd.DataFrame(columns=cols)
+            psd_concat_norm_peaks = {}
 
-        # calculate stats for each channel
-        for chan in self.spindle_psd_concat.keys():
-            if chan not in exclude:
-                # smooth the signal
-                datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
-                window = np.ones(mw_samples)/float(mw_samples)
-                rms = np.sqrt(np.convolve(datsq, window, 'same'))
-                smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
-                smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
+            # set the parameters for picking peaks
+            # set minimum distance between adjacent peaks equal to spectral resolution
+            psd = self.spindle_psd_concat[list(self.spindle_psd_concat.keys())[0]]
+            samp_per_hz = len(psd)/(psd.index[-1]-psd.index[0])
+            bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
+            distance = samp_per_hz*bw_hz
+            # distance must be >= 1
+            if distance < 1:
+                distance = 1
+            # set minimum width in samples for a peak to be considered a peak
+            width = samp_per_hz*pk_width_hz
+            # set the moving window sample length equal to the psd bandwidth
+            mw_samples = int(distance)
 
-                #calculate total spindle power (to 2 decimal points)
-                total_pwr = round(smoothed_spindle_power.sum(), 2)
+            # calculate stats for each channel
+            for chan in self.spindle_psd_concat.keys():
+                if chan not in exclude:
+                    # smooth the signal
+                    datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
+                    window = np.ones(mw_samples)/float(mw_samples)
+                    rms = np.sqrt(np.convolve(datsq, window, 'same'))
+                    smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
+                    smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
 
-                # get peaks
-                p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
-                peaks = smoothed_spindle_power.iloc[p_idx]
-                # set dominant frequency to major peak
-                total_peaks = len(peaks)
-                if total_peaks > 0:
-                    dominant_freq = round(peaks.idxmax(), 2)
-                    peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
-                    # ratio of peak amplitudes as a fraction of the dominant amplitude
-                    peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
-                else:
-                    dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
+                    #calculate total spindle power (to 2 decimal points)
+                    total_pwr = round(smoothed_spindle_power.sum(), 2)
 
-                            
-                # add row to dataframe
-                spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
+                    # get peaks
+                    p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
+                    peaks = smoothed_spindle_power.iloc[p_idx]
+                    # set dominant frequency to major peak
+                    total_peaks = len(peaks)
+                    if total_peaks > 0:
+                        dominant_freq = round(peaks.idxmax(), 2)
+                        peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                        # ratio of peak amplitudes as a fraction of the dominant amplitude
+                        peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
+                    else:
+                        dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
 
-                # save values to peaks dict
-                psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
+                                
+                    # add row to dataframe
+                    spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
 
-        self.psd_concat_norm_peaks = psd_concat_norm_peaks
-        self.spindle_fstats_concat = spindle_fstats
-        print('Done. Concat frequency stats stored in obj.spindle_fstats_concat.')
+                    # save values to peaks dict
+                    psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
+
+            self.psd_concat_norm_peaks = psd_concat_norm_peaks
+            self.spindle_fstats_concat = spindle_fstats
+            print('Done. Concat frequency stats stored in obj.spindle_fstats_concat.')
 
 
     def analyze_spindles(self, psd_type='concat', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
