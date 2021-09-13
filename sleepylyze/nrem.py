@@ -1460,65 +1460,72 @@ class NREM:
         """
 
         print('Calculating concatenated frequency-domain statistics...')
-        
-        spin_range = self.metadata['spindle_analysis']['spin_range']
-        # pull minimum width (in Hz) for a peak to be considered a peak
-        pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
-         #exclude non-EEG channels
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
 
-        # create fstats dataframe & peaks dict
-        cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
-        spindle_fstats = pd.DataFrame(columns=cols)
-        psd_concat_norm_peaks = {}
+        # skip if no spindles detected
+        if len(self.spindle_psd_concat) == 0:
+            print('No spindles detected. Done.')
+        else:
+            spin_range = self.metadata['spindle_analysis']['spin_range']
+            # pull minimum width (in Hz) for a peak to be considered a peak
+            pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
+             #exclude non-EEG channels
+            exclude = ['EOG_L', 'EOG_R', 'EKG']
 
-        # set the parameters for picking peaks
-        # set minimum distance between adjacent peaks equal to spectral resolution
-        psd = self.spindle_psd_concat[list(self.spindle_psd_concat.keys())[0]]
-        samp_per_hz = len(psd)/(psd.index[-1]-psd.index[0])
-        bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
-        distance = samp_per_hz*bw_hz
-        # set minimum width in samples for a peak to be considered a peak
-        width = samp_per_hz*pk_width_hz
-        # set the moving window sample length equal to the psd bandwidth
-        mw_samples = int(distance)
+            # create fstats dataframe & peaks dict
+            cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
+            spindle_fstats = pd.DataFrame(columns=cols)
+            psd_concat_norm_peaks = {}
 
-        # calculate stats for each channel
-        for chan in self.spindle_psd_concat.keys():
-            if chan not in exclude:
-                # smooth the signal
-                datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
-                window = np.ones(mw_samples)/float(mw_samples)
-                rms = np.sqrt(np.convolve(datsq, window, 'same'))
-                smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
-                smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
+            # set the parameters for picking peaks
+            # set minimum distance between adjacent peaks equal to spectral resolution
+            psd = self.spindle_psd_concat[list(self.spindle_psd_concat.keys())[0]]
+            samp_per_hz = len(psd)/(psd.index[-1]-psd.index[0])
+            bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
+            distance = samp_per_hz*bw_hz
+            # distance must be >= 1
+            if distance < 1:
+                distance = 1
+            # set minimum width in samples for a peak to be considered a peak
+            width = samp_per_hz*pk_width_hz
+            # set the moving window sample length equal to the psd bandwidth
+            mw_samples = int(distance)
 
-                #calculate total spindle power (to 2 decimal points)
-                total_pwr = round(smoothed_spindle_power.sum(), 2)
+            # calculate stats for each channel
+            for chan in self.spindle_psd_concat.keys():
+                if chan not in exclude:
+                    # smooth the signal
+                    datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
+                    window = np.ones(mw_samples)/float(mw_samples)
+                    rms = np.sqrt(np.convolve(datsq, window, 'same'))
+                    smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
+                    smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
 
-                # get peaks
-                p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
-                peaks = smoothed_spindle_power.iloc[p_idx]
-                # set dominant frequency to major peak
-                total_peaks = len(peaks)
-                if total_peaks > 0:
-                    dominant_freq = round(peaks.idxmax(), 2)
-                    peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
-                    # ratio of peak amplitudes as a fraction of the dominant amplitude
-                    peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
-                else:
-                    dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
+                    #calculate total spindle power (to 2 decimal points)
+                    total_pwr = round(smoothed_spindle_power.sum(), 2)
 
-                            
-                # add row to dataframe
-                spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
+                    # get peaks
+                    p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
+                    peaks = smoothed_spindle_power.iloc[p_idx]
+                    # set dominant frequency to major peak
+                    total_peaks = len(peaks)
+                    if total_peaks > 0:
+                        dominant_freq = round(peaks.idxmax(), 2)
+                        peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                        # ratio of peak amplitudes as a fraction of the dominant amplitude
+                        peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
+                    else:
+                        dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
 
-                # save values to peaks dict
-                psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
+                                
+                    # add row to dataframe
+                    spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
 
-        self.psd_concat_norm_peaks = psd_concat_norm_peaks
-        self.spindle_fstats_concat = spindle_fstats
-        print('Done. Concat frequency stats stored in obj.spindle_fstats_concat.')
+                    # save values to peaks dict
+                    psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
+
+            self.psd_concat_norm_peaks = psd_concat_norm_peaks
+            self.spindle_fstats_concat = spindle_fstats
+            print('Done. Concat frequency stats stored in obj.spindle_fstats_concat.')
 
 
     def analyze_spindles(self, psd_type='concat', psd_bandwidth=1.0, zpad=True, zpad_len=3.0, norm_range=[(4,6), (18, 25)], buff=False, 
@@ -2212,6 +2219,69 @@ class NREM:
                 spin_dist['by_chan'][chan][str(clust)]['dist'] = dist_ser
                 spin_dist['by_chan'][chan][str(clust)]['dist_norm'] = dist_norm
 
+
+        # use channel distributions to get distirbutions by location
+        # assign anterior-posterior characters
+        a_chars = ['f']
+        p_chars = ['p', 'o', 't']
+        c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
+
+        spin_dist_bool['AP'] = {'A':{}, 'P':{}}
+        spin_dist_bool['LR'] = {'L':{}, 'R':{}}
+        spin_dist_bool['quads'] = {'al':{}, 'ar':{}, 'pl':{}, 'pr':{}}
+
+        # recategorize channels into AP/RL/quads dicts
+        for chan, spso_dict in spin_dist_bool['by_chan'].items():
+            # assign anterior-posterior
+            if chan.casefold() in c_chans:
+                ap = 'C' 
+            elif any((c.casefold() in a_chars) for c in chan):
+                ap = 'A'
+            elif any((c.casefold() in p_chars) for c in chan):
+                ap = 'P'
+            # assign RL
+            if chan[-1] == 'z':
+                rl = 'C'
+            elif int(chan[-1]) % 2 == 0:
+                rl = 'R'
+            else:
+                rl = 'L'
+
+            for clust, clust_dict in spso_dict.items():
+                for spin, dct in clust_dict.items():
+                    # give dict a new name
+                    dname = chan + '_' + clust + '_' + str(spin)
+                    # move item into proper dicts
+                    if ap == 'A':
+                        spin_dist_bool['AP']['A'][dname] = dct
+                        if rl == 'R':
+                            spin_dist_bool['LR']['R'][dname] = dct
+                            spin_dist_bool['quads']['ar'][dname] = dct
+                        elif rl == 'L':
+                            spin_dist_bool['LR']['L'][dname] = dct
+                            spin_dist_bool['quads']['al'][dname] = dct
+                    elif ap == 'P':
+                        spin_dist_bool['AP']['P'][dname] = dct
+                        if rl == 'R':
+                            spin_dist_bool['LR']['R'][dname] = dct
+                            spin_dist_bool['quads']['pr'][dname] = dct
+                        elif rl == 'L':
+                            spin_dist_bool['LR']['L'][dname] = dct
+                            spin_dist_bool['quads']['pl'][dname] = dct
+
+        # git distributions for dicts
+        dicts = ['AP', 'LR', 'quads']
+        for d in dicts:
+            spin_dist[d] = {}
+            for group, bool_dict in spin_dist_bool[d].items():
+                spin_dist[d][group] = {}
+                bool_df = pd.DataFrame(bool_dict, index=idx)
+                dist_ser = bool_df.sum(axis=1)
+                # normalize the values to total # of spindles in that dict
+                dist_norm = dist_ser/len(bool_df.columns)
+                spin_dist[d][group]['dist'] = dist_ser
+                spin_dist[d][group]['dist_norm'] = dist_norm
+
         self.spin_dist_bool = spin_dist_bool
         self.spin_dist = spin_dist
         print('Done. Distributions (overall and by channel) stored in obj.spin_dist_bool & obj.spin_dist\n')
@@ -2273,13 +2343,22 @@ class NREM:
         # export spindle distribution along SO
         if spin_dist:
             print('Exporting spindle-SO distribution...')
-            filename = f'{fname}_spso_distribution.xlsx'
-            savename = os.path.join(spso_dir, filename)
-            writer = pd.ExcelWriter(savename, engine='xlsxwriter')
-            for clust in n.spin_dist['all'].keys():
-                for dtype in n.spin_dist['all'][clust].keys():
-                    tab = f'clust{clust}_SO_{dtype}'
-                    self.spin_dist['all'][clust][dtype].to_excel(writer, sheet_name=tab)
-            writer.save()
+            # 'all' is by cluster here
+            comps = ['all', 'AP', 'LR', 'quads']
+            for c in comps:
+                if c == 'all':
+                    filename = f'{fname}_spso_distribution_clust.xlsx'
+                else:
+                    filename = f'{fname}_spso_distribution_{c}.xlsx'
+                savename = os.path.join(spso_dir, filename)
+                writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+                for group in self.spin_dist[c].keys():
+                    for dtype in self.spin_dist[c][group].keys():
+                        if c == 'all':
+                            tab = f'clust{group}_SO_{dtype}'
+                        else:
+                            tab = f'{group}_SO_{dtype}'
+                        self.spin_dist[c][group][dtype].to_excel(writer, sheet_name=tab)
+                writer.save()
             
         print('Done.')
