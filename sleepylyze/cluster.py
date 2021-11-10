@@ -257,6 +257,7 @@ def run_kmeans(n, n_clusters, train_split, plot_clusts=True):
     print('Formatting data...')
     # scale the data & reformat
     psd_1d, f_idx = fmt_kmeans(n)
+    scaler.fit(psd_1d) # this does nothing, but is required for sklearn
     psd_1d_scaled = scaler.transform(psd_1d)
     psd_2d = np.array([x.ravel() for x in psd_1d_scaled])
     print('Assigning labels...')
