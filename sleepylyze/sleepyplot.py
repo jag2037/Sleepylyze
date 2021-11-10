@@ -258,7 +258,8 @@ def plotEEG_singlechan(d, chan, raw=True, filtered=False, rms=False, thresholds=
     
     return fig
 
-def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=True, win_width=15):
+def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, slider=True, win_width=15, raw_lowpass=True, 
+        lowpass_freq=25, lowpass_order=4):
     """ vizualize multichannel EEG w/ option for double panel raw and/or filtered. Optimized for
         inspecting spindle detections (title/axis labels removed for space)
         Spindles rejected based on time-domain criteria are plotted in red; rejections based on 
@@ -280,6 +281,12 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
         for inspecting long segments of EEG with a set window
     win_width: int (default: 15)
         If using slider option, number of seconds to set window width
+    raw_lowpass: bool (default: True)
+        Whether to plot the lowpass filtered raw data [in place of the unchanged raw data]
+    lowpass_freq: int (default: 25)
+        Frequency to lowpass the raw data for visualization (if not already applied)
+    lowpass_order: int (default: 4)
+        Butterworth lowpass filter order to be used if lowpass_raw is not None (doubles for filtfilt)
         
     Returns
     -------
@@ -292,19 +299,41 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
     else:
         figsize = (14, 7)
         
-    data = []
+        data = []
     title = []
     
     # import data
     if raw == True:
-        raw = d.data
-        data.append(raw)
-        title.append('Raw')
-    if filtered == True:    
+        if not raw_lowpass:
+            # use the unchanged raw data
+            raw_data = d.data
+        elif raw_lowpass:
+            # use the lowpass filtered raw data
+            try:
+                # check if filtered data exists
+                raw_lowpass_data = d.data_lowpass
+            except AttributeError:
+                # apply lowpass filter
+                d.lowpass_raw(lowpass_freq, lowpass_order)
+                raw_lowpass_data = d.data_lowpass
+
+    if filtered == True:
         filtd = d.spindle_calcs.loc(axis=1)[:, 'Filtered']
+    
+    # set data to plot (title corresponds to multiindex level 2 in data df)
+    if raw == True:
+        if not raw_lowpass:
+            # plot the unchanged data
+            data.append(raw_data)
+            title.append('Raw')
+        elif raw_lowpass:
+            # plot the lowpass data
+            data.append(raw_lowpass_data)
+            title.append('raw_lowpass')
+    if filtered == True:    
         data.append(filtd)
         title.append('Filtered')
-    
+ 
 
     # flatten events list by channel for plotting
     if spindles == True:
@@ -804,6 +833,8 @@ def spec_peaks_SD(n, chan, x, labels=True):
         Plots three panels: Upper = spindle tracing (w/ zero-pad) , 
             Center = spectrum w/ peaks, Lower = > 4Hz spectrum w/ peaks
 
+        *NOTE this is not used in final detection criteria
+
         Parameters
         ----------
         n: nrem.NREM object
@@ -996,6 +1027,97 @@ def plot_spin_means(n, datatype='Raw', spins=True, count=True, buffer=False, err
     fig.text(0.5, 0, 'Time (ms)', ha='center', size='large')
     fig.text(0, 0.5, 'Amplitude (mV)', va='center', rotation='vertical', color=spin_color, size='large')
     fig.text(1, 0.5, 'Spindle Count', va='center', rotation=270, color=count_color, size='large')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + f'\nSpindle Averages ({datatype})')
+
+    return fig
+
+
+def plot_spin_clust_means(n, datatype='Raw', spins=True, count=True, err='sem', spin_color='black', count_color='dodgerblue'):
+    """ plot mean spindles by cluster 
+
+        Parameters
+        ----------
+        cluster: int
+            which cluster to plot [options: 0, 1]
+        datatype: str (default: 'Raw')
+            data to plot [options: 'Raw', 'spfilt']
+        spins: bool (default: True)
+            plot spindle averages
+        count: bool (default: True)
+            plot overlay of spindle count at each timedelta
+        err: str (default:'sem')
+            type of error bars to use [options: 'std', 'sem']
+        spin_color: str (default: 'black')
+            color for plotting spindles
+    """
+    
+    fig, axs = plt.subplots(1, 2, figsize=(7,3), sharey=True)
+    
+    for ax, clust in zip(axs.flatten(), n.spindle_aggregates_clust):
+        if spins:
+            data = n.spindle_clust_means[datatype]
+            ax.plot(data[(clust, 'mean')], alpha=1, color=spin_color, label='Spindle Average', lw=1)
+            ax.fill_between(data.index, data[(clust, 'mean')] - data[(clust, err)], data[(clust, 'mean')] + data[(clust, err)], 
+                            color=spin_color, alpha=0.2)
+            if count:
+                ax1 = ax.twinx()
+                ax1.plot(data[clust, 'count'], color=count_color, alpha=0.3)
+                ax1.fill_between(data.index, 0, data[(clust, 'count')], color=count_color, alpha=0.3)
+                max_count = len(n.spindle_aggregates_clust[clust]['Raw'].columns)
+                ticks = np.linspace(0, max_count, num=5, dtype=int)
+                ax1.set_yticks(ticks=ticks)
+                ax1.set_yticklabels(labels=ticks, color=count_color)
+                ax1.tick_params(axis='y', labelsize=8) #color=count_color)
+
+        # set subplot params
+        ax.set_xlim([-1000, 1000])
+        ax.set_title('Cluster ' + str(clust), fontsize='medium')
+        ax.set_xlabel('Time (ms)', size='large')
+        ax.set_ylabel('Amplitude (mV)', size='large')
+        ax.tick_params(axis='both', which='both', labelsize=8)
+
+    # set figure params
+    #fig.legend()   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.92])
+    if count:
+        fig.text(1, 0.5, 'Spindle Count', va='center', rotation=270, color=count_color, size='large')
+    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + f'\nSpindle Averages ({datatype})')
+
+    return fig
+
+def plot_avg_spindle(n, datatype='Raw', spins=True, count=True, err='sem', spin_color='black', count_color='dodgerblue'):
+    """ plot the average spindle tracing across the head 
+        For use in comparison with cluster averages
+    """
+    fig, ax = plt.subplots()
+    
+    if spins:
+        data = n.spindle_means_all[datatype]
+        ax.plot(data['mean'], alpha=1, color=spin_color, label='Spindle Average', lw=1)
+        ax.fill_between(data.index, data['mean'] - data[err], data['mean'] + data[err], 
+                        color=spin_color, alpha=0.2)
+        if count:
+            ax1 = ax.twinx()
+            ax1.plot(data['count'], color=count_color, alpha=0.3)
+            ax1.fill_between(data.index, 0, data['count'], color=count_color, alpha=0.3)
+            max_count = len(n.spindle_aggregates_all['Raw'].columns)
+            ticks = np.linspace(0, max_count, num=5, dtype=int)
+            ax1.set_yticks(ticks=ticks)
+            ax1.set_yticklabels(labels=ticks, color=count_color)
+            ax1.tick_params(axis='y', labelsize=8) #color=count_color)
+
+    # set subplot params
+    ax.set_xlim([-1000, 1000])
+    #ax.set_title('Cluster ' + str(clust), fontsize='medium')
+    ax.set_xlabel('Time (ms)', size='large')
+    ax.set_ylabel('Amplitude (mV)', size='large')
+    ax.tick_params(axis='both', which='both', labelsize=8)
+
+    # set figure params
+    #fig.legend()   
+    fig.tight_layout(pad=1, rect=[0, 0, 1, 0.92])
+    if count:
+        fig.text(1, 0.5, 'Spindle Count', va='center', rotation=270, color=count_color, size='large')
     fig.suptitle(n.metadata['file_info']['fname'].split('.')[0] + f'\nSpindle Averages ({datatype})')
 
     return fig
@@ -1465,7 +1587,7 @@ def plot_spso_chan(n, chan, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracing
     return fig
 
 
-def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True, so_tracings=True):
+def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True, so_tracings=True, cmap='winter', ylims=None, legend=False):
     """ Plot individual slow oscillations with overriding spindle detections 
     
         Parameters
@@ -1481,9 +1603,17 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
             whether to plot spindle distribution
         so_tracings: bool (default: True)
             whether to plot SO tracings (if set to False, mean SO will be plotted)
+        cmap: str (default:'winter')
+            matplotlib colormap. usually 'winter' or 'RdYlBu'
+        ylims: tuple or None (default: None)
+            y limits for SO tracings axis. for use if an outlier is skewing the axis
+        legend: bool (default: False)
+            whether to plot the legend
+        
     """
     
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plt.rcParams["font.family"] = "Arial"
     
     so_dict = {}
     for chan in n.spso_aggregates.keys():
@@ -1491,6 +1621,8 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
             if so_tracings:
                 # plot slow oscillation
                 ax.plot(df[so_dtype], color='black', alpha=0.2)
+                if ylims is not None:
+                    ax.set_ylim(ylims)
             else:
                 # grab the slow oscillations to calculate mean
                 so_dict[chan+'_'+str(so_id)] = df[df.index.notna()][so_dtype]
@@ -1504,9 +1636,9 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
                 
                 if spin_tracings:
                     # plot spindle
-                    c = plt.get_cmap('RdYlBu', 2)(clust)
+                    c = plt.get_cmap(cmap, 2)(clust)
                     hx = matplotlib.colors.rgb2hex(c[:-1])
-                    ax.plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
+                    ax.plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.8)
 
     # plot SO mean
     if so_tracings == False:
@@ -1514,32 +1646,36 @@ def plot_spso(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, pl
         mean = so_df.mean(axis=1)
         sd = so_df.std(axis=1)
         if len(mean) > 0:
-            ax.plot(mean, color='black')
-            ax.fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
+            ax.plot(mean, color='black', lw=2)
+            ax.fill_between(mean.index, mean-sd, mean+sd, color='grey', alpha=0.3)
 
     if plot_dist:
         # plot normalized distribution of each cluster for each timepoint
         ax1 = ax.twinx()
         for clust, dct in n.spin_dist['all'].items():
             # set color
-            c = plt.get_cmap('RdYlBu', 2)(int(clust))
+            c = plt.get_cmap(cmap, 2)(int(clust))
             hx = matplotlib.colors.rgb2hex(c[:-1])
             # plot normed distribution
-            ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
-            ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
+            ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust, lw=2)
+            ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.4)
             ax1.set_ylim(0, 1.0)
-        ax1.set_ylabel('Proportion of spindles present')
-        ax1.legend()
+        ax1.set_ylabel('Spindles present (%)', size=30, rotation=270, va='bottom')
+        ax1.set_yticklabels(['0', '20', '40', '60', '80', '100'])
+        ax1.tick_params(axis='y', rotation=0, pad=.1, labelsize=20)
+        if legend:
+            ax1.legend()
 
-    ax.tick_params(axis='x', rotation=15., pad=.1)
-    ax.tick_params(axis='y', rotation=0, pad=.1)
-    ax.set_ylabel('Ampltiude (mV)')
-    ax.set_xlabel('Time (ms)')
+    ax.tick_params(axis='x', rotation=15., pad=.1, labelsize=20)
+    ax.tick_params(axis='y', rotation=0, pad=.1, labelsize=20)
+    ax.set_ylabel('Ampltiude (mV)', size=30)
+    ax.set_xlabel('Time (ms)', size=30)
 
-    fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
-    fig.tight_layout()
+    #fig.suptitle(n.metadata['file_info']['fname'].split('.')[0])
+    #fig.tight_layout()
     
     return fig
+
 
 
 def plot_spso_headplot(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=False, plot_dist=True, so_tracings=True):
@@ -1771,7 +1907,7 @@ def plot_tstats_topo(n, col):
 
 #### Export Methods ####
 
-def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=True, spins_i=False, spindle_means=True, psd_concat=True):
+def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, spindle_spectra=False, spins_i=False, spindle_means=True, psd_concat=True):
     """ Produce and export all spindle figures 
     
         Parameters
@@ -1830,14 +1966,22 @@ def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, sp
                     filename = f'{fname}_SpindleSpectra_Accepted.{ext}'
                     savename = os.path.join(chan_dir, filename)
                     fig = plot_spindlepower_chan_i(n, chan)
-                    fig.savefig(savename, dpi=dpi, transparent=transparent)
-                    plt.close(fig)                  
+                    try:
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    except AttributeError:
+                        pass
+                    else:
+                        plt.close(fig)                  
                     # individual spindle spectra (rejected)
                     filename = f'{fname}_SpindleSpectra_Rejected.{ext}'
                     savename = os.path.join(chan_dir, filename)
                     fig = plot_spindlepower_chan_i(n, chan, spin_type='rejects')
-                    fig.savefig(savename, dpi=dpi, transparent=transparent)
-                    plt.close(fig)
+                    try:
+                        fig.savefig(savename, dpi=dpi, transparent=transparent)
+                    except AttributeError:
+                        pass
+                    else:
+                        plt.close(fig)
 
                 if spins_i:
                     print('\tExporting spec_spins figures...')

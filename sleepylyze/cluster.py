@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 
 from tslearn.preprocessing import TimeSeriesScalerMeanVariance
 from scipy.spatial.distance import cdist
@@ -130,12 +131,18 @@ def plot_kmeans(n, km_psd, f_idx, X, y_pred, raw=False, std=True):
     n_clusters = km_psd.cluster_centers_.shape[0]
     centroids = km_psd.cluster_centers_
     
-    fig, axs = plt.subplots(1, n_clusters, figsize=(2*n_clusters, 3), sharey=True)
+    if n_clusters == 2:
+        fig, axs = plt.subplots(1, n_clusters, figsize=(8, 7), sharey=True)
+        fig.subplots_adjust(hspace=0.1)
+    else:
+        fig, axs = plt.subplots(1, n_clusters, figsize=(2*n_clusters, 3), sharey=True)
+    plt.rcParams["font.family"] = "Arial"
+
     if n_clusters == 1:
         axs = [axs]
     else: 
         axs = axs.flatten()
-    for label, ax in zip(range(n_clusters), axs):
+    for e, (label, ax) in enumerate(zip(range(n_clusters), axs)):
         if raw:
             # plot raw tracings
             for psd in X[y_pred == label]:
@@ -145,17 +152,21 @@ def plot_kmeans(n, km_psd, f_idx, X, y_pred, raw=False, std=True):
             # plot standard deviation of raw tracings
             clust = {e:x.ravel() for e, x in enumerate(X[y_pred == label])}
             clust_df = pd.DataFrame(clust, index=f_idx).T
-            ax.fill_between(f_idx, y1=(clust_df.mean() - clust_df.std()).values, y2=(clust_df.mean() + clust_df.std()).values, color='grey', alpha=0.5)
+            ax.fill_between(f_idx, y1=(clust_df.mean() - clust_df.std()).values, y2=(clust_df.mean() + clust_df.std()).values, color='grey', alpha=0.3)
         # plot centroids
-        ax.plot(pd.Series(centroids[label], f_idx), "r-")
+        ax.plot(pd.Series(centroids[label], f_idx), color='black', lw=3) #"r-")
+        # set axis params
         ax.set_xticks([0, 5, 10, 15, 20])
         ax.set_ylim(-3, 4)
         ax.set_xlim(spin_range[0], spin_range[1])
-        ax.set_title(f'Cluster {label}')
-        ax.set_xlabel('Frequency (Hz)')
-        ax.set_ylabel('Normalized Power')
+        ax.set_title(f'Cluster {label}', size=30)
+        ax.set_xlabel('Frequency (Hz)', size=30)
+        ax.tick_params(labelsize=20)
 
-    fig.suptitle(f'KMeans, clusters = {n_clusters}')
+        if e == 0:
+            ax.set_ylabel('Normalized Power', size=30)
+
+    #fig.suptitle(f'KMeans, clusters = {n_clusters}')
 
     return fig
 
@@ -254,6 +265,81 @@ def run_kmeans(n, n_clusters, train_split, plot_clusts=True):
     print('Labels assigned to cluster column in n.spindle_stats_i.\nDone.')
 
     return fig
+
+
+def calc_spin_clust_means(n, savedir, export=True):
+    """ calculate cluster means 
+    
+        Parameters
+        ----------
+        savedir: str
+            location to save dataframes
+        export: bool (default: True)
+            whether to export dataframes
+        
+        Returns
+        -------
+        n.spindle_aggregates_clust
+        n.spindle_clust_means
+    """
+    
+    print('Aligning spindles...')
+    # align spindles accoridng to timedelta & combine into single dataframe
+    spindle_aggregates_clust = {}
+    datatypes = ['Raw', 'spfilt']
+    
+    for clust in [0, 1]:
+        # get spindle assignments
+        clust_df = n.spindle_stats_i[n.spindle_stats_i.cluster == clust].loc[:, ['chan', 'spin']]
+        #for e, (chan, spin) in clust_df.iterrows():
+        spindle_aggregates_clust[clust] = {}
+        for datatype in datatypes:
+            prefix = list(clust_df.chan)
+            suffix = list(clust_df.spin)
+            spin_suffix = ['spin_'+ str(x) for x in suffix]
+            dfs = [n.spindle_aggregates[chan][datatype][spin].rename(chan+'_'+spin) for chan, spin in zip(prefix, spin_suffix)]
+            # create a new df from the series'
+            df_combined = pd.DataFrame(dfs).T
+            spindle_aggregates_clust[clust][datatype] = df_combined
+    
+    print('Calculating spindle cluster statistics...')
+    # create a new multiindex dataframe for calculations
+    spindle_clust_means = {}
+    calcs = ['count', 'mean', 'std' ,'sem']
+    tuples = [(clust, calc) for clust in spindle_aggregates_clust.keys() for calc in calcs]
+    columns = pd.MultiIndex.from_tuples(tuples, names=['cluster', 'calc'])
+    for datatype in datatypes:
+        spindle_clust_means[datatype] = pd.DataFrame(columns=columns)
+        # fill the dataframe
+        for clust in spindle_aggregates_clust.keys():
+            spindle_clust_means[datatype][(clust, 'count')] = spindle_aggregates_clust[clust][datatype].notna().sum(axis=1)
+            spindle_clust_means[datatype][(clust, 'mean')] = spindle_aggregates_clust[clust][datatype].mean(axis=1)
+            spindle_clust_means[datatype][(clust, 'std')] = spindle_aggregates_clust[clust][datatype].std(axis=1)
+            spindle_clust_means[datatype][(clust, 'sem')] = spindle_aggregates_clust[clust][datatype].sem(axis=1)
+        
+    n.spindle_aggregates_clust = spindle_aggregates_clust
+    n.spindle_clust_means = spindle_clust_means
+    
+    if export:
+        print('Exporting dataframes...')
+        fname = n.metadata['file_info']['fname'].split('.')[0]
+        filename = f'{fname}_spindle_aggregates_clust.xlsx'
+        savename = os.path.join(savedir, 'spindle_tracings', filename)
+        writer = pd.ExcelWriter(savename, engine='xlsxwriter')
+        for clust in n.spindle_aggregates_clust.keys():
+            for dtype in n.spindle_aggregates_clust[clust].keys():
+                tab = '_'.join([str(clust), dtype])
+                n.spindle_aggregates_clust[clust][dtype].to_excel(writer, sheet_name=tab)
+        writer.save()
+
+        # export spindle means
+        print('Exporting spindle means...\n')
+        for dtype in n.spindle_clust_means.keys():
+            filename = f'{fname}_spindle_means_clust_{dtype}.csv'
+            savename = os.path.join(savedir, 'spindle_tracings', filename)
+            n.spindle_clust_means[dtype].to_csv(savename)
+
+    print('Done. Spindles aggregated by cluster in obj.spindle_aggregates_clust dict. Spindle statisics stored in obj.spindle_clust_means dataframe.\n')
 
 def zpad(spin, sf, zpad_len, zpad_mult):
     """ zero-pad individual raw spindle data. for use with cluster.calc_cohpsi. 
