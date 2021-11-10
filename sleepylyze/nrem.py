@@ -233,7 +233,7 @@ class NREM:
         self.metadata['laplacian_weights'] = {}
             
         # set channel names if filtering all
-        exclude = ['EOG_L','EOG_R', 'EKG']
+        exclude = ['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG']
         channels = [x[0] for x in self.data.columns if x[0] not in exclude]
         if chans == 'all':
             chans = channels
@@ -1173,7 +1173,7 @@ class NREM:
         spindle_stats = pd.DataFrame(columns=columns)
         
         #exclude non-EEG channels
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
+        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']
 
         # fill dataframe
         for chan in self.spindles:
@@ -1310,7 +1310,7 @@ class NREM:
             return a*np.exp(-b*x)+c
         
         self.metadata['spindle_analysis']['gottselig_range'] = norm_range
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
+        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']
         
         spindle_psd_norm = {}
         chans_norm_failed = []
@@ -1376,7 +1376,7 @@ class NREM:
         c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
         
         # exclude non-EEG channels
-        exclude = ['EKG', 'EOG_L', 'EOG_R']
+        exclude = ['EKG', 'EOG_L', 'EOG_R', 'REF', 'FPZorEKG']
         # loop through all channels
         for chan in self.spindles.keys():
             if chan not in exclude:
@@ -1389,7 +1389,7 @@ class NREM:
                 elif any((c.casefold() in p_chars) for c in chan):
                     ap = 'P'
                 # assign RL
-                if chan[-1] == 'z':
+                if chan[-1].casefold() == 'z':
                     rl = 'C'
                 elif int(chan[-1]) % 2 == 0:
                     rl = 'R'
@@ -1469,7 +1469,7 @@ class NREM:
             # pull minimum width (in Hz) for a peak to be considered a peak
             pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
              #exclude non-EEG channels
-            exclude = ['EOG_L', 'EOG_R', 'EKG']
+            exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']
 
             # create fstats dataframe & peaks dict
             cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
