@@ -511,7 +511,7 @@ class NREM:
         # make boolean mask for spindle presence
         bool_dict = {}
         for chan in self.spindle_events:
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
                 spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
                 bool_dict[chan] = np.isin(self.data.index.values, spins_flat)
         spin_bool = pd.DataFrame(bool_dict, index = self.data.index.values)
@@ -2119,7 +2119,7 @@ class NREM:
         # flatten the dictionary into a boolean df
         so_bool_dict = {}
         for chan in so_dict:
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
                 so_flat = [time for so in so_dict[chan] for time in so]
                 so_bool_dict[chan] = np.isin(data.index.values, so_flat)
         so_bool = pd.DataFrame(so_bool_dict, index=data.index)
@@ -2127,7 +2127,7 @@ class NREM:
         # create a spindle boolean df
         spin_bool_dict = {}
         for chan in spindles.keys():
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
                 spins_tlist = [df.time.values for df in spindles[chan].values()]
                 spins_flat = [time for spindle in spins_tlist for time in spindle]
                 spin_bool_dict[chan] = np.isin(data.index.values, spins_flat)
@@ -2155,7 +2155,7 @@ class NREM:
         # Make aggregate dataframe
         spso_aggregates = {}
         for chan in so.keys():
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
                 spso_aggregates[chan] = {}
                 for so_idx, spins in so_spin_map[chan].items(): 
                     spso_agg = so[chan][so_idx]
@@ -2240,7 +2240,7 @@ class NREM:
             elif any((c.casefold() in p_chars) for c in chan):
                 ap = 'P'
             # assign RL
-            if chan[-1] == 'z':
+            if chan[-1].casefold() == 'z':
                 rl = 'C'
             elif int(chan[-1]) % 2 == 0:
                 rl = 'R'

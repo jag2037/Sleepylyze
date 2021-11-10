@@ -282,7 +282,7 @@ def plot_spectra(n, pca, pca_result, components):
 
     spin_range = n.metadata['spindle_analysis']['spin_range']
     
-    psd_list = np.array([list(chan_dict.values()) for chan, chan_dict in n.spindle_psd_i.items() if chan not in ['EKG', 'EOG_L', 'EOG_R']])
+    psd_list = np.array([list(chan_dict.values()) for chan, chan_dict in n.spindle_psd_i.items() if chan not in ['EKG', 'EOG_L', 'EOG_R', 'REF', 'FPZorEKG']])
     psd_flat = [item for sublist in psd_list for item in sublist]
     f_idx = psd_flat[0][(psd_flat[0].index >= spin_range[0]) & (psd_flat[0].index <= spin_range[1])].index
 
