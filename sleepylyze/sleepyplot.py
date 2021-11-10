@@ -345,7 +345,7 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
         sp_rej_f_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_f[i])) for i in d.spindle_rejects_f.keys()]  
 
     # set channels for plotting
-    channels = [x[0] for x in d.data.columns if x[0] not in ['EKG', 'EOG_L', 'EOG_R']]
+    channels = [x[0] for x in d.data.columns if x[0] not in ['EKG', 'EOG_L', 'EOG_R', 'REF']]
     
     # set offset multiplier (distance between channels in plot)
     mx = 0.1
