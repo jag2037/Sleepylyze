@@ -33,7 +33,7 @@ def fmt_kmeans(n):
     spin_range = n.metadata['spindle_analysis']['spin_range']
     
     # specify the data
-    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
     chan_arr_list = []
     chan_names = []
     for chan in n.spindle_psd_i.keys():

@@ -233,7 +233,7 @@ class NREM:
         self.metadata['laplacian_weights'] = {}
             
         # set channel names if filtering all
-        exclude = ['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG']
+        exclude = ['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
         channels = [x[0] for x in self.data.columns if x[0] not in exclude]
         if chans == 'all':
             chans = channels
@@ -511,7 +511,7 @@ class NREM:
         # make boolean mask for spindle presence
         bool_dict = {}
         for chan in self.spindle_events:
-            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
                 bool_dict[chan] = np.isin(self.data.index.values, spins_flat)
         spin_bool = pd.DataFrame(bool_dict, index = self.data.index.values)
@@ -1173,7 +1173,7 @@ class NREM:
         spindle_stats = pd.DataFrame(columns=columns)
         
         #exclude non-EEG channels
-        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']
+        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
 
         # fill dataframe
         for chan in self.spindles:
@@ -1310,7 +1310,7 @@ class NREM:
             return a*np.exp(-b*x)+c
         
         self.metadata['spindle_analysis']['gottselig_range'] = norm_range
-        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']
+        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
         
         spindle_psd_norm = {}
         chans_norm_failed = []
@@ -1376,7 +1376,7 @@ class NREM:
         c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
         
         # exclude non-EEG channels
-        exclude = ['EKG', 'EOG_L', 'EOG_R', 'REF', 'FPZorEKG']
+        exclude = ['EKG', 'EOG_L', 'EOG_R', 'REF', 'FPZorEKG', 'A1', 'A2']
         # loop through all channels
         for chan in self.spindles.keys():
             if chan not in exclude:
@@ -1469,7 +1469,7 @@ class NREM:
             # pull minimum width (in Hz) for a peak to be considered a peak
             pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
              #exclude non-EEG channels
-            exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']
+            exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
 
             # create fstats dataframe & peaks dict
             cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
@@ -2119,7 +2119,7 @@ class NREM:
         # flatten the dictionary into a boolean df
         so_bool_dict = {}
         for chan in so_dict:
-            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 so_flat = [time for so in so_dict[chan] for time in so]
                 so_bool_dict[chan] = np.isin(data.index.values, so_flat)
         so_bool = pd.DataFrame(so_bool_dict, index=data.index)
@@ -2127,7 +2127,7 @@ class NREM:
         # create a spindle boolean df
         spin_bool_dict = {}
         for chan in spindles.keys():
-            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 spins_tlist = [df.time.values for df in spindles[chan].values()]
                 spins_flat = [time for spindle in spins_tlist for time in spindle]
                 spin_bool_dict[chan] = np.isin(data.index.values, spins_flat)
@@ -2155,7 +2155,7 @@ class NREM:
         # Make aggregate dataframe
         spso_aggregates = {}
         for chan in so.keys():
-            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 spso_aggregates[chan] = {}
                 for so_idx, spins in so_spin_map[chan].items(): 
                     spso_agg = so[chan][so_idx]
