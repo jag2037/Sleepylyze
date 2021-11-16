@@ -10,6 +10,7 @@
         - Update docstrings
         
         - ** Export SO and SPSO analyses
+        - ** move EXCLUDE var into function calls
 """
 
 import datetime
@@ -153,14 +154,19 @@ class NREM:
             # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
             data_nan = data[i][data[i]['Raw'].isna()]
             data_notnan = data[i][data[i]['Raw'].isna() == False]
-            # filter notNaN data & add column to notNaN df
-            data_notnan_filt = sosfiltfilt(sos, data_notnan.to_numpy(), axis=0)
-            data_notnan['Filt'] = data_notnan_filt
-            # merge NaN & filtered notNaN values, sort on index
-            filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
-            # add to dataframe
-            data_lowpass[i] = filt_chan
-        
+            # if the channel is not all NaN, lowpass filter
+            if len(data_notnan) > 0:
+                # filter notNaN data & add column to notNaN df
+                data_notnan_filt = sosfiltfilt(sos, data_notnan.to_numpy(), axis=0)
+                data_notnan['Filt'] = data_notnan_filt
+                # merge NaN & filtered notNaN values, sort on index
+                filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
+                # add to dataframe
+                data_lowpass[i] = filt_chan
+            # otherwise add the nan column
+            else:
+                data_lowpass[i] = data[i]
+            
 
         # set dataframe columns
         data_lowpass.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('raw_lowpass'), len(channels))],names=['Channel','datatype'])
@@ -549,18 +555,20 @@ class NREM:
 
 
     # set multiIndex
-    def spMultiIndex(self):
+    def spMultiIndex(self, exclude):
         """ combine dataframes into a multiIndex dataframe"""
+        channels = [x for x in self.channels if x not in exclude]
+
         # reset column levels
-        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
+        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('Filtered'), len(channels))],names=['Channel','datatype'])
+        self.spRMS.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('RMS'), len(channels))],names=['Channel','datatype'])
+        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('RMSmavg'), len(channels))],names=['Channel','datatype'])
 
         # list df vars for index specs
         dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
         calcs = ['Filtered', 'RMS', 'RMSmavg']
-        lvl0 = np.repeat(self.channels, len(calcs))
-        lvl1 = calcs*len(self.channels)    
+        lvl0 = np.repeat(channels, len(calcs))
+        lvl1 = calcs*len(channels)    
     
         # combine & custom sort
         self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
@@ -959,7 +967,8 @@ class NREM:
         
     def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, min_sep=0.2, duration=[0.5, 3.0], min_chans_r=3, min_chans_d=9,
                         zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, psd_bandwidth=1.0, zpad=True, zpad_len=3.0, pwr_prune=True,
-                        pwr_thres=30, spin_range=[9, 16], prune_range=[4, 25], min_peaks=1, pk_width_hz=0.5):  
+                        pwr_thres=30, spin_range=[9, 16], prune_range=[4, 25], min_peaks=1, pk_width_hz=0.5, 
+                        exclude=['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2', 'CZ', 'FP1', 'FP2', 'FZ', 'PZ']):  
         """ Detect spindles by channel
             
             Parameters
@@ -1012,6 +1021,9 @@ class NREM:
                 minimum number of spectral peaks in the spindle range for a spindle to be accepted
             pk_width_hz: float (default: 0.5)
                 minimum width (in Hz) for a peak to be considered a peak
+            exlcude: list of string or None (default: ['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2'])
+                list of channels to exclude from analysis. NOTE: capital 'FZ' & 'PZ' are MOBEE 32 nan channels. 
+                Sentence case 'Fz' and 'Pz' are valid FS128 channels.
 
             Returns
             -------
@@ -1037,7 +1049,7 @@ class NREM:
         print('Detecting spindles...')
         # loop through channels (all channels for plotting ease)
         for i in self.channels:
-           # if i not in ['EOG_L', 'EOG_R', 'EKG']:
+            if i not in exclude:
                 #print(f'Detecting spindles on {i}...')
                 # Filter
                 self.spfilt(i)
@@ -1050,7 +1062,7 @@ class NREM:
 
         # combine dataframes
         print('Combining dataframes...')
-        self.spMultiIndex()
+        self.spMultiIndex(exclude)
         
         # Apply time-domain rejection criteria
         print('Pruning spindle detections...')
