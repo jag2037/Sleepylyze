@@ -339,13 +339,6 @@ class NREM:
                 spindle rejects based on frequency domain criteria. format {chan: [spindle reject indices,...]}
 
         """
-        # check if channel list exists
-        try:
-            self.channels
-        except AttributeError:
-            # create if doesn't exist
-            self.channels = [x[0] for x in self.data.columns]
-
         dfs =['spfiltEEG', 'spRMS', 'spRMSmavg'] # for > speed, don't store spRMS as an attribute
         [setattr(self, df, pd.DataFrame(index=self.data.index)) for df in dfs]
         self.spThresholds = pd.DataFrame(index=['Mean RMS', 'Low Threshold', 'High Threshold'])
