@@ -74,7 +74,8 @@ class NREM:
 
             #remove channels
             exclude = ['EOG_L','EOG_R', 'EKG']
-            self.metadata['channels'] = [x[0] for x in self.data.columns if x[0] not in exclude]
+            # create channel attribute
+            self.channels = [x[0] for x in self.data.columns if x[0] not in exclude]
 
             # apply laplacian
             if laplacian_chans is not None:
@@ -147,13 +148,9 @@ class NREM:
         
         # make filter
         sos = butter(lowpass_order, lowpass_freq, btype='lowpass', output='sos')
-
-        # create channel attribute
-        channels = [x[0] for x in self.data.columns]
-        self.channels = channels
         
         # filter the data
-        for i in channels:
+        for i in self.channels:
             # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
             data_nan = data[i][data[i]['Raw'].isna()]
             data_notnan = data[i][data[i]['Raw'].isna() == False]
@@ -167,7 +164,7 @@ class NREM:
         
 
         # set dataframe columns
-        data_lowpass.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('raw_lowpass'), len(channels))],names=['Channel','datatype'])
+        data_lowpass.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('raw_lowpass'), len(self.channels))],names=['Channel','datatype'])
         # use the lowpassed data
         raw_lowpass_data = data_lowpass
         self.data_lowpass = data_lowpass
@@ -237,10 +234,8 @@ class NREM:
         self.metadata['laplacian_weights'] = {}
             
         # set channel names if filtering all
-        exclude = ['EOG_L','EOG_R', 'EKG']
-        channels = [x[0] for x in self.data.columns if x[0] not in exclude]
         if chans == 'all':
-            chans = channels
+            chans = self.metadata['channels']
         # set a dict to move between casefold and raw data cols
         cdict = {chan.casefold():chan for chan in channels}
         
