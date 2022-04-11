@@ -1165,7 +1165,7 @@ class NREM:
         spindle_stats = pd.DataFrame(columns=columns)
         
         # fill dataframe
-        for chan in self.channels:
+        for chan in self.spindles:
             # calculate spindle count
             count = len(self.spindles[chan])
             
@@ -1301,7 +1301,7 @@ class NREM:
 
         spindle_psd_norm = {}
         chans_norm_failed = []
-        for chan in self.channels:
+        for chan in self.spindle_psd_concat:
             spindle_psd_norm[chan] = {}
 
             # specify data to be fit (only data in norm range)
@@ -1362,7 +1362,7 @@ def calc_spin_stats_i(self):
     c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
     
     # loop through all channels
-    for chan in self.channels:
+    for chan in self.spindles.keys():
         # assign anterior-posterior
         if chan.casefold() in c_chans:
             ap = 'C' 
@@ -1471,7 +1471,7 @@ def calc_spin_stats_i(self):
             mw_samples = int(distance)
 
             # calculate stats for each channel
-            for chan in self.channels:
+            for chan in self.spindle_psd_concat.keys():
                 # smooth the signal
                 datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
                 window = np.ones(mw_samples)/float(mw_samples)
