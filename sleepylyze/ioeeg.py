@@ -750,7 +750,122 @@ class Dataset:
 
             self.cut_data = cut_data
 
+    def write_edf(edf_file, signals, signal_headers, header=None, digital=False,
+              file_type=-1, block_size=1):
+    """
+    Write signals to an edf_file. Header can be generated on the fly with
+    generic values. EDF+/BDF+ is selected based on the filename extension,
+    but can be overwritten by setting file_type to pyedflib.FILETYPE_XXX
+    Parameters
+    ----------
+    edf_file : np.ndarray or list
+        where to save the EDF file
+    signals : list
+        The signals as a list of arrays or a ndarray.
+    signal_headers : list of dict
+        a list with one signal header(dict) for each signal.
+        See pyedflib.EdfWriter.setSignalHeader..
+    header : dict
+        a main header (dict) for the EDF file, see
+        pyedflib.EdfWriter.setHeader for details.
+        If no header present, will create an empty header
+    digital : bool, optional
+        whether the signals are in digital format (ADC). The default is False.
+    file_type: int, optional
+        choose file_type for saving.
+        EDF = 0, EDF+ = 1, BDF = 2, BDF+ = 3, automatic from extension = -1
+    block_size : int
+        set the block size for writing. Should be divisor of signal length
+        in seconds. Higher values mean faster writing speed, but if it
+        is not a divisor of the signal duration, it will append zeros.
+        Can be any value between 1=><=60, -1 will auto-infer the fastest value.
+    Returns
+    -------
+    bool
+         True if successful, False if failed.
+    """
+    assert header is None or isinstance(header, dict), \
+        'header must be dictioniary or None'
+    assert isinstance(signal_headers, list), \
+        'signal headers must be list'
+    assert len(signal_headers)==len(signals), \
+        'signals and signal_headers must be same length'
+    assert file_type in [-1, 0, 1, 2, 3], \
+        'file_type must be in range -1, 3'
+    assert block_size<=60 and block_size>=-1 and block_size!=0, \
+        'blocksize must be smaller or equal to 60'
 
+    # copy objects to prevent accidential changes to mutable objects
+    header = deepcopy(header)
+    signal_headers = deepcopy(signal_headers)
+
+    if file_type==-1:
+        ext = os.path.splitext(edf_file)[-1]
+        if ext.lower() == '.edf':
+            file_type = pyedflib.FILETYPE_EDFPLUS
+        elif ext.lower() == '.bdf':
+            file_type = pyedflib.FILETYPE_BDFPLUS
+        else:
+            raise ValueError('Unknown extension {}'.format(ext))
+
+    n_channels = len(signals)
+
+    # if there is no header, we create one with dummy values
+    if header is None:
+        header = {}
+    default_header = highlevel.make_header()
+    default_header.update(header)
+    header = default_header
+
+    # block_size sets the size of each writing block and should be a divisor
+    # of the length of the signal. If it is not, the remainder of the file
+    # will be filled with zeros.
+    signal_duration = len(signals[0]) // highlevel._get_sample_frequency(signal_headers[0])
+    if block_size == -1:
+        block_size = max([d for d in range(1, 61) if signal_duration % d == 0])
+    elif signal_duration % block_size != 0:
+            warnings.warn('Signal length is not dividable by block_size. '+
+                          'The file will have a zeros appended.')
+
+    # check dmin, dmax and pmin, pmax dont exceed signal min/max
+    for sig, shead in zip(signals, signal_headers):
+        dmin, dmax = shead['digital_min'], shead['digital_max']
+        pmin, pmax = shead['physical_min'], shead['physical_max']
+        label = shead['label']
+        if digital: # exception as it will lead to clipping
+            assert dmin<=np.nanmin(sig), \
+            'digital_min is {}, but signal_min is {}' \
+            'for channel {}'.format(dmin, sig.min(), label)
+            assert dmax>=np.nanmax(sig), \
+            'digital_min is {}, but signal_min is {}' \
+            'for channel {}'.format(dmax, sig.max(), label)
+            assert pmin != pmax, \
+            'physical_min {} should be different from physical_max {}'.format(pmin,pmax)
+        else: # only warning, as this will not lead to clipping
+            assert pmin<=np.nanmin(sig), \
+            'phys_min is {}, but signal_min is {} ' \
+            'for channel {}'.format(pmin, sig.min(), label)
+            assert pmax>=np.nanmax(sig), \
+            'phys_max is {}, but signal_max is {} ' \
+            'for channel {}'.format(pmax, sig.max(), label)
+
+
+        frequency_key = 'sample_rate' if shead.get('sample_frequency') is None else 'sample_frequency'
+        shead[frequency_key] *= block_size
+
+    # get annotations, in format [[timepoint, duration, description], [...]]
+    annotations = header.get('annotations', [])
+
+    with pyedflib.EdfWriter(edf_file, n_channels=n_channels, file_type=file_type) as f:
+        f.setDatarecordDuration(int(100000 * block_size))
+        f.setSignalHeaders(signal_headers)
+        f.setHeader(header)
+        f.writeSamples(signals, digital=digital)
+        for annotation in annotations:
+            f.writeAnnotation(*annotation)
+    del f
+
+    return os.path.isfile(edf_file)
     def export_csv(self, data=None, stages ='all', epoched=False, savedir=None):
         """ Export data to csv (single df or cut data)
 
