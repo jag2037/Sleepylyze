@@ -22,7 +22,9 @@ import psycopg2
 import re
 import statistics
 from sqlalchemy import *
+import pyedflib
 from pyedflib import highlevel
+from copy import deepcopy
 
 
 class Dataset:
@@ -751,7 +753,7 @@ class Dataset:
 
             self.cut_data = cut_data
 
-    def write_edf(edf_file, signals, signal_headers, header=None, digital=False,
+    def write_edf(self, edf_file, signals, signal_headers, header=None, digital=False,
               file_type=-1, block_size=1):
         """
         Write signals to an edf_file. Header can be generated on the fly with
@@ -869,9 +871,6 @@ class Dataset:
 
         return os.path.isfile(edf_file)
     def sub_export(self, stg, cyc, edf, savedir, epoched, file_ext, epoch = None,date=None,header=None,sig_headers=None):
-        self.header = header
-        self.sig_headers= sig_headers
-        self.date = date
         if epoched ==False:
             df = self.cut_data[stg][cyc]
         else:
@@ -882,15 +881,14 @@ class Dataset:
         if edf==False:
             df.to_csv(os.path.join(savedir, savename))
         if edf==True:
-            for stg in self.cut_data.keys():
-                for cyc in self.cut_data[stg]:
-                    savename_base = self.metadata['in_num'] + '_' + str(self.cut_data[stg][cyc].index[0]).replace(' ', '_').replace(':', '').split('.')[0]
-                    savename_elems = savename_base.split('_')
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.edf'
-                    vals = []
-                    for chan in self.metadata['channels']:
-                        vals.append(self.cut_data[stg][cyc][chan].values)
-                    self.write_edf(edf_file=savename, signals=vals, signal_headers= sig_headers, header= header)
+            savename_base = self.metadata['in_num'] + '_' + str(self.cut_data[stg][cyc].index[0]).replace(' ', '_').replace(':', '').split('.')[0]
+            savename_elems = savename_base.split('_')
+            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.edf'
+            savepath = os.path.join(savedir, savename)
+            vals = []
+            for chan in self.metadata['channels']:
+                vals.append(self.cut_data[stg][cyc][chan].values)
+            self.write_edf(savepath, vals, sig_headers, self.header)
         print(('{} successfully exported.').format(savename))    
     def export_csv(self, data=None, stages ='all', epoched=False, savedir=None, edf=False):
         """ Export data to csv (single df or cut data)
