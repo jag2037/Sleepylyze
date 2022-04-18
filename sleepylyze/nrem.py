@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 import warnings
 import xlsxwriter
+from pyedflib import highlevel
 
 from mne.time_frequency import psd_array_multitaper
 from scipy.signal import butter, sosfiltfilt, sosfreqz, find_peaks
@@ -30,7 +31,7 @@ from scipy.optimize import OptimizeWarning, curve_fit
 class NREM:
     """ General class for nonREM EEG segments """
     def __init__(self, fname=None, fpath=None, match=None, in_num=None, epoched=False, batch=False, lowpass_freq=25, lowpass_order=4,
-                laplacian_chans=None, replace_data=False):
+                laplacian_chans=None, replace_data=False, edf=False):
         """ Initialize NREM object
             
             Parameters
@@ -62,15 +63,16 @@ class NREM:
             self.load_batch(fpath, match, in_num)
         else:
             filepath = os.path.join(fpath, fname)
-
-            in_num, start_date, slpstage, cycle = fname.split('_')[:4]
-            self.metadata = {'file_info':{'in_num': in_num, 'fname': fname, 'path': filepath,
-                                        'sleep_stage': slpstage,'cycle': cycle} }
-            if epoched is True:
-                self.metadata['file_info']['epoch'] = fname.split('_')[4]
-
+            if edf == False:
+                in_num, start_date, slpstage, cycle = fname.split('_')[:4]
+                self.metadata = {'file_info':{'in_num': in_num, 'fname': fname, 'path': filepath,
+                                            'sleep_stage': slpstage,'cycle': cycle} }
+                if epoched is True:
+                    self.metadata['file_info']['epoch'] = fname.split('_')[4]
+            if edf == True:
+                self.metadata = {'file_info':{'fname': fname, 'path': filepath} }
             # load the data
-            self.load_segment()
+            self.load_segment(edf)
 
             # apply laplacian
             if laplacian_chans is not None:
@@ -93,20 +95,26 @@ class NREM:
 
 
 
-    def load_segment(self):
+    def load_segment(self, edf):
         """ Load eeg segment and extract sampling frequency. """
         
-        data = pd.read_csv(self.metadata['file_info']['path'], header = [0, 1], index_col = 0, parse_dates=True)
-        
-        # Check cycle length against 5 minute duration minimum
-        cycle_len_secs = (data.index[-1] - data.index[0]).total_seconds()
-        self.data = data
-        
-        diff = data.index.to_series().diff()[1:2]
-        # use floor to round down if not an integer
-        s_freq = math.floor(1000000/diff[0].microseconds)
-
-        self.metadata['file_info']['start_time'] = str(data.index[0])
+        if edf == False:
+            data = pd.read_csv(self.metadata['file_info']['path'], header = [0, 1], index_col = 0, parse_dates=True)
+            
+            # Check cycle length against 5 minute duration minimum
+            cycle_len_secs = (data.index[-1] - data.index[0]).total_seconds()
+            self.data = data
+            
+            diff = data.index.to_series().diff()[1:2]
+            # use floor to round down if not an integer
+            s_freq = math.floor(1000000/diff[0].microseconds)
+            self.metadata['file_info']['start_time'] = str(data.index[0])
+        if edf == True:
+            signals, signal_headers, header = highlevel.read_edf(self.metadata['file_info']['path'])
+            cycle_len_secs = len(signals[0])/int(signal_headers[0]['sample_frequency'])
+            s_freq = math.floor(int(signal_headers[0]['sample_frequency']))
+            startdate = header['startdate']
+            self.metadata['file_info']['start_time']=startdate.strftime('%Y-%m-%d %H:%M:%S.%f')
         self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
         self.s_freq = s_freq
 
