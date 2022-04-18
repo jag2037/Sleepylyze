@@ -785,6 +785,7 @@ class Dataset:
         bool
              True if successful, False if failed.
         """
+        self.edf_header = header
         assert header is None or isinstance(header, dict), \
             'header must be dictioniary or None'
         assert isinstance(signal_headers, list), \
@@ -875,9 +876,9 @@ class Dataset:
             df = self.cut_data[stg][cyc]
         else:
             df = self.cut_data[stg][cyc][epoch]
-        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
-        savename_elems = savename_base.split('_')
-        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + file_ext
+            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
+            savename_elems = savename_base.split('_')
+            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + file_ext
         if edf==False:
             df.to_csv(os.path.join(savedir, savename))
         if edf==True:
@@ -889,7 +890,7 @@ class Dataset:
                     vals = []
                     for chan in self.metadata['channels']:
                         vals.append(self.cut_data[stg][cyc][chan].values)
-                    self.write_edf(savename, vals, sig_headers, header)
+                    self.write_edf(edf_file=savename, signals=vals, signal_headers= sig_headers, header= header)
         print(('{} successfully exported.').format(savename))    
     def export_csv(self, data=None, stages ='all', epoched=False, savedir=None, edf=False):
         """ Export data to csv (single df or cut data)
@@ -935,7 +936,7 @@ class Dataset:
         
         #set export format specific variables
         if edf==False:
-            file_ext = 'csv'
+            file_ext = '.csv'
             date=None
             header=None 
             signal_headers=None
