@@ -888,7 +888,7 @@ class Dataset:
             vals = []
             for chan in self.metadata['channels']:
                 vals.append(self.cut_data[stg][cyc][chan].values)
-            self.write_edf(savepath, vals, sig_headers, self.header)
+            self.write_edf(savepath, vals, sig_headers, header)
         print(('{} successfully exported.').format(savename))    
     def export_csv(self, data=None, stages ='all', epoched=False, savedir=None, edf=False):
         """ Export data to csv (single df or cut data)
@@ -942,7 +942,7 @@ class Dataset:
             file_ext = '.edf'
             date = datetime.strptime(self.metadata['start_date'], '%m-%d-%Y')
             header = highlevel.make_header(patientcode = self.metadata['in_num'], equipment = self.metadata['hbid'], startdate=date)
-            signal_headers = highlevel.make_signal_headers(self.metadata['channels'], dimension = 'mV', sample_frequency = self.metadata['s_freq'] )
+            signal_headers = highlevel.make_signal_headers(self.metadata['channels'], dimension = 'mV', sample_frequency = self.metadata['s_freq'], physical_min = -400)
 
         # Option to export a single dataframe
         if data is not None:
