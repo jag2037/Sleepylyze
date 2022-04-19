@@ -12,7 +12,8 @@
         - ** Export SO and SPSO analyses
 """
 
-import datetime
+from datetime import datetime
+from datetime import timedelta
 import glob
 #import joblib
 import json
@@ -115,6 +116,24 @@ class NREM:
             s_freq = math.floor(int(signal_headers[0]['sample_frequency']))
             startdate = header['startdate']
             self.metadata['file_info']['start_time']=startdate.strftime('%Y-%m-%d %H:%M:%S.%f')
+            #set up to make dataframe
+            starttime = startdate.strftime('%Y-%m-%d %H:%M:%S.%f') #get datetime object back
+            labels = [] #make list of column names (channel names)
+            for signal in signal_headers:
+                labels.append(signal['label'])
+            times = [] #make list of row names, all the time points
+            time1 = startdate #start time
+            diff = 1/s_freq #time in seconds between each sample
+            for data in range(len(signals[0])): 
+                times.append(time1)
+                time1=time1+timedelta(seconds = diff) #get time of each sample
+            #make dataframe
+            data_pre = pd.DataFrame(signals)
+            data_pre = pd.DataFrame.transpose(data_pre)
+            times_idx = pd.Index(times)#make times an index object
+            data= data_pre.set_index(times_idx) #set index as times
+            data.columns = pd.MultiIndex.from_arrays([labels, np.repeat(('Raw'), len(labels))],names=['Channel','datatype']) #set column names
+            self.data = data
         self.metadata['analysis_info'] = {'s_freq': s_freq, 'cycle_len_secs': cycle_len_secs}
         self.s_freq = s_freq
 
