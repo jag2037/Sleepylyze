@@ -58,6 +58,8 @@ class NREM:
                 For leading/lagging analysis, was using ['F3', 'F4', 'P3', 'P4']
             replace_data: bool (default: False)
                 whether to replace primary data with laplcian filtered data
+            edf: bool (default: False)
+                whether the input file is in edf format. If false data is assumed to be in csv format
         """
         
         if batch:
@@ -97,7 +99,13 @@ class NREM:
 
 
     def load_segment(self, edf):
-        """ Load eeg segment and extract sampling frequency. """
+        """ Load eeg segment and extract sampling frequency. 
+            
+            Parameters
+            ----------
+            edf: bool (default: False)
+                whether the input file is in edf format. If false data is assumed to be in csv format
+        """
         
         if edf == False:
             data = pd.read_csv(self.metadata['file_info']['path'], header = [0, 1], index_col = 0, parse_dates=True)
