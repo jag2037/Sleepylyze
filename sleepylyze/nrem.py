@@ -1966,11 +1966,12 @@ class NREM:
         self.so_zxings = so_zxings
         self.so_events[i] = so_events
 
-    def soMultiIndex(self):
+    def soMultiIndex(self, exclude):
         """ combine dataframes into a multiIndex dataframe"""
+        channels = [x for x in self.channels if x not in exclude]
         # reset column levels
-        self.sofiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
-        self.spsofiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
+        self.sofiltEEG.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('Filtered'), len(channels))],names=['Channel','datatype'])
+        self.spsofiltEEG.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('Filtered'), len(channels))],names=['Channel','datatype'])
 
         # list df vars for index specs
         # dfs =[self.sofiltEEG] # for > speed, don't store spinfilt_RMS as an attribute
@@ -1982,7 +1983,8 @@ class NREM:
         # self.so_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
 
     def detect_so(self, wn=[0.1, 4], order=2, method='absolute', posx_thres = [0.9, 2], negposx_thres = 300, npeak_thres = -80, 
-        negpos_thres = 140, spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8):
+        negpos_thres = 140, spso_wn_pass = [0.1, 17], spso_wn_stop = [4.5, 7.5], spso_order=8, 
+        exclude=['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2', 'CZ', 'FP1', 'FP2', 'FZ', 'PZ']):
         """ Detect slow oscillations by channel
         
             TO DO: Update docstring
@@ -2032,6 +2034,7 @@ class NREM:
 
         # loop through channels (all channels for plotting ease)
         for i in self.channels:
+            if i not in exclude:
                 # Filter
                 self.sofilt(i)
                 self.spsofilt(i)
@@ -2041,7 +2044,7 @@ class NREM:
                 
         # combine dataframes
         print('Combining dataframes...')
-        self.soMultiIndex()
+        self.soMultiIndex(exclude)
         print('done.')
 
     def analyze_so(self, zmethod='trough'):
