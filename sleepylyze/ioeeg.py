@@ -25,6 +25,7 @@ from sqlalchemy import *
 import pyedflib
 from pyedflib import highlevel
 from copy import deepcopy
+import warnings
 
 
 class Dataset:
@@ -830,12 +831,13 @@ class Dataset:
         elif signal_duration % block_size != 0:
                 warnings.warn('Signal length is not dividable by block_size. '+
                               'The file will have a zeros appended.')
-
         # check dmin, dmax and pmin, pmax dont exceed signal min/max
         for sig, shead in zip(signals, signal_headers):
             dmin, dmax = shead['digital_min'], shead['digital_max']
             pmin, pmax = shead['physical_min'], shead['physical_max']
             label = shead['label']
+            if np.any(pd.isna(sig)):
+                warnings.warn('NaN values will be replaced by signal minimum!')
             if digital: # exception as it will lead to clipping
                 assert dmin<=np.nanmin(sig), \
                 'digital_min is {}, but signal_min is {}' \
