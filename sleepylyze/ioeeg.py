@@ -509,7 +509,7 @@ class Dataset:
                     else:
                         #self.data[(cx, 'Raw')].loc[t] = np.NaN
                         self.data.at[t, (cx, 'Raw')] = np.NaN
-                        #self.data.set_value(t, (cx, 'Raw'), np.NaN)
+                        #self.data.set_value(t, (cx, 'Raw'), np.NaN) # deprecated in pandas 0.21
 
         print('Data cleaned.')
 
