@@ -10,7 +10,7 @@
         For new headboxes, add HBSN from exported XLTEK file to the correct montage
 """
 
-import datetime
+from datetime import datetime
 from datetime import timedelta
 from io import StringIO
 import json
@@ -22,6 +22,10 @@ import psycopg2
 import re
 import statistics
 from sqlalchemy import *
+import pyedflib
+from pyedflib import highlevel
+from copy import deepcopy
+import warnings
 
 
 class Dataset:
@@ -137,12 +141,12 @@ class Dataset:
         print("Patient identifier:", self.metadata['in_num'])
 
         # read the first line to check encoding
-        with open(self.metadata['filepath'], 'r') as f:
+        with open(self.metadata['filepath'], encoding='utf16') as f:
             line = f.readline()
         if line[3] == '\x00':
             f_encoding = 'utf-16-le'
         else:
-            f_encoding = 'ascii' #might want to set this to None (used with open and pd.read_csv)
+            f_encoding = 'utf16' #might want to set this to None (used with open and pd.read_csv)
         self.metadata['encoding'] = f_encoding
         
         # extract sampling freq, # of channels, headbox sn
@@ -504,12 +508,12 @@ class Dataset:
                     if cx == '*':
                         for x in eeg_channels:
                             #self.data[(x, 'Raw')].loc[t] = np.NaN # much slower
-                            #self.data.at[t, (x, 'Raw')] = np.NaN # not depricated, slightly slower
-                            self.data.set_value(t, (x, 'Raw'), np.NaN)
+                            self.data.at[t, (x, 'Raw')] = np.NaN # not depricated, slightly slower
+                            #self.data.set_value(t, (x, 'Raw'), np.NaN)
                     else:
                         #self.data[(cx, 'Raw')].loc[t] = np.NaN
-                        #self.data.at[t, (cx, 'Raw')] = np.NaN
-                        self.data.set_value(t, (cx, 'Raw'), np.NaN)
+                        self.data.at[t, (cx, 'Raw')] = np.NaN
+                        #self.data.set_value(t, (cx, 'Raw'), np.NaN)
 
         print('Data cleaned.')
 
@@ -750,8 +754,145 @@ class Dataset:
 
             self.cut_data = cut_data
 
+    def write_edf(self, edf_file, signals, signal_headers, header=None, digital=False,
+              file_type=-1, block_size=1):
+        """
+        Write signals to an edf_file. Header can be generated on the fly with
+        generic values. EDF+/BDF+ is selected based on the filename extension,
+        but can be overwritten by setting file_type to pyedflib.FILETYPE_XXX
+        Parameters
+        ----------
+        edf_file : np.ndarray or list
+            where to save the EDF file
+        signals : list
+            The signals as a list of arrays or a ndarray.
+        signal_headers : list of dict
+            a list with one signal header(dict) for each signal.
+            See pyedflib.EdfWriter.setSignalHeader..
+        header : dict
+            a main header (dict) for the EDF file, see
+            pyedflib.EdfWriter.setHeader for details.
+            If no header present, will create an empty header
+        digital : bool, optional
+            whether the signals are in digital format (ADC). The default is False.
+        file_type: int, optional
+            choose file_type for saving.
+            EDF = 0, EDF+ = 1, BDF = 2, BDF+ = 3, automatic from extension = -1
+        block_size : int
+            set the block size for writing. Should be divisor of signal length
+            in seconds. Higher values mean faster writing speed, but if it
+            is not a divisor of the signal duration, it will append zeros.
+            Can be any value between 1=><=60, -1 will auto-infer the fastest value.
+        Returns
+        -------
+        bool
+             True if successful, False if failed.
+        """
+        self.edf_header = header
+        assert header is None or isinstance(header, dict), \
+            'header must be dictioniary or None'
+        assert isinstance(signal_headers, list), \
+            'signal headers must be list'
+        assert len(signal_headers)==len(signals), \
+            'signals and signal_headers must be same length'
+        assert file_type in [-1, 0, 1, 2, 3], \
+            'file_type must be in range -1, 3'
+        assert block_size<=60 and block_size>=-1 and block_size!=0, \
+            'blocksize must be smaller or equal to 60'
 
-    def export_csv(self, data=None, stages ='all', epoched=False, savedir=None):
+        # copy objects to prevent accidential changes to mutable objects
+        header = deepcopy(header)
+        signal_headers = deepcopy(signal_headers)
+
+        if file_type==-1:
+            ext = os.path.splitext(edf_file)[-1]
+            if ext.lower() == '.edf':
+                file_type = pyedflib.FILETYPE_EDFPLUS
+            elif ext.lower() == '.bdf':
+                file_type = pyedflib.FILETYPE_BDFPLUS
+            else:
+                raise ValueError('Unknown extension {}'.format(ext))
+
+        n_channels = len(signals)
+
+        # if there is no header, we create one with dummy values
+        if header is None:
+            header = {}
+        default_header = highlevel.make_header()
+        default_header.update(header)
+        header = default_header
+
+        # block_size sets the size of each writing block and should be a divisor
+        # of the length of the signal. If it is not, the remainder of the file
+        # will be filled with zeros.
+        signal_duration = len(signals[0]) // highlevel._get_sample_frequency(signal_headers[0])
+        if block_size == -1:
+            block_size = max([d for d in range(1, 61) if signal_duration % d == 0])
+        elif signal_duration % block_size != 0:
+                warnings.warn('Signal length is not dividable by block_size. '+
+                              'The file will have a zeros appended.')
+        # check dmin, dmax and pmin, pmax dont exceed signal min/max
+        for sig, shead in zip(signals, signal_headers):
+            dmin, dmax = shead['digital_min'], shead['digital_max']
+            pmin, pmax = shead['physical_min'], shead['physical_max']
+            label = shead['label']
+            if np.any(pd.isna(sig)):
+                warnings.warn('NaN values will be replaced by signal minimum!')
+            if digital: # exception as it will lead to clipping
+                assert dmin<=np.nanmin(sig), \
+                'digital_min is {}, but signal_min is {}' \
+                'for channel {}'.format(dmin, sig.min(), label)
+                assert dmax>=np.nanmax(sig), \
+                'digital_min is {}, but signal_min is {}' \
+                'for channel {}'.format(dmax, sig.max(), label)
+                assert pmin != pmax, \
+                'physical_min {} should be different from physical_max {}'.format(pmin,pmax)
+            else: # only warning, as this will not lead to clipping
+                assert pmin<=np.nanmin(sig), \
+                'phys_min is {}, but signal_min is {} ' \
+                'for channel {}'.format(pmin, sig.min(), label)
+                assert pmax>=np.nanmax(sig), \
+                'phys_max is {}, but signal_max is {} ' \
+                'for channel {}'.format(pmax, sig.max(), label)
+
+
+            frequency_key = 'sample_rate' if shead.get('sample_frequency') is None else 'sample_frequency'
+            shead[frequency_key] *= block_size
+
+        # get annotations, in format [[timepoint, duration, description], [...]]
+        annotations = header.get('annotations', [])
+
+        with pyedflib.EdfWriter(edf_file, n_channels=n_channels, file_type=file_type) as f:
+            f.setDatarecordDuration(int(100000 * block_size))
+            f.setSignalHeaders(signal_headers)
+            f.setHeader(header)
+            f.writeSamples(signals, digital=digital)
+            for annotation in annotations:
+                f.writeAnnotation(*annotation)
+        del f
+
+        return os.path.isfile(edf_file)
+    def sub_export(self, stg, cyc, edf, savedir, epoched, file_ext, epoch = None,date=None,header=None,sig_headers=None):
+        if epoched ==False:
+            df = self.cut_data[stg][cyc]
+        else:
+            df = self.cut_data[stg][cyc][epoch]
+            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
+            savename_elems = savename_base.split('_')
+            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + file_ext
+        if edf==False:
+            df.to_csv(os.path.join(savedir, savename))
+        if edf==True:
+            savename_base = self.metadata['in_num'] + '_' + str(self.cut_data[stg][cyc].index[0]).replace(' ', '_').replace(':', '').split('.')[0]
+            savename_elems = savename_base.split('_')
+            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.edf'
+            savepath = os.path.join(savedir, savename)
+            vals = []
+            for chan in self.metadata['channels']:
+                vals.append(self.cut_data[stg][cyc][chan].values)
+            self.write_edf(savepath, vals, sig_headers, header)
+        print(('{} successfully exported.').format(savename))    
+    def export_csv(self, data=None, stages ='all', epoched=False, savedir=None, edf=False):
         """ Export data to csv (single df or cut data)
 
         TO DO: Add 'NA' values to cycle and epoch if exporting a single df without specs
@@ -793,6 +934,18 @@ class Dataset:
         else:
             print('Files will be saved to ' + savedir)
         
+        #set export format specific variables
+        if edf==False:
+            file_ext = '.csv'
+            date=None
+            header=None 
+            signal_headers=None
+        else:
+            file_ext = '.edf'
+            date = datetime.strptime(self.metadata['start_date'], '%m-%d-%Y')
+            header = highlevel.make_header(patientcode = self.metadata['in_num'], equipment = self.metadata['hbid'], startdate=date)
+            signal_headers = highlevel.make_signal_headers(self.metadata['channels'], dimension = 'mV', sample_frequency = self.metadata['s_freq'], physical_min = -400)
+
         # Option to export a single dataframe
         if data is not None:
             # abort if data is not a single df
@@ -805,15 +958,15 @@ class Dataset:
             savename_elems = savename_base.split('_')
             spec_stg =  input('Specify sleep stage? [Y/N] ')
             if spec_stg.casefold() == 'n':
-                savename = savename_base + '.csv'
+                savename = savename_base + file_ext
             elif spec_stg.casefold() == 'y':
                 stg = input('Sleep stage: ')
                 spec_cyc = input('Specify cycle? [Y/N] ')
                 if spec_cyc.casefold() == 'n':
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_' + savename_elems[2] + '.csv'
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_' + savename_elems[2] + file_ext
                 elif spec_cyc.casefold() == 'y':
                     cyc = input('Sleep stage cycle: ')
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2] + '.csv'
+                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + cyc + '_' + savename_elems[2] + file_ext
             
             print('Exporting file...\n')
             data.to_csv(os.path.join(savedir, savename))
@@ -821,28 +974,19 @@ class Dataset:
      
         # Export a nested dict of dataframes w/o epochs [Default]
         elif data is None and epoched is False:
+            epoch = None
             print('Exporting files...\n')
             if stages == 'all':
                 for stg in self.cut_data.keys():
                     for cyc in self.cut_data[stg].keys():
-                        df = self.cut_data[stg][cyc]
-                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
-                        savename_elems = savename_base.split('_')
-                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
-                        df.to_csv(os.path.join(savedir, savename))
-                        print(('{} successfully exported.').format(savename)) 
+                        self.sub_export(stg = stg, cyc = cyc, edf=edf, savedir=savedir, epoched=epoched, file_ext=file_ext, epoch = epoch, date= date,header=header,sig_headers=signal_headers)
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
                         print('"'+ stg+'" is not a valid sleep stage code or is not present in this dataset.\nValid options: awake rem s1 s2 ads sws rcbrk\nSkipping.')
                         continue
                     for cyc in self.cut_data[stg].keys():
-                        df = self.cut_data[stg][cyc]
-                        savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
-                        savename_elems = savename_base.split('_')
-                        savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
-                        df.to_csv(os.path.join(savedir, savename))
-                        print(('{} successfully exported.').format(savename))
+                        self.sub_export(stg, cyc, edf, savedir, epoched, file_ext, epoch, date,header,signal_headers)
             elif type(stages) == str:
                 stg = stages
                 if stg not in self.cut_data.keys():
@@ -850,12 +994,7 @@ class Dataset:
                 if stg == 'abort':
                     return
                 for cyc in self.cut_data[stg].keys():
-                    df = self.cut_data[stg][cyc]
-                    savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
-                    savename_elems = savename_base.split('_')
-                    savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
-                    df.to_csv(os.path.join(savedir, savename))
-                    print(('{} successfully exported.').format(savename))
+                    self.sub_export(stg, cyc, edf, savedir, epoched, file_ext, epoch, date,header,signal_headers)
             print('\nDone.')
 
         # Export a nested dict of dataframes w/ epochs
@@ -865,12 +1004,7 @@ class Dataset:
                 for stg in self.epoch_data.keys():
                     for cyc in self.epoch_data[stg].keys():
                         for epoch in self.epoch_data[stg][cyc].keys():
-                            df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
-                            savename_elems = savename_base.split('_')
-                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
-                            df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            self.sub_export(stg, cyc, edf, savedir, epoched, file_ext, epoch, date,header,signal_headers)
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
@@ -880,11 +1014,7 @@ class Dataset:
                     for cyc in self.cut_data[stg].keys():
                         for epoch in self.epoch_data[stg][cyc].keys():
                             df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '').split('.')[0]
-                            savename_elems = savename_base.split('_')
-                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
-                            df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            self.sub_export(stg, cyc, edf, savedir, epoched, file_ext, epoch, date,header,signal_headers)
             elif type(stages) == str:
                 stg = stages
                 if stg not in self.cut_data.keys():
@@ -893,12 +1023,7 @@ class Dataset:
                     return
                 for cyc in self.cut_data[stg].keys():
                     for epoch in self.epoch_data[stg][cyc].keys():
-                            df = self.epoch_data[stg][cyc][epoch]
-                            savename_base = self.metadata['in_num'] + '_' + str(df.index[0]).replace(' ', '_').replace(':', '')
-                            savename_elems = savename_base.split('_')
-                            savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
-                            df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            self.sub_export(stg, cyc, edf, savedir, epoched, file_ext, epoch, date,header,signal_headers)
             print('\nDone.\n\t*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".')
 
         else:
