@@ -175,9 +175,20 @@ class NREM:
 
 
     def load_batch(self, fpath, match, in_num):
+
         """ Load a batch of EEG segments & reset index from absolute to relative time 
+
+            Parameters
+            ----------
+            fpath: str
+                absolute path to file(s) directory
+            match: str
+                string to match within the filename of all files to load (Ex: '_s2_')
+            in_num: str
+                IN number, for batch loading
             TO DO: Throw error if IN doesn't match any files in folder
-        """
+        """ 
+
         if in_num == None:
             in_num = input('Please specify IN number: ')
 
@@ -357,7 +368,12 @@ class NREM:
     
     # step 1: make filter
     def make_butter_sp(self, wn, order):
-        """ Make Butterworth bandpass filter [Parameters/Returns]"""
+        """ Make Butterworth bandpass filter [Parameters/Returns]
+            wn: list of int (default: [8, 16])
+                butterworth bandpass filter window
+            order: int (default: 4)
+                butterworth 1/2 filter order (applied forwards + backwards)
+        """
         nyquist = self.s_freq/2
         wn_arr=np.asarray(wn)
         if np.any(wn_arr <=0) or np.any(wn_arr >=1):
@@ -680,8 +696,15 @@ class NREM:
         """
         
         def create_zpad(spin, chan, x, zpad_len):
-            """ Create the zero-padded spindle from raw data [spin: np.array of spindle mV values] """
-            # subtract mean to zero-center spindle for zero-padding
+            """ Create the zero-padded spindle from raw data
+
+                Parameters
+                ----------
+                spin: np.array
+                    spindle mV values
+                zpad_len: float
+                    length to zero-pad the data to (in seconds) """
+                # subtract mean to zero-center spindle for zero-padding
             sf = self.s_freq
             data = spin.values - np.mean(spin.values)
             zpad_samples=0
@@ -1233,7 +1256,7 @@ class NREM:
 
             Params
             ------
-            bandwidth: float
+            psd_bandwidth: float
                 frequency resolution in Hz
 
             Returns
@@ -1607,6 +1630,8 @@ class NREM:
         
             Parameters
             ----------
+            export_dir: str
+                path to export directory
             raw: bool (default: True)
                 export raw EEG spindle detection tracings
             psd_concat: bool (default: True)
@@ -1770,8 +1795,15 @@ class NREM:
         self.so_rejects = {}
 
     def make_butter_so(self, wn, order):
-        """ Make Butterworth bandpass filter [Parameters/Returns]"""
-        
+        """ Make Butterworth bandpass filter [Parameters/Returns]
+
+            Parameters
+            ----------
+            wn: list of int (default: [8, 16])
+                butterworth bandpass filter window
+            order: int (default: 4)
+                butterworth 1/2 filter order (applied forwards + backwards)
+        """
         nyquist = self.s_freq/2
         wn_arr = np.asarray(wn)
         
@@ -1782,7 +1814,17 @@ class NREM:
         print(f"Zero phase butterworth filter successfully created: order = {order}x{order}, bandpass = {wn}")
 
     def make_butter_spso(self, spso_wn_pass, spso_wn_stop, spso_order):
-        """ Make Butterworth bandpass and bandstop filter [Parameters/Returns]"""
+        """ Make Butterworth bandpass and bandstop filter
+
+            Parameters
+            ----------
+            spso_wn_pass: list (default: [0.1, 17])
+            spso_wn_stop: list (default: [4.5, 7.5])
+            spso_order: int (default: 8)
+
+        """
+
+
         nyquist = self.s_freq/2
         wn_pass_arr = np.asarray(spso_wn_pass)
         wn_stop_arr = np.asarray(spso_wn_stop)
@@ -1828,8 +1870,13 @@ class NREM:
         self.sofiltEEG[i] = filt_chan
 
     def spsofilt(self, i):
-        """ Apply Butterworth bandpass-bandstop to signal by channel """
+        """ Apply Butterworth bandpass-bandstop to signal by channel
 
+            Parameters
+            ----------
+            i : str
+                channel to filter
+        """
         # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
         data_nan = self.data[i][self.data[i]['Raw'].isna()]
         data_notnan = self.data[i][self.data[i]['Raw'].isna() == False]
@@ -1852,6 +1899,8 @@ class NREM:
             
             Parameters
             ----------
+            i : str
+                channel to filter
             method: str (default: 'absolute')
                 SO detection method. [Options: 'absolute', 'ratio'] 
                 'absolute' employs absolute voltage values for npeak_thres and negpos_thres. 
@@ -2305,6 +2354,8 @@ class NREM:
 
             Parameters
             ----------
+            export_dir: str
+                path to export directory
             spso_aggregates: bool (default: True)
                 export aligned aggregates of spindles and slow oscillations
             spin_dist: bool (default: True)
