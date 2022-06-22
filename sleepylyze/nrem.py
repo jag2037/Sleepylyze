@@ -1163,52 +1163,55 @@ class NREM:
         columns = pd.MultiIndex.from_arrays([lvl1, lvl2])
         spindle_stats = pd.DataFrame(columns=columns)
         
+        #localize the variable containg the channels to exclude
+        exclude = self.exclude
         # fill dataframe
         for chan in self.spindles:
-            # calculate spindle count
-            count = len(self.spindles[chan])
-            
-            if count == 0:
-                spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None, None, None]
-            
-            else:
-                # calculate spindle duration
-                durations = np.array([(self.spindles[chan][spin].time.iloc[-1] - self.spindles[chan][spin].time.iloc[0]).total_seconds() for spin in self.spindles[chan]])
-                duration_mean = durations.mean()
-                duration_sd = durations.std()
-
-                # calculate amplitude
-                amplitudes_raw = np.concatenate([self.spindles[chan][x].Raw.values for x in self.spindles[chan]])
-                amp_rms_raw = np.sqrt(np.array([x**2 for x in amplitudes_raw]).mean())
-                amp_sd_raw = amplitudes_raw.std()
-                amplitudes_spfilt = np.concatenate([self.spindles[chan][x].spfilt.values for x in self.spindles[chan]])
-                amp_rms_spfilt = np.sqrt(np.array([x**2 for x in amplitudes_spfilt]).mean())
-                amp_sd_spfilt = amplitudes_spfilt.std()
-
-                # calculate density
-                #density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
-                data_notnan = self.data[chan][self.data[chan]['Raw'].isna() == False]
-                minutes = (len(data_notnan)/self.s_freq)/60
-                density = count/(minutes)
-
-
-                # calculate inter-spindle-interval (ISI)
-                if len(self.spindles[chan]) > 1:
-                    spin_keys = list(self.spindles[chan].keys())
-                    # make a list of tuples of ISI start and end timestamps
-                    isi_ranges = [(self.spindles[chan][spin_keys[x]].time.iloc[-1], self.spindles[chan][spin_keys[x+1]].time.iloc[0]) for x in range(len(spin_keys)) if x < len(spin_keys)-1]
-                    # keep the ISI tuple only if there are no NaNs in the data (no missing data)
-                    notNaN_isi_ranges = [i for i in isi_ranges if np.any(np.isnan(self.data[chan].loc[i[0]:i[1]])) == False]
-                    # calculate the total seconds for each tuple
-                    isi_arr = np.array([(isi[1]-isi[0]).total_seconds() for isi in notNaN_isi_ranges])
-                    isi_mean = isi_arr.mean()
-                    isi_sd = isi_arr.std()
+            if chan not in exclude:
+                # calculate spindle count
+                count = len(self.spindles[chan])
+                
+                if count == 0:
+                    spindle_stats.loc[chan] = [count, None, None, None, None, None, None, None, None, None]
+                
                 else:
-                    isi_mean = None
-                    isi_sd = None
+                    # calculate spindle duration
+                    durations = np.array([(self.spindles[chan][spin].time.iloc[-1] - self.spindles[chan][spin].time.iloc[0]).total_seconds() for spin in self.spindles[chan]])
+                    duration_mean = durations.mean()
+                    duration_sd = durations.std()
 
-                spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd]
-                # spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd, center_freq, total_pwr]
+                    # calculate amplitude
+                    amplitudes_raw = np.concatenate([self.spindles[chan][x].Raw.values for x in self.spindles[chan]])
+                    amp_rms_raw = np.sqrt(np.array([x**2 for x in amplitudes_raw]).mean())
+                    amp_sd_raw = amplitudes_raw.std()
+                    amplitudes_spfilt = np.concatenate([self.spindles[chan][x].spfilt.values for x in self.spindles[chan]])
+                    amp_rms_spfilt = np.sqrt(np.array([x**2 for x in amplitudes_spfilt]).mean())
+                    amp_sd_spfilt = amplitudes_spfilt.std()
+
+                    # calculate density
+                    #density = count/((self.data.index[-1] - self.data.index[0]).total_seconds()/60)
+                    data_notnan = self.data[chan][self.data[chan]['Raw'].isna() == False]
+                    minutes = (len(data_notnan)/self.s_freq)/60
+                    density = count/(minutes)
+
+
+                    # calculate inter-spindle-interval (ISI)
+                    if len(self.spindles[chan]) > 1:
+                        spin_keys = list(self.spindles[chan].keys())
+                        # make a list of tuples of ISI start and end timestamps
+                        isi_ranges = [(self.spindles[chan][spin_keys[x]].time.iloc[-1], self.spindles[chan][spin_keys[x+1]].time.iloc[0]) for x in range(len(spin_keys)) if x < len(spin_keys)-1]
+                        # keep the ISI tuple only if there are no NaNs in the data (no missing data)
+                        notNaN_isi_ranges = [i for i in isi_ranges if np.any(np.isnan(self.data[chan].loc[i[0]:i[1]])) == False]
+                        # calculate the total seconds for each tuple
+                        isi_arr = np.array([(isi[1]-isi[0]).total_seconds() for isi in notNaN_isi_ranges])
+                        isi_mean = isi_arr.mean()
+                        isi_sd = isi_arr.std()
+                    else:
+                        isi_mean = None
+                        isi_sd = None
+
+                    spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd]
+                    # spindle_stats.loc[chan] = [count, duration_mean, duration_sd, amp_rms_raw, amp_sd_raw, amp_rms_spfilt, amp_sd_spfilt, density, isi_mean, isi_sd, center_freq, total_pwr]
 
         self.spindle_tstats = spindle_stats   
         
