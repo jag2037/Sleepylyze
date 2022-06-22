@@ -72,6 +72,10 @@ class NREM:
             # load the data
             self.load_segment()
 
+            #create exclude and channels attributes
+            self.exclude = ['EOG_L','EOG_R', 'EKG']
+            self.channels = [x[0] for x in self.data.columns]
+
             # apply laplacian
             if laplacian_chans is not None:
                 self.metadata['analysis_info']['spatial_filter'] = 'laplacian'
@@ -136,18 +140,16 @@ class NREM:
         # make butterworth lowpass filter
         nyquist = self.s_freq/2
         data_lowpass = pd.DataFrame(index = data.index)
-        
+ 
         # adjust lowpass to nyquist
         if lowpass_freq >= 1:
             lowpass_freq = lowpass_freq/nyquist
         
         # make filter
         sos = butter(lowpass_order, lowpass_freq, btype='lowpass', output='sos')
-
-        # create channel attribute
-        channels = [x[0] for x in self.data.columns]
-        self.channels = channels
         
+        #localize channels 
+        channels = self.channels
         # filter the data
         for i in channels:
             # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
@@ -244,10 +246,8 @@ class NREM:
         self.metadata['laplacian_weights'] = {}
             
         # set channel names if filtering all
-        exclude = ['EOG_L','EOG_R', 'EKG']
-        channels = [x[0] for x in self.data.columns if x[0] not in exclude]
         if chans == 'all':
-            chans = channels
+            chans = self.metadata['channels']
         # set a dict to move between casefold and raw data cols
         cdict = {chan.casefold():chan for chan in channels}
         
@@ -351,13 +351,6 @@ class NREM:
                 spindle rejects based on frequency domain criteria. format {chan: [spindle reject indices,...]}
 
         """
-        # check if channel list exists
-        try:
-            self.channels
-        except AttributeError:
-            # create if doesn't exist
-            self.channels = [x[0] for x in self.data.columns]
-
         dfs =['spfiltEEG', 'spRMS', 'spRMSmavg'] # for > speed, don't store spRMS as an attribute
         [setattr(self, df, pd.DataFrame(index=self.data.index)) for df in dfs]
         self.spThresholds = pd.DataFrame(index=['Mean RMS', 'Low Threshold', 'High Threshold'])
@@ -1195,9 +1188,8 @@ class NREM:
         columns = pd.MultiIndex.from_arrays([lvl1, lvl2])
         spindle_stats = pd.DataFrame(columns=columns)
         
-        #exclude non-EEG channels
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
-
+        #localize the variable containg the channels to exclude
+        exclude = self.exclude
         # fill dataframe
         for chan in self.spindles:
             if chan not in exclude:
@@ -1333,34 +1325,32 @@ class NREM:
             return a*np.exp(-b*x)+c
         
         self.metadata['spindle_analysis']['gottselig_range'] = norm_range
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
-        
+
         spindle_psd_norm = {}
         chans_norm_failed = []
         for chan in self.spindle_psd_concat:
-            if chan not in exclude:
-                spindle_psd_norm[chan] = {}
+            spindle_psd_norm[chan] = {}
 
-                # specify data to be fit (only data in norm range)
-                incl_freqs = np.logical_or(((self.spindle_psd_concat[chan].index >= norm_range[0][0]) & (self.spindle_psd_concat[chan].index <= norm_range[0][1])),
-                                            ((self.spindle_psd_concat[chan].index >= norm_range[1][0]) & (self.spindle_psd_concat[chan].index <= norm_range[1][1])))
-                pwr_fit = self.spindle_psd_concat[chan][incl_freqs] 
+            # specify data to be fit (only data in norm range)
+            incl_freqs = np.logical_or(((self.spindle_psd_concat[chan].index >= norm_range[0][0]) & (self.spindle_psd_concat[chan].index <= norm_range[0][1])),
+                                        ((self.spindle_psd_concat[chan].index >= norm_range[1][0]) & (self.spindle_psd_concat[chan].index <= norm_range[1][1])))
+            pwr_fit = self.spindle_psd_concat[chan][incl_freqs] 
 
-                # set x and y values (convert y to dB)
-                x_pwr_fit = pwr_fit.index
-                y_pwr_fit = 10 * np.log10(pwr_fit.values)
+            # set x and y values (convert y to dB)
+            x_pwr_fit = pwr_fit.index
+            y_pwr_fit = 10 * np.log10(pwr_fit.values)
 
-                # fit exponential -- try second fit line if first throws infinite covariance
+            # fit exponential -- try second fit line if first throws infinite covariance
+            try:
+                popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 0, 1))
+            except (OptimizeWarning, RuntimeError, TypeError):
                 try:
-                    popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 0, 1))
-                except (OptimizeWarning, RuntimeError, TypeError):
-                    try:
-                        popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
-                    except (OptimizeWarning, RuntimeError, TypeError) as e:
-                        popt = np.full(3, np.nan)
-                        chans_norm_failed.append(chan)
-                        print(f'scipy.optimize.curvefit encountered error "{e}" on channel {chan}. Normalization skipped for this channel.')
-                        pass
+                    popt, pcov = curve_fit(exponential_func, xdata=x_pwr_fit, ydata=y_pwr_fit, p0=(1, 1e-6, 1))
+                except (OptimizeWarning, RuntimeError, TypeError) as e:
+                    popt = np.full(3, np.nan)
+                    chans_norm_failed.append(chan)
+                    print(f'scipy.optimize.curvefit encountered error "{e}" on channel {chan}. Normalization skipped for this channel.')
+                    pass
 
                 xx = self.spindle_psd_concat[chan].index
                 yy = exponential_func(xx, *popt)
@@ -1398,77 +1388,73 @@ class NREM:
         p_chars = ['p', 'o', 't']
         c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
         
-        # exclude non-EEG channels
-        exclude = ['EKG', 'EOG_L', 'EOG_R']
         # loop through all channels
         for chan in self.spindles.keys():
-            if chan not in exclude:
-                
-                # assign anterior-posterior
-                if chan.casefold() in c_chans:
-                    ap = 'C' 
-                elif any((c.casefold() in a_chars) for c in chan):
-                    ap = 'A'
-                elif any((c.casefold() in p_chars) for c in chan):
-                    ap = 'P'
-                # assign RL
-                if chan[-1] == 'z':
-                    rl = 'C'
-                elif int(chan[-1]) % 2 == 0:
-                    rl = 'R'
+            # assign anterior-posterior
+            if chan.casefold() in c_chans:
+                ap = 'C' 
+            elif any((c.casefold() in a_chars) for c in chan):
+                ap = 'A'
+            elif any((c.casefold() in p_chars) for c in chan):
+                ap = 'P'
+            # assign RL
+            if chan[-1] == 'z':
+                rl = 'C'
+            elif int(chan[-1]) % 2 == 0:
+                rl = 'R'
+            else:
+                rl = 'L'
+
+            # analyze individual spindles
+            for spin in self.spindles[chan]:
+                # set individual spindle data
+                spindle = self.spindles[chan][spin]
+
+                # get time stats
+                dur_ms = np.abs(spindle.index[0]) + spindle.index[-1]
+                amp_raw_rms = np.sqrt(np.mean(spindle.Raw.values**2))
+                amp_spfilt_rms = np.sqrt(np.mean(spindle.spfilt.values**2))
+
+                # get frequency stats
+                psd_i = self.spindle_psd_i[chan][spin]
+                spin_range = self.metadata['spindle_analysis']['spin_range']
+                spindle_power = psd_i[(psd_i.index >= spin_range[0]) & (psd_i.index <= spin_range[1])]
+                total_pwr = spindle_power.sum()
+
+
+                # set minimum distance between peaks equal to psd_bandwidth 
+                samp_per_hz = len(psd_i)/(psd_i.index[-1]-psd_i.index[0])
+                bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
+                distance = samp_per_hz*bw_hz
+                # set minimum width in samples for a peak to be considered a peak
+                width = samp_per_hz*pk_width_hz
+                # get peaks
+                p_idx, props = find_peaks(spindle_power, distance=distance, width=width, prominence=0.0)
+                peaks = spindle_power.iloc[p_idx]
+                # get dominant frequency [major peak] (to 2 decimal points)
+                dominant_freq = round(peaks.idxmax(), 2)
+                total_peaks = len(peaks)
+                peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                # ratio of peak amplitudes as a fraction of the dominant amplitude
+                peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 3) for key, val in peaks.items()}
+                # get 2nd most prominent peak as fraction of dominant peak power
+                if len(peak_ratios) > 1:
+                    ratios_sorted = sorted(peak_ratios.items(), key=lambda x: x[1], reverse=True)
+                    peak2_freq, peak2_ratio  = ratios_sorted[1][0], ratios_sorted[1][1]
                 else:
-                    rl = 'L'
+                    peak2_freq, peak2_ratio = None, None
 
-                # analyze individual spindles
-                for spin in self.spindles[chan]:
-                    # set individual spindle data
-                    spindle = self.spindles[chan][spin]
+                vals = [ap, rl, chan, spin, dur_ms, amp_raw_rms, amp_spfilt_rms, dominant_freq, total_peaks, peak_freqs_hz, 
+                        peak_ratios, peak2_freq, peak2_ratio, total_pwr]
+                row = {c:v for c, v in zip(cols, vals)}
 
-                    # get time stats
-                    dur_ms = np.abs(spindle.index[0]) + spindle.index[-1]
-                    amp_raw_rms = np.sqrt(np.mean(spindle.Raw.values**2))
-                    amp_spfilt_rms = np.sqrt(np.mean(spindle.spfilt.values**2))
-
-                    # get frequency stats
-                    psd_i = self.spindle_psd_i[chan][spin]
-                    spin_range = self.metadata['spindle_analysis']['spin_range']
-                    spindle_power = psd_i[(psd_i.index >= spin_range[0]) & (psd_i.index <= spin_range[1])]
-                    total_pwr = spindle_power.sum()
-
-
-                    # set minimum distance between peaks equal to psd_bandwidth 
-                    samp_per_hz = len(psd_i)/(psd_i.index[-1]-psd_i.index[0])
-                    bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
-                    distance = samp_per_hz*bw_hz
-                    # set minimum width in samples for a peak to be considered a peak
-                    width = samp_per_hz*pk_width_hz
-                    # get peaks
-                    p_idx, props = find_peaks(spindle_power, distance=distance, width=width, prominence=0.0)
-                    peaks = spindle_power.iloc[p_idx]
-                    # get dominant frequency [major peak] (to 2 decimal points)
-                    dominant_freq = round(peaks.idxmax(), 2)
-                    total_peaks = len(peaks)
-                    peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
-                    # ratio of peak amplitudes as a fraction of the dominant amplitude
-                    peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 3) for key, val in peaks.items()}
-                    # get 2nd most prominent peak as fraction of dominant peak power
-                    if len(peak_ratios) > 1:
-                        ratios_sorted = sorted(peak_ratios.items(), key=lambda x: x[1], reverse=True)
-                        peak2_freq, peak2_ratio  = ratios_sorted[1][0], ratios_sorted[1][1]
-                    else:
-                        peak2_freq, peak2_ratio = None, None
-
-                    vals = [ap, rl, chan, spin, dur_ms, amp_raw_rms, amp_spfilt_rms, dominant_freq, total_peaks, peak_freqs_hz, 
-                            peak_ratios, peak2_freq, peak2_ratio, total_pwr]
-                    row = {c:v for c, v in zip(cols, vals)}
-
-                    # add row to stats_i list
-                    stats_i_rows.append(row)
-            
-        # convert row list into dataframe
-        stats_i_df = pd.DataFrame(stats_i_rows)
-        self.spindle_stats_i = stats_i_df
-        print('Done. Stats stored in obj.spindle_stats_i.')
+                # add row to stats_i list
+                stats_i_rows.append(row)
+                
+            # convert row list into dataframe
+            stats_i_df = pd.DataFrame(stats_i_rows)
+            self.spindle_stats_i = stats_i_df
+            print('Done. Stats stored in obj.spindle_stats_i.')
 
 
     def calc_spin_fstats_concat(self):
@@ -1491,8 +1477,6 @@ class NREM:
             spin_range = self.metadata['spindle_analysis']['spin_range']
             # pull minimum width (in Hz) for a peak to be considered a peak
             pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
-             #exclude non-EEG channels
-            exclude = ['EOG_L', 'EOG_R', 'EKG']
 
             # create fstats dataframe & peaks dict
             cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
@@ -1515,36 +1499,35 @@ class NREM:
 
             # calculate stats for each channel
             for chan in self.spindle_psd_concat.keys():
-                if chan not in exclude:
-                    # smooth the signal
-                    datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
-                    window = np.ones(mw_samples)/float(mw_samples)
-                    rms = np.sqrt(np.convolve(datsq, window, 'same'))
-                    smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
-                    smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
+                # smooth the signal
+                datsq = np.power(self.spindle_psd_concat_norm[chan]['normed_pwr'], 2)
+                window = np.ones(mw_samples)/float(mw_samples)
+                rms = np.sqrt(np.convolve(datsq, window, 'same'))
+                smoothed_data = pd.Series(rms, index=self.spindle_psd_concat[chan].index)
+                smoothed_spindle_power = smoothed_data[(smoothed_data.index >= spin_range[0]) & (smoothed_data.index <= spin_range[1])]
 
-                    #calculate total spindle power (to 2 decimal points)
-                    total_pwr = round(smoothed_spindle_power.sum(), 2)
+                #calculate total spindle power (to 2 decimal points)
+                total_pwr = round(smoothed_spindle_power.sum(), 2)
 
-                    # get peaks
-                    p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
-                    peaks = smoothed_spindle_power.iloc[p_idx]
-                    # set dominant frequency to major peak
-                    total_peaks = len(peaks)
-                    if total_peaks > 0:
-                        dominant_freq = round(peaks.idxmax(), 2)
-                        peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
-                        # ratio of peak amplitudes as a fraction of the dominant amplitude
-                        peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
-                    else:
-                        dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
+                # get peaks
+                p_idx, props = find_peaks(smoothed_spindle_power, distance=distance, width=width, prominence=0.0)
+                peaks = smoothed_spindle_power.iloc[p_idx]
+                # set dominant frequency to major peak
+                total_peaks = len(peaks)
+                if total_peaks > 0:
+                    dominant_freq = round(peaks.idxmax(), 2)
+                    peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                    # ratio of peak amplitudes as a fraction of the dominant amplitude
+                    peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 2) for key, val in peaks.items()}
+                else:
+                    dominant_freq, peak_freqs_hz, peak_ratios = None, None, None
 
-                                
-                    # add row to dataframe
-                    spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
+                            
+                # add row to dataframe
+                spindle_fstats.loc[chan] = [dominant_freq, total_pwr, total_peaks, peak_freqs_hz, peak_ratios]
 
-                    # save values to peaks dict
-                    psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
+                # save values to peaks dict
+                psd_concat_norm_peaks[chan] = {'smoothed_data':smoothed_data, 'peaks':peaks, 'props':props}
 
             self.psd_concat_norm_peaks = psd_concat_norm_peaks
             self.spindle_fstats_concat = spindle_fstats
