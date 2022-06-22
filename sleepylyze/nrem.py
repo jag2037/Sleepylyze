@@ -72,10 +72,9 @@ class NREM:
             # load the data
             self.load_segment()
 
-            #remove channels
-            exclude = ['EOG_L','EOG_R', 'EKG']
-            # create channel attribute
-            self.channels = [x[0] for x in self.data.columns if x[0] not in exclude]
+            #create exclude and channels attributes
+            self.exclude = ['EOG_L','EOG_R', 'EKG']
+            self.channels = [x[0] for x in self.data.columns]
 
             # apply laplacian
             if laplacian_chans is not None:
