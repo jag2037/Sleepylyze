@@ -148,8 +148,10 @@ class NREM:
         # make filter
         sos = butter(lowpass_order, lowpass_freq, btype='lowpass', output='sos')
         
+        #localize channels 
+        channels = self.channels
         # filter the data
-        for i in self.channels:
+        for i in channels:
             # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
             data_nan = data[i][data[i]['Raw'].isna()]
             data_notnan = data[i][data[i]['Raw'].isna() == False]
@@ -163,7 +165,7 @@ class NREM:
         
 
         # set dataframe columns
-        data_lowpass.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('raw_lowpass'), len(self.channels))],names=['Channel','datatype'])
+        data_lowpass.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('raw_lowpass'), len(channels))],names=['Channel','datatype'])
         # use the lowpassed data
         raw_lowpass_data = data_lowpass
         self.data_lowpass = data_lowpass
@@ -1327,109 +1329,109 @@ class NREM:
                     print(f'scipy.optimize.curvefit encountered error "{e}" on channel {chan}. Normalization skipped for this channel.')
                     pass
 
-            xx = self.spindle_psd_concat[chan].index
-            yy = exponential_func(xx, *popt)
+                xx = self.spindle_psd_concat[chan].index
+                yy = exponential_func(xx, *popt)
 
-            # subtract the fit line
-            psd_norm = pd.Series(10*np.log10(self.spindle_psd_concat[chan].values) - yy, index=self.spindle_psd_concat[chan].index)
+                # subtract the fit line
+                psd_norm = pd.Series(10*np.log10(self.spindle_psd_concat[chan].values) - yy, index=self.spindle_psd_concat[chan].index)
 
-            # save the values
-            spindle_psd_norm[chan]['normed_pwr'] = psd_norm
-            spindle_psd_norm[chan]['values_to_fit'] = pd.Series(y_pwr_fit, index=x_pwr_fit)
-            spindle_psd_norm[chan]['exp_fit_line'] = pd.Series(yy, index=xx) 
+                # save the values
+                spindle_psd_norm[chan]['normed_pwr'] = psd_norm
+                spindle_psd_norm[chan]['values_to_fit'] = pd.Series(y_pwr_fit, index=x_pwr_fit)
+                spindle_psd_norm[chan]['exp_fit_line'] = pd.Series(yy, index=xx) 
 
-    self.spindle_psd_concat_norm = spindle_psd_norm
-    self.metadata['spindle_analysis']['chans_concat_norm_failed'] = chans_norm_failed
-    print('Gottselig normalization data stored in obj.spindle_psd_concat_norm.\n')
-
-
-def calc_spin_stats_i(self):
-    """ Calculate statistics for individual spindles """
-
-    print('\nCalculating individual spindle statistics...')
-
-    # pull minimum width (in Hz) for a peak to be considered a peak
-    pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
-    
-    # create list of rows to be converted into dataframe
-    stats_i_rows = []
-    
-    # create column names for dict keys to build rows
-    cols = ['AP', 'RL', 'chan', 'spin', 'dur_ms', 'amp_raw_rms', 'amp_spfilt_rms', 
-        'dominant_freq_Hz', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios', 'peak2_freq', 'peak2_ratio', 'total_pwr_ms2']
-
-    # assign anterior-posterior characters
-    a_chars = ['f']
-    p_chars = ['p', 'o', 't']
-    c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
-    
-    # loop through all channels
-    for chan in self.spindles.keys():
-        # assign anterior-posterior
-        if chan.casefold() in c_chans:
-            ap = 'C' 
-        elif any((c.casefold() in a_chars) for c in chan):
-            ap = 'A'
-        elif any((c.casefold() in p_chars) for c in chan):
-            ap = 'P'
-        # assign RL
-        if chan[-1] == 'z':
-            rl = 'C'
-        elif int(chan[-1]) % 2 == 0:
-            rl = 'R'
-        else:
-            rl = 'L'
-
-        # analyze individual spindles
-        for spin in self.spindles[chan]:
-            # set individual spindle data
-            spindle = self.spindles[chan][spin]
-
-            # get time stats
-            dur_ms = np.abs(spindle.index[0]) + spindle.index[-1]
-            amp_raw_rms = np.sqrt(np.mean(spindle.Raw.values**2))
-            amp_spfilt_rms = np.sqrt(np.mean(spindle.spfilt.values**2))
-
-            # get frequency stats
-            psd_i = self.spindle_psd_i[chan][spin]
-            spin_range = self.metadata['spindle_analysis']['spin_range']
-            spindle_power = psd_i[(psd_i.index >= spin_range[0]) & (psd_i.index <= spin_range[1])]
-            total_pwr = spindle_power.sum()
+        self.spindle_psd_concat_norm = spindle_psd_norm
+        self.metadata['spindle_analysis']['chans_concat_norm_failed'] = chans_norm_failed
+        print('Gottselig normalization data stored in obj.spindle_psd_concat_norm.\n')
 
 
-            # set minimum distance between peaks equal to psd_bandwidth 
-            samp_per_hz = len(psd_i)/(psd_i.index[-1]-psd_i.index[0])
-            bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
-            distance = samp_per_hz*bw_hz
-            # set minimum width in samples for a peak to be considered a peak
-            width = samp_per_hz*pk_width_hz
-            # get peaks
-            p_idx, props = find_peaks(spindle_power, distance=distance, width=width, prominence=0.0)
-            peaks = spindle_power.iloc[p_idx]
-            # get dominant frequency [major peak] (to 2 decimal points)
-            dominant_freq = round(peaks.idxmax(), 2)
-            total_peaks = len(peaks)
-            peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
-            # ratio of peak amplitudes as a fraction of the dominant amplitude
-            peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 3) for key, val in peaks.items()}
-            # get 2nd most prominent peak as fraction of dominant peak power
-            if len(peak_ratios) > 1:
-                ratios_sorted = sorted(peak_ratios.items(), key=lambda x: x[1], reverse=True)
-                peak2_freq, peak2_ratio  = ratios_sorted[1][0], ratios_sorted[1][1]
+    def calc_spin_stats_i(self):
+        """ Calculate statistics for individual spindles """
+
+        print('\nCalculating individual spindle statistics...')
+
+        # pull minimum width (in Hz) for a peak to be considered a peak
+        pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
+        
+        # create list of rows to be converted into dataframe
+        stats_i_rows = []
+        
+        # create column names for dict keys to build rows
+        cols = ['AP', 'RL', 'chan', 'spin', 'dur_ms', 'amp_raw_rms', 'amp_spfilt_rms', 
+            'dominant_freq_Hz', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios', 'peak2_freq', 'peak2_ratio', 'total_pwr_ms2']
+
+        # assign anterior-posterior characters
+        a_chars = ['f']
+        p_chars = ['p', 'o', 't']
+        c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
+        
+        # loop through all channels
+        for chan in self.spindles.keys():
+            # assign anterior-posterior
+            if chan.casefold() in c_chans:
+                ap = 'C' 
+            elif any((c.casefold() in a_chars) for c in chan):
+                ap = 'A'
+            elif any((c.casefold() in p_chars) for c in chan):
+                ap = 'P'
+            # assign RL
+            if chan[-1] == 'z':
+                rl = 'C'
+            elif int(chan[-1]) % 2 == 0:
+                rl = 'R'
             else:
-                peak2_freq, peak2_ratio = None, None
+                rl = 'L'
 
-            vals = [ap, rl, chan, spin, dur_ms, amp_raw_rms, amp_spfilt_rms, dominant_freq, total_peaks, peak_freqs_hz, 
-                    peak_ratios, peak2_freq, peak2_ratio, total_pwr]
-            row = {c:v for c, v in zip(cols, vals)}
+            # analyze individual spindles
+            for spin in self.spindles[chan]:
+                # set individual spindle data
+                spindle = self.spindles[chan][spin]
 
-            # add row to stats_i list
-            stats_i_rows.append(row)
-            
-        # convert row list into dataframe
-        stats_i_df = pd.DataFrame(stats_i_rows)
-        self.spindle_stats_i = stats_i_df
-        print('Done. Stats stored in obj.spindle_stats_i.')
+                # get time stats
+                dur_ms = np.abs(spindle.index[0]) + spindle.index[-1]
+                amp_raw_rms = np.sqrt(np.mean(spindle.Raw.values**2))
+                amp_spfilt_rms = np.sqrt(np.mean(spindle.spfilt.values**2))
+
+                # get frequency stats
+                psd_i = self.spindle_psd_i[chan][spin]
+                spin_range = self.metadata['spindle_analysis']['spin_range']
+                spindle_power = psd_i[(psd_i.index >= spin_range[0]) & (psd_i.index <= spin_range[1])]
+                total_pwr = spindle_power.sum()
+
+
+                # set minimum distance between peaks equal to psd_bandwidth 
+                samp_per_hz = len(psd_i)/(psd_i.index[-1]-psd_i.index[0])
+                bw_hz = self.metadata['spindle_analysis']['psd_bandwidth']
+                distance = samp_per_hz*bw_hz
+                # set minimum width in samples for a peak to be considered a peak
+                width = samp_per_hz*pk_width_hz
+                # get peaks
+                p_idx, props = find_peaks(spindle_power, distance=distance, width=width, prominence=0.0)
+                peaks = spindle_power.iloc[p_idx]
+                # get dominant frequency [major peak] (to 2 decimal points)
+                dominant_freq = round(peaks.idxmax(), 2)
+                total_peaks = len(peaks)
+                peak_freqs_hz = [round(idx, 2) for idx in peaks.index]
+                # ratio of peak amplitudes as a fraction of the dominant amplitude
+                peak_ratios = {np.round(key, 1):np.round((val/peaks.values.max()), 3) for key, val in peaks.items()}
+                # get 2nd most prominent peak as fraction of dominant peak power
+                if len(peak_ratios) > 1:
+                    ratios_sorted = sorted(peak_ratios.items(), key=lambda x: x[1], reverse=True)
+                    peak2_freq, peak2_ratio  = ratios_sorted[1][0], ratios_sorted[1][1]
+                else:
+                    peak2_freq, peak2_ratio = None, None
+
+                vals = [ap, rl, chan, spin, dur_ms, amp_raw_rms, amp_spfilt_rms, dominant_freq, total_peaks, peak_freqs_hz, 
+                        peak_ratios, peak2_freq, peak2_ratio, total_pwr]
+                row = {c:v for c, v in zip(cols, vals)}
+
+                # add row to stats_i list
+                stats_i_rows.append(row)
+                
+            # convert row list into dataframe
+            stats_i_df = pd.DataFrame(stats_i_rows)
+            self.spindle_stats_i = stats_i_df
+            print('Done. Stats stored in obj.spindle_stats_i.')
 
 
     def calc_spin_fstats_concat(self):
