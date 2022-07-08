@@ -19,6 +19,7 @@ import numpy as np
 import os
 import pandas as pd
 import psycopg2
+from pyedflib import highlevel
 import re
 import statistics
 from sqlalchemy import *
@@ -111,9 +112,20 @@ class Dataset:
                         'fname': fname,
                         'filepath': filepath}
 
-        self.get_info()
-        self.get_chans()
-        self.load_eeg()
+        # check if the file is edf or txt
+        edf = fname.split('.')[-1] == 'edf'
+        txt = fname.split('.')[-1] == 'txt'
+        csv = fname.split('.')[-1] == 'csv'
+
+        if txt or csv:
+            self.get_info()
+            self.get_chans()
+            self.load_eeg()
+        elif edf:
+            self.load_edf()
+        else:
+            print(f'File {fname} does not correspond to a recognized format (.edf, .txt, .csv)')
+
         
         if trim == True:
             self.trim_eeg(start, end)
@@ -235,7 +247,7 @@ class Dataset:
         self.metadata['channels'] = channels
             
     def load_eeg(self):
-        """ Import raw EEG data """
+        """ Import raw EEG data from .txt """
 
         # set the first column of data to import (depends on presence of 'Stamp' col)
         if self.metadata['stamp_col']:
@@ -263,6 +275,71 @@ class Dataset:
 
         self.data = data
         print('Data successfully imported')
+
+    def load_edf(self):
+        """ load data from edf files """
+
+        file = self.metadata['filepath']
+        
+        # read in the info & save as object attribute
+        print('Loading edf with pyedflib...')
+        signals, signal_headers, header = highlevel.read_edf(file)
+        self.signals = signals
+        self.signal_headers = signal_headers
+        self.header = header
+        print('edf loaded successfully')
+        
+        print('Formatting data structures...')
+        # pair headers w/ signals for a data_dict
+        data_dict = {signal_header['label']:signal for signal_header, signal in zip(signal_headers, signals)}
+        self.data_dict = data_dict
+        
+        # pull some info from the variables
+        ## set channels to exclude -- here we'll remove channels that aren't 
+        ## collected in microVolts. We may want to include something in the metadata for CPAP
+        chans_drop = [chan['label'] for chan in signal_headers if chan['dimension'] != 'uV']
+        chans = [chan['label'] for chan in signal_headers if chan['label'] not in chans_drop]
+
+        # grab the headers for included channels
+        chans_headers = [header for header in signal_headers if header['label'] in chans]
+        # check that they all have the same sampling frequency -- throw an error if not
+        s_freqs = [header['sample_frequency'] for header in chans_headers]
+        if len(set(s_freqs)) == 1:
+            s_freq = int(set(s_freqs).pop())
+        else:
+            s_freq_dict = {header['label']:header['sample_frequency'] for header in chans_headers}
+            print(f'ERROR: Dataset.load_edf() is set to read a single sampling frequency but retained channels were recorded with different sampling frequencies\n\nThe following channel:s_freq pairs were retained:\n{s_freq_dict}\n\nThe following channels were excluded:\n{chans_drop}\n\n')
+        
+        # pull the start date and time
+        start_date = header['startdate'].strftime('%Y-%m-%d')
+        start_time = header['startdate'].strftime('%H:%M:%S.%f')
+        
+        # set the metadata
+        self.metadata['s_freq'] = s_freq
+        self.metadata['chans'] = chans
+        self.metadata['chans_dropped'] = chans_drop
+        self.metadata['hbsn'] = None
+        self.metadata['start_date'] = start_date
+        self.metadata['start_time'] = start_time
+        
+        # pull the subset of data for included channels
+        data_dict_subset = {chan:data_dict[chan] for chan in chans}
+        # get the shape of the data
+        data_len = np.array(list(data_dict_subset.values())).shape[1]
+        
+        # create DateTimeIndex
+        ind_freq = str(int(1/s_freq*1000000))+'us'
+        ind_start = header['startdate'].strftime('%Y-%m-%d %H:%M:%S.%f')
+        ind = pd.date_range(start = ind_start, periods=data_len, freq=ind_freq)
+        
+        # create dataframe
+        data = pd.DataFrame.from_dict(data_dict_subset)
+        data.columns = pd.MultiIndex.from_arrays([list(data.columns), np.repeat(('Raw'), len(list(data.columns)))], names = ['Channel', 'datatype'])
+        data.index = ind
+        self.data = data
+        
+        print('Data successfully imported and formatted')
+
 
     def trim_eeg(self, start, end):
         """ Trim excess time off the ends of the raw data
