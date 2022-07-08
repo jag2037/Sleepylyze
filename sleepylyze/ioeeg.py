@@ -315,6 +315,7 @@ class Dataset:
         start_time = header['startdate'].strftime('%H:%M:%S.%f')
         
         # set the metadata
+        self.s_freq = s_freq
         self.metadata['s_freq'] = s_freq
         self.metadata['chans'] = chans
         self.metadata['chans_dropped'] = chans_drop
