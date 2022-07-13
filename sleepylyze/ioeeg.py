@@ -11,7 +11,7 @@
 """
 
 import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 import json
 import math 
@@ -596,7 +596,7 @@ class Dataset:
 
         print('Data cleaned.')
 
-    def load_hyp(self, scorefile):
+    def load_hyp(self, scorefile, data_origin=None):
         """ Loads hypnogram .txt file and produces DateTimeIndex by sleep stage and 
         stage cycle for cutting
         
@@ -604,9 +604,13 @@ class Dataset:
 
         Parameters
         ----------
-        scorefile: .txt file
-            plain text file with 30-second epoch sleep scores, formatted [MM/DD/YYYY hh:mm:ss score]
-            NOTE: Time must be in 24h time & scores in consistent format (int or float)
+        scorefile: str
+            filename (.txt or .csv)
+            For schifflab files:
+                plain text file with 30-second epoch sleep scores, formatted [MM/DD/YYYY hh:mm:ss score]
+                NOTE: Time must be in 24h time & scores in consistent format (int or float)
+        data_origin: str (default, None)
+            origin of the data/hypfile. Assumes schifflab templates if set to None [Options: None, 'SanAntonio']
 
         Returns:
         --------
@@ -616,15 +620,45 @@ class Dataset:
         self.hyp_stats
         
         """
-        # read the first line to get starting date & time
-        with open(scorefile, 'r') as f:
-                first_epoch = f.readline()
-                start_date = first_epoch.split(' ')[0]
-                start_sec = first_epoch.split(' ')[1].split('\t')[0]
-                
-        # read in sleep scores & resample to EEG/EKG frequency
-        print('Importing sleep scores...')
-        hyp = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
+
+        # loading methods for San Antonio datasets
+        if data_origin == 'SanAntonio':
+            # read the hyp file
+            ss_df = pd.read_csv(scorefile)
+            # translate the sleep stages into score values
+            sleepstage_dict = {'WK':0, 'REM':1, 'N1':2, 'N2':3, 'N3':5, 'NS':None}
+            scores = [sleepstage_dict[s] for s in ss_df['Sleep Stage'].values]
+
+            # add a column to the dataframe
+            ss_df['Score'] = scores
+
+            # check that the first epoch matches the first epoch of the data
+            print('Verifying time match between hypnogram and data file...')
+            start_time_hyp = datetime.strptime(ss_df['Start Time '][0], '%I:%M:%S %p')
+            if not start_time_hyp.time() == self.data.index[0].time():
+                print(r'Time mismatch detected.\nData begins at {str(d.data.index[0].time())} and hypnogram begins at {str(start_time_hyp.time())}')
+                print('Aborted.')
+            # make a new dataframe with only the sleep scores
+            print('Importing sleep scores...')
+            hyp = pd.DataFrame(ss_df.Score)
+            # get the starting date & time from the raw data & reformat the date string
+            start_list = str(self.data.index[0].date()).split('-')
+            start_date = '/'.join([start_list[1], start_list[2], start_list[0]])
+            start_sec = str(self.data.index[0].time())
+         
+        # otherwise use format from schifflab hypnograms
+        else:
+            # read the first line to get starting date & time
+            with open(scorefile, 'r') as f:
+                    first_epoch = f.readline()
+                    start_date = first_epoch.split(' ')[0]
+                    start_sec = first_epoch.split(' ')[1].split('\t')[0]
+                    
+            # read in sleep scores & resample to EEG/EKG frequency
+            print('Importing sleep scores...')
+            hyp = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
+        
+        # resample the hypnogram to raw data frequency
         scores = pd.DataFrame(np.repeat(hyp.values, self.metadata['s_freq']*30,axis=0), columns=hyp.columns)
 
         # reindex to match EEG/EKG data
