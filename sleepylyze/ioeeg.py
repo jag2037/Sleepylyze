@@ -605,7 +605,7 @@ class Dataset:
         Parameters
         ----------
         scorefile: str
-            filename (.txt or .csv)
+            filename with path (.txt or .csv)
             For schifflab files:
                 plain text file with 30-second epoch sleep scores, formatted [MM/DD/YYYY hh:mm:ss score]
                 NOTE: Time must be in 24h time & scores in consistent format (int or float)
@@ -620,6 +620,8 @@ class Dataset:
         self.hyp_stats
         
         """
+
+        self.metadata['hyp_file'] = scorefile
 
         # loading methods for San Antonio datasets
         if data_origin == 'SanAntonio':
@@ -947,7 +949,7 @@ class Dataset:
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
-                        print(('{} successfully exported.').format(savename)) 
+                        #print(('{} successfully exported.').format(savename)) 
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
@@ -959,7 +961,7 @@ class Dataset:
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
-                        print(('{} successfully exported.').format(savename))
+                        #print(('{} successfully exported.').format(savename))
             elif type(stages) == str:
                 stg = stages
                 if stg not in self.cut_data.keys():
@@ -972,7 +974,7 @@ class Dataset:
                     savename_elems = savename_base.split('_')
                     savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                     df.to_csv(os.path.join(savedir, savename))
-                    print(('{} successfully exported.').format(savename))
+                    #print(('{} successfully exported.').format(savename))
             print('\nDone.')
 
         # Export a nested dict of dataframes w/ epochs
@@ -987,7 +989,7 @@ class Dataset:
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            #print(('{} successfully exported.').format(savename)) 
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
@@ -1001,7 +1003,7 @@ class Dataset:
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            #print(('{} successfully exported.').format(savename)) 
             elif type(stages) == str:
                 stg = stages
                 if stg not in self.cut_data.keys():
@@ -1015,8 +1017,108 @@ class Dataset:
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            #print(('{} successfully exported.').format(savename)) 
             print('\nDone.\n\t*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".')
 
         else:
             print(('Abort: Data must be type pd.core.frame.DataFrame or dict. Input data is type {}.').format(type(data)))
+
+
+    def calc_elapsed_sleep(self, savedir=None, export=True):
+        """ 
+        Calculate minutes of elapsed sleep from a hypnogram file & concatenate stage 2 sleep files
+
+        Parameters
+        ----------
+        savedir: str or None
+            path to save EEG files cut by hrs elapsed sleep
+        export: bool (default: True)
+            whether to export blocked dataframes
+
+        Returns
+        -------
+        .csv files with EEG data blocked in two-hour chunks (according to Purcell et al. 2017)
+            OR
+        pd.dataframes blocked in two-hour chunks (according to Purcell et al. 2017)
+
+        """
+        
+        in_num = self.metadata['in_num']
+        hyp_file = self.metadata['hyp_file']
+
+        # calculate elapsed sleep for each 30-second time interval
+        print('Reloading hypnogram @ 30s resolution...')
+        sleep_scores = [1, 2, 3, 4, 5] # exclude 0 and 6 for awake and record break
+        hyp = pd.read_csv(hyp_file, header=None, index_col=[0], sep='\t', names=['time', 'score'], parse_dates=True)
+        mins_elapsed = hyp.score.isin(sleep_scores).cumsum()/2
+        
+        # make list of dfs for concat
+        data = list(self.cut_data['s2'].values())
+
+        # add NaN to the end of each df
+        data_blocked = [df.append(pd.Series(name=df.iloc[-1].name + pd.Timedelta(milliseconds=1))) for df in data]
+
+        # concatenate the dfs
+        print('Concatenating data...')
+        s2_df = pd.concat(data_blocked).sort_index()
+        
+        # assign indices to hours elapsed sleep
+        print('Assigning minutes elapsed...')
+        idx0_2 = mins_elapsed[mins_elapsed.between(0, 120)].index
+        idx2_4 = mins_elapsed[mins_elapsed.between(120.5, 240)].index
+        idx4_6 = mins_elapsed[mins_elapsed.between(240.5, 360)].index
+        idx6_8 = mins_elapsed[mins_elapsed.between(360.5, 480)].index
+        
+        dfs = []
+        df_names = []
+        # cut dataframe into blocks by elapsed sleep (0-2, 2-4, 4-6, 6-8)
+        df_two = s2_df[(s2_df.index > idx0_2[0]) & (s2_df.index < idx0_2[-1])]
+        dfs.append(df_two)
+        df_names.append('0-2hrs')
+        try:
+            df_four = s2_df[(s2_df.index > idx2_4[0]) & (s2_df.index < idx2_4[-1])]
+        except IndexError:
+            print('<2 hrs sleep. Passing block 2-4hrs.')
+            pass
+        else:
+            dfs.append(df_four)
+            df_names.append('2-4hrs')
+        try:
+            df_six = s2_df[(s2_df.index > idx4_6[0]) & (s2_df.index < idx4_6[-1])]
+        except IndexError:
+            print('<4 hrs sleep. Passing block 4-6hrs.')
+            pass
+        else:
+            dfs.append(df_six)
+            df_names.append('4-6hrs')
+        try:
+            df_eight = s2_df[(s2_df.index > idx6_8[0]) & (s2_df.index < idx6_8[-1])]
+        except IndexError:
+            print('<6 hrs sleep. Passing block 6-8hrs.')
+            pass
+        else:
+            dfs.append(df_eight)
+            df_names.append('6-8hrs')
+        
+        if export:
+            # export blocked data
+            if not os.path.exists(savedir):
+                print(savedir + ' does not exist. Creating directory...')
+                os.makedirs(savedir)
+
+            print('Saving files...')
+            for df, hrs in zip(dfs, df_names):
+                try:
+                    date = df.index[0].strftime('%Y-%m-%d')
+                # if the df is empty, pass
+                except IndexError:
+                    print(f'No stage 2 sleep during {hrs} of sleep.')
+                    pass
+                savename = in_num + '_' + date + '_s2_' + hrs + '.csv'
+                df.to_csv(os.path.join(savedir, savename))
+
+            print(f'Files saved to {savedir}')
+        else:
+            return df_two, df_four, df_six, df_eight
+
+        print('Done')
