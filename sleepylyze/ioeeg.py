@@ -358,8 +358,8 @@ class Dataset:
         """
         
         print('Trimming EEG...')
-        # specify indices NOT between start and end time
-        rm_idx = self.data.between_time(end, start, include_start=True, include_end=False).index
+        # specify indices NOT between start and end time. set inclusive to "left" to include start
+        rm_idx = self.data.between_time(end, start, inclusive='left').index
         # drop specified indices
         self.data.drop(rm_idx, axis=0, inplace=True)
         
