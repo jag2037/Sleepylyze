@@ -587,12 +587,12 @@ class Dataset:
                     if cx == '*':
                         for x in eeg_channels:
                             #self.data[(x, 'Raw')].loc[t] = np.NaN # much slower
-                            #self.data.at[t, (x, 'Raw')] = np.NaN # not depricated, slightly slower
-                            self.data.set_value(t, (x, 'Raw'), np.NaN)
+                            self.data.at[t, (x, 'Raw')] = np.NaN # not depricated, slightly slower
+                            #self.data.set_value(t, (x, 'Raw'), np.NaN) # fastest but deprecated in pandas 0.21
                     else:
                         #self.data[(cx, 'Raw')].loc[t] = np.NaN
-                        #self.data.at[t, (cx, 'Raw')] = np.NaN
-                        self.data.set_value(t, (cx, 'Raw'), np.NaN)
+                        self.data.at[t, (cx, 'Raw')] = np.NaN
+                        #self.data.set_value(t, (cx, 'Raw'), np.NaN) # deprecated in pandas 0.21
 
         print('Data cleaned.')
 
