@@ -11,7 +11,7 @@
 """
 
 import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 import json
 import math 
@@ -19,6 +19,7 @@ import numpy as np
 import os
 import pandas as pd
 import psycopg2
+from pyedflib import highlevel
 import re
 import statistics
 from sqlalchemy import *
@@ -111,9 +112,20 @@ class Dataset:
                         'fname': fname,
                         'filepath': filepath}
 
-        self.get_info()
-        self.get_chans()
-        self.load_eeg()
+        # check if the file is edf or txt
+        edf = fname.split('.')[-1] == 'edf'
+        txt = fname.split('.')[-1] == 'txt'
+        csv = fname.split('.')[-1] == 'csv'
+
+        if txt or csv:
+            self.get_info()
+            self.get_chans()
+            self.load_eeg()
+        elif edf:
+            self.load_edf()
+        else:
+            print(f'File {fname} does not correspond to a recognized format (.edf, .txt, .csv)')
+
         
         if trim == True:
             self.trim_eeg(start, end)
@@ -137,12 +149,17 @@ class Dataset:
         print("Patient identifier:", self.metadata['in_num'])
 
         # read the first line to check encoding
-        with open(self.metadata['filepath'], 'r') as f:
-            line = f.readline()
-        if line[3] == '\x00':
-            f_encoding = 'utf-16-le'
-        else:
-            f_encoding = 'ascii' #might want to set this to None (used with open and pd.read_csv)
+        # try opening the file without specifying encoding
+        try:
+            with open(self.metadata['filepath'], 'r') as f:
+                line = f.readline()
+            if line[3] == '\x00':
+                f_encoding = 'utf-16-le'
+            else:
+                f_encoding = 'ascii'
+        # if we can't open the file without specifying the encoding, assume it's utf16
+        except UnicodeDecodeError:
+            f_encoding = 'utf16' #might want to set this to None (used with open and pd.read_csv)
         self.metadata['encoding'] = f_encoding
         
         # extract sampling freq, # of channels, headbox sn
@@ -230,7 +247,7 @@ class Dataset:
         self.metadata['channels'] = channels
             
     def load_eeg(self):
-        """ Import raw EEG data """
+        """ Import raw EEG data from .txt """
 
         # set the first column of data to import (depends on presence of 'Stamp' col)
         if self.metadata['stamp_col']:
@@ -259,6 +276,72 @@ class Dataset:
         self.data = data
         print('Data successfully imported')
 
+    def load_edf(self):
+        """ load data from edf files """
+
+        file = self.metadata['filepath']
+        
+        # read in the info & save as object attribute
+        print('Loading edf with pyedflib...')
+        signals, signal_headers, header = highlevel.read_edf(file)
+        self.signals = signals
+        self.signal_headers = signal_headers
+        self.header = header
+        print('edf loaded successfully')
+        
+        print('Formatting data structures...')
+        # pair headers w/ signals for a data_dict
+        data_dict = {signal_header['label']:signal for signal_header, signal in zip(signal_headers, signals)}
+        self.data_dict = data_dict
+        
+        # pull some info from the variables
+        ## set channels to exclude -- here we'll remove channels that aren't 
+        ## collected in microVolts. We may want to include something in the metadata for CPAP
+        chans_drop = [chan['label'] for chan in signal_headers if chan['dimension'] != 'uV']
+        chans = [chan['label'] for chan in signal_headers if chan['label'] not in chans_drop]
+
+        # grab the headers for included channels
+        chans_headers = [header for header in signal_headers if header['label'] in chans]
+        # check that they all have the same sampling frequency -- throw an error if not
+        s_freqs = [header['sample_frequency'] for header in chans_headers]
+        if len(set(s_freqs)) == 1:
+            s_freq = int(set(s_freqs).pop())
+        else:
+            s_freq_dict = {header['label']:header['sample_frequency'] for header in chans_headers}
+            print(f'ERROR: Dataset.load_edf() is set to read a single sampling frequency but retained channels were recorded with different sampling frequencies\n\nThe following channel:s_freq pairs were retained:\n{s_freq_dict}\n\nThe following channels were excluded:\n{chans_drop}\n\n')
+        
+        # pull the start date and time
+        start_date = header['startdate'].strftime('%Y-%m-%d')
+        start_time = header['startdate'].strftime('%H:%M:%S.%f')
+        
+        # set the metadata
+        self.s_freq = s_freq
+        self.metadata['s_freq'] = s_freq
+        self.metadata['chans'] = chans
+        self.metadata['chans_dropped'] = chans_drop
+        self.metadata['hbsn'] = None
+        self.metadata['start_date'] = start_date
+        self.metadata['start_time'] = start_time
+        
+        # pull the subset of data for included channels
+        data_dict_subset = {chan:data_dict[chan] for chan in chans}
+        # get the shape of the data
+        data_len = np.array(list(data_dict_subset.values())).shape[1]
+        
+        # create DateTimeIndex
+        ind_freq = str(int(1/s_freq*1000000))+'us'
+        ind_start = header['startdate'].strftime('%Y-%m-%d %H:%M:%S.%f')
+        ind = pd.date_range(start = ind_start, periods=data_len, freq=ind_freq)
+        
+        # create dataframe
+        data = pd.DataFrame.from_dict(data_dict_subset)
+        data.columns = pd.MultiIndex.from_arrays([list(data.columns), np.repeat(('Raw'), len(list(data.columns)))], names = ['Channel', 'datatype'])
+        data.index = ind
+        self.data = data
+        
+        print('Data successfully imported and formatted')
+
+
     def trim_eeg(self, start, end):
         """ Trim excess time off the ends of the raw data
 
@@ -275,8 +358,8 @@ class Dataset:
         """
         
         print('Trimming EEG...')
-        # specify indices NOT between start and end time
-        rm_idx = self.data.between_time(end, start, include_start=True, include_end=False).index
+        # specify indices NOT between start and end time. set inclusive to "left" to include start
+        rm_idx = self.data.between_time(end, start, inclusive='left').index
         # drop specified indices
         self.data.drop(rm_idx, axis=0, inplace=True)
         
@@ -513,7 +596,7 @@ class Dataset:
 
         print('Data cleaned.')
 
-    def load_hyp(self, scorefile):
+    def load_hyp(self, scorefile, data_origin=None):
         """ Loads hypnogram .txt file and produces DateTimeIndex by sleep stage and 
         stage cycle for cutting
         
@@ -521,9 +604,13 @@ class Dataset:
 
         Parameters
         ----------
-        scorefile: .txt file
-            plain text file with 30-second epoch sleep scores, formatted [MM/DD/YYYY hh:mm:ss score]
-            NOTE: Time must be in 24h time & scores in consistent format (int or float)
+        scorefile: str
+            filename with path (.txt or .csv)
+            For schifflab files:
+                plain text file with 30-second epoch sleep scores, formatted [MM/DD/YYYY hh:mm:ss score]
+                NOTE: Time must be in 24h time & scores in consistent format (int or float)
+        data_origin: str (default, None)
+            origin of the data/hypfile. Assumes schifflab templates if set to None [Options: None, 'SanAntonio']
 
         Returns:
         --------
@@ -533,15 +620,47 @@ class Dataset:
         self.hyp_stats
         
         """
-        # read the first line to get starting date & time
-        with open(scorefile, 'r') as f:
-                first_epoch = f.readline()
-                start_date = first_epoch.split(' ')[0]
-                start_sec = first_epoch.split(' ')[1].split('\t')[0]
-                
-        # read in sleep scores & resample to EEG/EKG frequency
-        print('Importing sleep scores...')
-        hyp = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
+
+        self.metadata['hyp_file'] = scorefile
+
+        # loading methods for San Antonio datasets
+        if data_origin == 'SanAntonio':
+            # read the hyp file
+            ss_df = pd.read_csv(scorefile)
+            # translate the sleep stages into score values
+            sleepstage_dict = {'WK':0, 'REM':1, 'N1':2, 'N2':3, 'N3':5, 'NS':None}
+            scores = [sleepstage_dict[s] for s in ss_df['Sleep Stage'].values]
+
+            # add a column to the dataframe
+            ss_df['Score'] = scores
+
+            # check that the first epoch matches the first epoch of the data
+            print('Verifying time match between hypnogram and data file...')
+            start_time_hyp = datetime.strptime(ss_df['Start Time '][0], '%I:%M:%S %p')
+            if not start_time_hyp.time() == self.data.index[0].time():
+                print(r'Time mismatch detected.\nData begins at {str(d.data.index[0].time())} and hypnogram begins at {str(start_time_hyp.time())}')
+                print('Aborted.')
+            # make a new dataframe with only the sleep scores
+            print('Importing sleep scores...')
+            hyp = pd.DataFrame(ss_df.Score)
+            # get the starting date & time from the raw data & reformat the date string
+            start_list = str(self.data.index[0].date()).split('-')
+            start_date = '/'.join([start_list[1], start_list[2], start_list[0]])
+            start_sec = str(self.data.index[0].time())
+         
+        # otherwise use format from schifflab hypnograms
+        else:
+            # read the first line to get starting date & time
+            with open(scorefile, 'r') as f:
+                    first_epoch = f.readline()
+                    start_date = first_epoch.split(' ')[0]
+                    start_sec = first_epoch.split(' ')[1].split('\t')[0]
+                    
+            # read in sleep scores & resample to EEG/EKG frequency
+            print('Importing sleep scores...')
+            hyp = pd.read_csv(scorefile, delimiter='\t', header=None, names=['Score'], usecols=[1], dtype=float)
+        
+        # resample the hypnogram to raw data frequency
         scores = pd.DataFrame(np.repeat(hyp.values, self.metadata['s_freq']*30,axis=0), columns=hyp.columns)
 
         # reindex to match EEG/EKG data
@@ -830,7 +949,7 @@ class Dataset:
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
-                        print(('{} successfully exported.').format(savename)) 
+                        #print(('{} successfully exported.').format(savename)) 
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
@@ -842,7 +961,7 @@ class Dataset:
                         savename_elems = savename_base.split('_')
                         savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                         df.to_csv(os.path.join(savedir, savename))
-                        print(('{} successfully exported.').format(savename))
+                        #print(('{} successfully exported.').format(savename))
             elif type(stages) == str:
                 stg = stages
                 if stg not in self.cut_data.keys():
@@ -855,7 +974,7 @@ class Dataset:
                     savename_elems = savename_base.split('_')
                     savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_' + savename_elems[2] + '.csv'
                     df.to_csv(os.path.join(savedir, savename))
-                    print(('{} successfully exported.').format(savename))
+                    #print(('{} successfully exported.').format(savename))
             print('\nDone.')
 
         # Export a nested dict of dataframes w/ epochs
@@ -870,7 +989,7 @@ class Dataset:
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            #print(('{} successfully exported.').format(savename)) 
             elif type(stages) == list:
                 for stg in stages:
                     if stg not in self.cut_data.keys():
@@ -884,7 +1003,7 @@ class Dataset:
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            #print(('{} successfully exported.').format(savename)) 
             elif type(stages) == str:
                 stg = stages
                 if stg not in self.cut_data.keys():
@@ -898,8 +1017,108 @@ class Dataset:
                             savename_elems = savename_base.split('_')
                             savename = '_'.join(savename_elems[:2]) + '_' + stg + '_cycle' + str(cyc) + '_epoch' + str(epoch) + '_' + savename_elems[2] + '.csv'
                             df.to_csv(os.path.join(savedir, savename))
-                            print(('{} successfully exported.').format(savename)) 
+                            #print(('{} successfully exported.').format(savename)) 
             print('\nDone.\n\t*If viewing in Excel, remember to set custom date format to  "m/d/yyyy h:mm:ss.000".')
 
         else:
             print(('Abort: Data must be type pd.core.frame.DataFrame or dict. Input data is type {}.').format(type(data)))
+
+
+    def calc_elapsed_sleep(self, savedir=None, export=True):
+        """ 
+        Calculate minutes of elapsed sleep from a hypnogram file & concatenate stage 2 sleep files
+
+        Parameters
+        ----------
+        savedir: str or None
+            path to save EEG files cut by hrs elapsed sleep
+        export: bool (default: True)
+            whether to export blocked dataframes
+
+        Returns
+        -------
+        .csv files with EEG data blocked in two-hour chunks (according to Purcell et al. 2017)
+            OR
+        pd.dataframes blocked in two-hour chunks (according to Purcell et al. 2017)
+
+        """
+        
+        in_num = self.metadata['in_num']
+        hyp_file = self.metadata['hyp_file']
+
+        # calculate elapsed sleep for each 30-second time interval
+        print('Reloading hypnogram @ 30s resolution...')
+        sleep_scores = [1, 2, 3, 4, 5] # exclude 0 and 6 for awake and record break
+        hyp = pd.read_csv(hyp_file, header=None, index_col=[0], sep='\t', names=['time', 'score'], parse_dates=True)
+        mins_elapsed = hyp.score.isin(sleep_scores).cumsum()/2
+        
+        # make list of dfs for concat
+        data = list(self.cut_data['s2'].values())
+
+        # add NaN to the end of each df
+        data_blocked = [df.append(pd.Series(name=df.iloc[-1].name + pd.Timedelta(milliseconds=1))) for df in data]
+
+        # concatenate the dfs
+        print('Concatenating data...')
+        s2_df = pd.concat(data_blocked).sort_index()
+        
+        # assign indices to hours elapsed sleep
+        print('Assigning minutes elapsed...')
+        idx0_2 = mins_elapsed[mins_elapsed.between(0, 120)].index
+        idx2_4 = mins_elapsed[mins_elapsed.between(120.5, 240)].index
+        idx4_6 = mins_elapsed[mins_elapsed.between(240.5, 360)].index
+        idx6_8 = mins_elapsed[mins_elapsed.between(360.5, 480)].index
+        
+        dfs = []
+        df_names = []
+        # cut dataframe into blocks by elapsed sleep (0-2, 2-4, 4-6, 6-8)
+        df_two = s2_df[(s2_df.index > idx0_2[0]) & (s2_df.index < idx0_2[-1])]
+        dfs.append(df_two)
+        df_names.append('0-2hrs')
+        try:
+            df_four = s2_df[(s2_df.index > idx2_4[0]) & (s2_df.index < idx2_4[-1])]
+        except IndexError:
+            print('<2 hrs sleep. Passing block 2-4hrs.')
+            pass
+        else:
+            dfs.append(df_four)
+            df_names.append('2-4hrs')
+        try:
+            df_six = s2_df[(s2_df.index > idx4_6[0]) & (s2_df.index < idx4_6[-1])]
+        except IndexError:
+            print('<4 hrs sleep. Passing block 4-6hrs.')
+            pass
+        else:
+            dfs.append(df_six)
+            df_names.append('4-6hrs')
+        try:
+            df_eight = s2_df[(s2_df.index > idx6_8[0]) & (s2_df.index < idx6_8[-1])]
+        except IndexError:
+            print('<6 hrs sleep. Passing block 6-8hrs.')
+            pass
+        else:
+            dfs.append(df_eight)
+            df_names.append('6-8hrs')
+        
+        if export:
+            # export blocked data
+            if not os.path.exists(savedir):
+                print(savedir + ' does not exist. Creating directory...')
+                os.makedirs(savedir)
+
+            print('Saving files...')
+            for df, hrs in zip(dfs, df_names):
+                try:
+                    date = df.index[0].strftime('%Y-%m-%d')
+                # if the df is empty, pass
+                except IndexError:
+                    print(f'No stage 2 sleep during {hrs} of sleep.')
+                    pass
+                savename = in_num + '_' + date + '_s2_' + hrs + '.csv'
+                df.to_csv(os.path.join(savedir, savename))
+
+            print(f'Files saved to {savedir}')
+        else:
+            return df_two, df_four, df_six, df_eight
+
+        print('Done')

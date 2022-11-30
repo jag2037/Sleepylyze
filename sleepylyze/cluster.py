@@ -33,8 +33,9 @@ def fmt_kmeans(n):
     spin_range = n.metadata['spindle_analysis']['spin_range']
     
     # specify the data
-    exclude = ['EOG_L', 'EOG_R', 'EKG']
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
     chan_arr_list = []
+    chan_names = []
     for chan in n.spindle_psd_i.keys():
         if chan not in exclude:
             # set channel spindle data
@@ -44,11 +45,12 @@ def fmt_kmeans(n):
             # this fails if a spindle is longer than zpad_len (bc then not all spindles are the same length)
             chan_arr = np.array([spin_psd_chan[x][spin_idxs].values for x in spin_psd_chan])
             chan_arr_list.append(chan_arr)
+            chan_names.append(chan)
 
     # stack all of the channels into a single array
     psd_arr = np.vstack(chan_arr_list)
     # get frequency index from first spindle
-    first_chan = list(n.spindle_psd_i.keys())[0]
+    first_chan = chan_names[0]
     first_spin = list(n.spindle_psd_i[first_chan].keys())[0]
     first_psd = n.spindle_psd_i[first_chan][first_spin]
     f_idx = first_psd[(first_psd.index >= spin_range[0]) & (first_psd.index <= spin_range[1])].index
@@ -255,6 +257,7 @@ def run_kmeans(n, n_clusters, train_split, plot_clusts=True):
     print('Formatting data...')
     # scale the data & reformat
     psd_1d, f_idx = fmt_kmeans(n)
+    scaler.fit(psd_1d) # this does nothing, but is required for sklearn
     psd_1d_scaled = scaler.transform(psd_1d)
     psd_2d = np.array([x.ravel() for x in psd_1d_scaled])
     print('Assigning labels...')

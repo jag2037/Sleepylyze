@@ -5,6 +5,7 @@
         Remove redundant plotting fns added into EKG classs
         Add subsetEEG function to break up concatenated NREM segments for plotting. Will require adjustments
         to specified detections added to plot.
+        *Create chanlocs file & import locs from there*
 """
 
 import itertools
@@ -345,7 +346,7 @@ def vizeeg(d, raw=True, filtered=False, spindles=False, spindle_rejects=False, s
         sp_rej_f_eventsflat = [list(itertools.chain.from_iterable(d.spindle_rejects_f[i])) for i in d.spindle_rejects_f.keys()]  
 
     # set channels for plotting
-    channels = [x[0] for x in d.data.columns if x[0] not in ['EKG', 'EOG_L', 'EOG_R']]
+    channels = [x[0] for x in d.data.columns if x[0] not in ['EKG', 'EOG_L', 'EOG_R', 'REF']]
     
     # set offset multiplier (distance between channels in plot)
     mx = 0.1
@@ -919,7 +920,7 @@ def plot_spins(n, datatype='Raw'):
             Data to plot [Options: 'Raw', 'spfilt']
     """
     
-    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
     ncols = 6
     nrows = len(eeg_chans)//ncols + (len(eeg_chans) % ncols > 0) 
@@ -976,13 +977,13 @@ def plot_spin_means(n, datatype='Raw', spins=True, count=True, buffer=False, err
             color for plotting buffer data
     """
     
-    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
     
     # set channel locations
-    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
-            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
-            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'FP1': [3, 0], 'Fp2': [5, 0], 'FP2': [5, 0], 'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2],'FZ':[4,2], 'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4], 'CZ': [4, 4], 'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6], 'PZ': [4, 6], 'T5': [0, 6],
             'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
     
     fig, ax = plt.subplots(9,9, figsize=(15, 13))
@@ -1155,7 +1156,7 @@ def plot_spindlepower_chan(n, chan, dB=True):
 def plot_spindlepower(n, dB=True):
     """ Plot spindle power spectrum (from concatenated spindles) for all channels """
     
-    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
     eeg_chans = [x for x in n.spindle_psd_concat.keys() if x not in exclude]
     
     # set subplot parameters
@@ -1221,15 +1222,18 @@ def plot_spindlepower_headplot(n, dB=True):
     """
     
 # set channel locations
-    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
-            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
-            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
+    locs = {'FPz': [4, 0],'Fp1': [3, 0],'FP1': [3, 0], 'Fp2': [5, 0], 'FP2': [5, 0], 'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2],'FZ':[4,2], 'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4], 'CZ': [4, 4], 'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6], 'PZ': [4, 6], 'T5': [0, 6],
             'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
     
     fig, ax = plt.subplots(9,9, figsize=(12, 12))
     plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
 
-    for chan in locs.keys():    
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
+    eeg_chans = [x for x in n.spindle_psd_concat.keys() if x not in exclude]
+
+    for chan in eeg_chans:    
         # transform units
         if dB == True:
             pwr = 10 * np.log10(n.spindle_psd_concat[chan].values)
@@ -1281,7 +1285,7 @@ def plot_gottselig(n, datatype='calcs', plot_peaks=True, smoothed=True):
             whether to plot rms smoothed signal used for peak calculations [only if datatype='normed_pwr']
     """
     
-    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
     eeg_chans = [x for x in n.spindle_psd_concat.keys() if x not in exclude]
      # set subplot parameters
     if len(eeg_chans)/6 < 1:
@@ -1356,15 +1360,18 @@ def plot_gottselig_headplot(n, datatype='calcs', plot_peaks=True, smoothed=True)
     """
     
     # set channel locations
-    locs = {'FPz': [4, 0],'Fp1': [3, 0],'Fp2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
-            'F2': [5, 2],'Fz': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
-            'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
-            'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
+    locs = {'FPz': [4, 0],'Fp1': [3, 0], 'FP1':[3,0], 'Fp2': [5, 0], 'FP2': [5, 0],'AF7': [1, 1],'AF8': [7, 1],'F7': [0, 2],'F8': [8, 2],'F3': [2, 2],'F4': [6, 2],'F1': [3, 2],
+            'F2': [5, 2],'Fz': [4, 2], 'FZ': [4, 2],'FC5': [1, 3],'FC6': [7, 3],'FC1': [3, 3],'FC2': [5, 3],'T3': [0, 4],'T4': [8, 4],'C3': [2, 4],'C4': [6, 4],
+            'Cz': [4, 4], 'CZ': [4, 4], 'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6], 'PZ': [4, 6], 
+            'T5': [0, 6], 'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
     
     fig, ax = plt.subplots(9,9, figsize=(12, 12))
     plt.subplots_adjust(hspace=0.3, wspace=0.3) # use this or tight_layout
     
-    for chan in locs.keys():    
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
+    eeg_chans = [x for x in n.spindle_psd_concat.keys() if x not in exclude]
+
+    for chan in eeg_chans:
         data = n.spindle_psd_concat[chan]
         data_normed = n.spindle_psd_concat_norm[chan]
         
@@ -1431,7 +1438,7 @@ def plot_so(n, datatype='Raw'):
             'Cz': [4, 4],'CP5': [1, 5],'CP6': [7, 5],'CP1': [3, 5],'CP2': [5, 5],'CPz': [4, 5],'P3': [2, 6],'P4': [6, 6],'Pz': [4, 6],'T5': [0, 6],
             'T6': [8, 6],'POz': [4, 7],'PO7': [1, 7],'PO8': [7, 7],'O1': [2, 8],'O2': [6, 8],'Oz': [4, 8]}
 
-    exclude = ['EKG', 'EOG_L', 'EOG_R']
+    exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
     eeg_chans = [x for x in n.spindles.keys() if x not in exclude]
 
     fig, ax = plt.subplots(9,9, figsize=(15, 13))
@@ -1707,54 +1714,55 @@ def plot_spso_headplot(n, so_dtype='sofilt', sp_dtype='spsofilt', spin_tracings=
     
     for chan in locs.keys():
         so_dict = {}
-        for so_id, df in n.spso_aggregates[chan].items():
-            if so_tracings:
-                # plot slow oscillation
-                ax[locs[chan][1], locs[chan][0]].plot(df[so_dtype], color='black', alpha=0.2)
-            else:
-                # grab the slow oscillations to calculate mean
-                so_dict[chan+'_'+str(so_id)] = df[df.index.notna()][so_dtype]
+        if chan in n.spso_aggregates.keys():
+            for so_id, df in n.spso_aggregates[chan].items():
+                if so_tracings:
+                    # plot slow oscillation
+                    ax[locs[chan][1], locs[chan][0]].plot(df[so_dtype], color='black', alpha=0.2)
+                else:
+                    # grab the slow oscillations to calculate mean
+                    so_dict[chan+'_'+str(so_id)] = df[df.index.notna()][so_dtype]
 
-            # grab spindle columns
-            spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
-            for spin in spin_cols:
-                # get index & cluster of spindle
-                spin_idx = int(spin_cols[0].split('_')[1])
-                clust = int(n.spindle_stats_i[(n.spindle_stats_i.chan == chan) & (n.spindle_stats_i.spin == spin_idx)].cluster.values)
+                # grab spindle columns
+                spin_cols = [x for x in df.columns if x.split('_')[0] == 'spin']
+                for spin in spin_cols:
+                    # get index & cluster of spindle
+                    spin_idx = int(spin_cols[0].split('_')[1])
+                    clust = int(n.spindle_stats_i[(n.spindle_stats_i.chan == chan) & (n.spindle_stats_i.spin == spin_idx)].cluster.values)
 
-                if spin_tracings:
-                    # plot spindle
-                    c = plt.get_cmap('RdYlBu', 2)(clust)
+                    if spin_tracings:
+                        # plot spindle
+                        c = plt.get_cmap('RdYlBu', 2)(clust)
+                        hx = matplotlib.colors.rgb2hex(c[:-1])
+                        ax[locs[chan][1], locs[chan][0]].plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
+
+            # plot SO mean
+            if so_tracings == False:
+                so_df = pd.DataFrame(so_dict)
+                mean = so_df.mean(axis=1)
+                sd = so_df.std(axis=1)
+                if len(mean) > 0:
+                    ax[locs[chan][1], locs[chan][0]].plot(mean, color='black')
+                    ax[locs[chan][1], locs[chan][0]].fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
+
+            ax[locs[chan][1], locs[chan][0]].set_title(chan, size='small')
+            ax[locs[chan][1], locs[chan][0]].tick_params(axis='x', rotation=0, pad=.1, labelsize='x-small')
+            ax[locs[chan][1], locs[chan][0]].tick_params(axis='y', rotation=0, pad=.1, labelsize='x-small')
+            ax[locs[chan][1], locs[chan][0]].spines['top'].set_visible(False)
+
+            if plot_dist:
+                # plot normalized distribution of each cluster for each timepoint
+                ax1 = ax[locs[chan][1], locs[chan][0]].twinx()
+                for clust, dct in n.spin_dist['by_chan'][chan].items():
+                    # set color
+                    c = plt.get_cmap('RdYlBu', 2)(int(clust))
                     hx = matplotlib.colors.rgb2hex(c[:-1])
-                    ax[locs[chan][1], locs[chan][0]].plot(df[sp_dtype][df[spin].notna()], lw=3, color=hx, alpha=0.5)
-
-        # plot SO mean
-        if so_tracings == False:
-            so_df = pd.DataFrame(so_dict)
-            mean = so_df.mean(axis=1)
-            sd = so_df.std(axis=1)
-            if len(mean) > 0:
-                ax[locs[chan][1], locs[chan][0]].plot(mean, color='black')
-                ax[locs[chan][1], locs[chan][0]].fill_between(mean.index, mean-sd, mean+sd, color='black', alpha=0.3)
-
-        ax[locs[chan][1], locs[chan][0]].set_title(chan, size='small')
-        ax[locs[chan][1], locs[chan][0]].tick_params(axis='x', rotation=0, pad=.1, labelsize='x-small')
-        ax[locs[chan][1], locs[chan][0]].tick_params(axis='y', rotation=0, pad=.1, labelsize='x-small')
-        ax[locs[chan][1], locs[chan][0]].spines['top'].set_visible(False)
-
-        if plot_dist:
-            # plot normalized distribution of each cluster for each timepoint
-            ax1 = ax[locs[chan][1], locs[chan][0]].twinx()
-            for clust, dct in n.spin_dist['by_chan'][chan].items():
-                # set color
-                c = plt.get_cmap('RdYlBu', 2)(int(clust))
-                hx = matplotlib.colors.rgb2hex(c[:-1])
-                # plot normed distribution
-                ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
-                ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
-                ax1.set_ylim(0, 1.0)
-                ax1.tick_params(axis='both', labelsize='x-small')
-                ax1.spines['top'].set_visible(False)
+                    # plot normed distribution
+                    ax1.plot(dct['dist_norm'], color=c, label='Cluster ' + clust)
+                    ax1.fill_between(dct['dist_norm'].index, 0, dct['dist_norm'].values, color=c, alpha=0.3)
+                    ax1.set_ylim(0, 1.0)
+                    ax1.tick_params(axis='both', labelsize='x-small')
+                    ax1.spines['top'].set_visible(False)
     
     # remove unused plots
     coords = [[x, y] for x in range(0, 9) for y in range(0,9)]
@@ -1951,7 +1959,7 @@ def export_spindle_figs(n, export_dir, ext='png', dpi=300, transparent=False, sp
     
     if spindle_spectra or spins_i:                       
         # by channels
-        exclude = ['EKG', 'EOG_L', 'EOG_R']
+        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
         for chan in n.spindles.keys():
             if chan not in exclude:
                 print(f'\nExporting {chan} spectra figures...')

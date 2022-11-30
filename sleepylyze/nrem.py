@@ -10,6 +10,7 @@
         - Update docstrings
         
         - ** Export SO and SPSO analyses
+        - ** move EXCLUDE var into function calls
 """
 
 from datetime import datetime
@@ -188,14 +189,19 @@ class NREM:
             # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
             data_nan = data[i][data[i]['Raw'].isna()]
             data_notnan = data[i][data[i]['Raw'].isna() == False]
-            # filter notNaN data & add column to notNaN df
-            data_notnan_filt = sosfiltfilt(sos, data_notnan.to_numpy(), axis=0)
-            data_notnan['Filt'] = data_notnan_filt
-            # merge NaN & filtered notNaN values, sort on index
-            filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
-            # add to dataframe
-            data_lowpass[i] = filt_chan
-        
+            # if the channel is not all NaN, lowpass filter
+            if len(data_notnan) > 0:
+                # filter notNaN data & add column to notNaN df
+                data_notnan_filt = sosfiltfilt(sos, data_notnan.to_numpy(), axis=0)
+                data_notnan['Filt'] = data_notnan_filt
+                # merge NaN & filtered notNaN values, sort on index
+                filt_chan = data_nan['Raw'].append(data_notnan['Filt']).sort_index()
+                # add to dataframe
+                data_lowpass[i] = filt_chan
+            # otherwise add the nan column
+            else:
+                data_lowpass[i] = data[i]
+            
 
         # set dataframe columns
         data_lowpass.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('raw_lowpass'), len(channels))],names=['Channel','datatype'])
@@ -210,9 +216,20 @@ class NREM:
 
 
     def load_batch(self, fpath, match, in_num):
+
         """ Load a batch of EEG segments & reset index from absolute to relative time 
+
+            Parameters
+            ----------
+            fpath: str
+                absolute path to file(s) directory
+            match: str
+                string to match within the filename of all files to load (Ex: '_s2_')
+            in_num: str
+                IN number, for batch loading
             TO DO: Throw error if IN doesn't match any files in folder
-        """
+        """ 
+
         if in_num == None:
             in_num = input('Please specify IN number: ')
 
@@ -268,7 +285,7 @@ class NREM:
         self.metadata['laplacian_weights'] = {}
             
         # set channel names if filtering all
-        exclude = ['EOG_L','EOG_R', 'EKG']
+        exclude = ['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
         channels = [x[0] for x in self.data.columns if x[0] not in exclude]
         if chans == 'all':
             chans = channels
@@ -392,7 +409,12 @@ class NREM:
     
     # step 1: make filter
     def make_butter_sp(self, wn, order):
-        """ Make Butterworth bandpass filter [Parameters/Returns]"""
+        """ Make Butterworth bandpass filter [Parameters/Returns]
+            wn: list of int (default: [8, 16])
+                butterworth bandpass filter window
+            order: int (default: 4)
+                butterworth 1/2 filter order (applied forwards + backwards)
+        """
         nyquist = self.s_freq/2
         wn_arr=np.asarray(wn)
         if np.any(wn_arr <=0) or np.any(wn_arr >=1):
@@ -546,7 +568,7 @@ class NREM:
         # make boolean mask for spindle presence
         bool_dict = {}
         for chan in self.spindle_events:
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 spins_flat = [time for spindle in self.spindle_events[chan] for time in spindle]
                 bool_dict[chan] = np.isin(self.data.index.values, spins_flat)
         spin_bool = pd.DataFrame(bool_dict, index = self.data.index.values)
@@ -584,18 +606,20 @@ class NREM:
 
 
     # set multiIndex
-    def spMultiIndex(self):
+    def spMultiIndex(self, exclude):
         """ combine dataframes into a multiIndex dataframe"""
+        channels = [x for x in self.channels if x not in exclude]
+
         # reset column levels
-        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('Filtered'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMS.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMS'), len(self.channels))],names=['Channel','datatype'])
-        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([self.channels, np.repeat(('RMSmavg'), len(self.channels))],names=['Channel','datatype'])
+        self.spfiltEEG.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('Filtered'), len(channels))],names=['Channel','datatype'])
+        self.spRMS.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('RMS'), len(channels))],names=['Channel','datatype'])
+        self.spRMSmavg.columns = pd.MultiIndex.from_arrays([channels, np.repeat(('RMSmavg'), len(channels))],names=['Channel','datatype'])
 
         # list df vars for index specs
         dfs =[self.spfiltEEG, self.spRMS, self.spRMSmavg] # for > speed, don't store spinfilt_RMS as an attribute
         calcs = ['Filtered', 'RMS', 'RMSmavg']
-        lvl0 = np.repeat(self.channels, len(calcs))
-        lvl1 = calcs*len(self.channels)    
+        lvl0 = np.repeat(channels, len(calcs))
+        lvl1 = calcs*len(channels)    
     
         # combine & custom sort
         self.spindle_calcs = pd.concat(dfs, axis=1).reindex(columns=[lvl0, lvl1])
@@ -715,8 +739,15 @@ class NREM:
         """
         
         def create_zpad(spin, chan, x, zpad_len):
-            """ Create the zero-padded spindle from raw data [spin: np.array of spindle mV values] """
-            # subtract mean to zero-center spindle for zero-padding
+            """ Create the zero-padded spindle from raw data
+
+                Parameters
+                ----------
+                spin: np.array
+                    spindle mV values
+                zpad_len: float
+                    length to zero-pad the data to (in seconds) """
+                # subtract mean to zero-center spindle for zero-padding
             sf = self.s_freq
             data = spin.values - np.mean(spin.values)
             zpad_samples=0
@@ -994,7 +1025,8 @@ class NREM:
         
     def detect_spindles(self, wn=[8, 16], order=4, sp_mw=0.2, loSD=0, hiSD=1.5, min_sep=0.2, duration=[0.5, 3.0], min_chans_r=3, min_chans_d=9,
                         zmethod='trough', trough_dtype='spfilt', buff=False, buffer_len=3, psd_bandwidth=1.0, zpad=True, zpad_len=3.0, pwr_prune=True,
-                        pwr_thres=30, spin_range=[9, 16], prune_range=[4, 25], min_peaks=1, pk_width_hz=0.5):  
+                        pwr_thres=30, spin_range=[9, 16], prune_range=[4, 25], min_peaks=1, pk_width_hz=0.5, 
+                        exclude=['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2', 'CZ', 'FP1', 'FP2', 'FZ', 'PZ']):  
         """ Detect spindles by channel
             
             Parameters
@@ -1047,6 +1079,9 @@ class NREM:
                 minimum number of spectral peaks in the spindle range for a spindle to be accepted
             pk_width_hz: float (default: 0.5)
                 minimum width (in Hz) for a peak to be considered a peak
+            exlcude: list of string or None (default: ['EOG_L','EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2'])
+                list of channels to exclude from analysis. NOTE: capital 'FZ' & 'PZ' are MOBEE 32 nan channels. 
+                Sentence case 'Fz' and 'Pz' are valid FS128 channels.
 
             Returns
             -------
@@ -1072,7 +1107,7 @@ class NREM:
         print('Detecting spindles...')
         # loop through channels (all channels for plotting ease)
         for i in self.channels:
-           # if i not in ['EOG_L', 'EOG_R', 'EKG']:
+            if i not in exclude:
                 #print(f'Detecting spindles on {i}...')
                 # Filter
                 self.spfilt(i)
@@ -1085,7 +1120,7 @@ class NREM:
 
         # combine dataframes
         print('Combining dataframes...')
-        self.spMultiIndex()
+        self.spMultiIndex(exclude)
         
         # Apply time-domain rejection criteria
         print('Pruning spindle detections...')
@@ -1208,7 +1243,7 @@ class NREM:
         spindle_stats = pd.DataFrame(columns=columns)
         
         #exclude non-EEG channels
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
+        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
 
         # fill dataframe
         for chan in self.spindles:
@@ -1268,7 +1303,7 @@ class NREM:
 
             Params
             ------
-            bandwidth: float
+            psd_bandwidth: float
                 frequency resolution in Hz
 
             Returns
@@ -1345,7 +1380,7 @@ class NREM:
             return a*np.exp(-b*x)+c
         
         self.metadata['spindle_analysis']['gottselig_range'] = norm_range
-        exclude = ['EOG_L', 'EOG_R', 'EKG']
+        exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
         
         spindle_psd_norm = {}
         chans_norm_failed = []
@@ -1411,7 +1446,7 @@ class NREM:
         c_chans = ['a1', 't9', 't3', 'c5', 'c3', 'c1', 'cz', 'c2', 'c4', 'c6', 't4', 't10', 'a2']
         
         # exclude non-EEG channels
-        exclude = ['EKG', 'EOG_L', 'EOG_R']
+        exclude = ['EKG', 'EOG_L', 'EOG_R', 'REF', 'FPZorEKG', 'A1', 'A2']
         # loop through all channels
         for chan in self.spindles.keys():
             if chan not in exclude:
@@ -1424,7 +1459,7 @@ class NREM:
                 elif any((c.casefold() in p_chars) for c in chan):
                     ap = 'P'
                 # assign RL
-                if chan[-1] == 'z':
+                if chan[-1].casefold() == 'z':
                     rl = 'C'
                 elif int(chan[-1]) % 2 == 0:
                     rl = 'R'
@@ -1504,7 +1539,7 @@ class NREM:
             # pull minimum width (in Hz) for a peak to be considered a peak
             pk_width_hz = self.metadata['spindle_analysis']['pk_width_hz']
              #exclude non-EEG channels
-            exclude = ['EOG_L', 'EOG_R', 'EKG']
+            exclude = ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']
 
             # create fstats dataframe & peaks dict
             cols = ['dominant_freq_Hz', 'total_pwr_dB', 'total_peaks', 'peak_freqs_Hz', 'peak_ratios']
@@ -1642,6 +1677,8 @@ class NREM:
         
             Parameters
             ----------
+            export_dir: str
+                path to export directory
             raw: bool (default: True)
                 export raw EEG spindle detection tracings
             psd_concat: bool (default: True)
@@ -1805,8 +1842,15 @@ class NREM:
         self.so_rejects = {}
 
     def make_butter_so(self, wn, order):
-        """ Make Butterworth bandpass filter [Parameters/Returns]"""
-        
+        """ Make Butterworth bandpass filter [Parameters/Returns]
+
+            Parameters
+            ----------
+            wn: list of int (default: [8, 16])
+                butterworth bandpass filter window
+            order: int (default: 4)
+                butterworth 1/2 filter order (applied forwards + backwards)
+        """
         nyquist = self.s_freq/2
         wn_arr = np.asarray(wn)
         
@@ -1817,7 +1861,17 @@ class NREM:
         print(f"Zero phase butterworth filter successfully created: order = {order}x{order}, bandpass = {wn}")
 
     def make_butter_spso(self, spso_wn_pass, spso_wn_stop, spso_order):
-        """ Make Butterworth bandpass and bandstop filter [Parameters/Returns]"""
+        """ Make Butterworth bandpass and bandstop filter
+
+            Parameters
+            ----------
+            spso_wn_pass: list (default: [0.1, 17])
+            spso_wn_stop: list (default: [4.5, 7.5])
+            spso_order: int (default: 8)
+
+        """
+
+
         nyquist = self.s_freq/2
         wn_pass_arr = np.asarray(spso_wn_pass)
         wn_stop_arr = np.asarray(spso_wn_stop)
@@ -1863,8 +1917,13 @@ class NREM:
         self.sofiltEEG[i] = filt_chan
 
     def spsofilt(self, i):
-        """ Apply Butterworth bandpass-bandstop to signal by channel """
+        """ Apply Butterworth bandpass-bandstop to signal by channel
 
+            Parameters
+            ----------
+            i : str
+                channel to filter
+        """
         # separate NaN and non-NaN values to avoid NaN filter output on cleaned data
         data_nan = self.data[i][self.data[i]['Raw'].isna()]
         data_notnan = self.data[i][self.data[i]['Raw'].isna() == False]
@@ -1887,6 +1946,8 @@ class NREM:
             
             Parameters
             ----------
+            i : str
+                channel to filter
             method: str (default: 'absolute')
                 SO detection method. [Options: 'absolute', 'ratio'] 
                 'absolute' employs absolute voltage values for npeak_thres and negpos_thres. 
@@ -2154,7 +2215,7 @@ class NREM:
         # flatten the dictionary into a boolean df
         so_bool_dict = {}
         for chan in so_dict:
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 so_flat = [time for so in so_dict[chan] for time in so]
                 so_bool_dict[chan] = np.isin(data.index.values, so_flat)
         so_bool = pd.DataFrame(so_bool_dict, index=data.index)
@@ -2162,7 +2223,7 @@ class NREM:
         # create a spindle boolean df
         spin_bool_dict = {}
         for chan in spindles.keys():
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 spins_tlist = [df.time.values for df in spindles[chan].values()]
                 spins_flat = [time for spindle in spins_tlist for time in spindle]
                 spin_bool_dict[chan] = np.isin(data.index.values, spins_flat)
@@ -2190,7 +2251,7 @@ class NREM:
         # Make aggregate dataframe
         spso_aggregates = {}
         for chan in so.keys():
-            if chan not in ['EOG_L', 'EOG_R', 'EKG']:
+            if chan not in ['EOG_L', 'EOG_R', 'EKG', 'REF', 'FPZorEKG', 'A1', 'A2']:
                 spso_aggregates[chan] = {}
                 for so_idx, spins in so_spin_map[chan].items(): 
                     spso_agg = so[chan][so_idx]
@@ -2275,7 +2336,7 @@ class NREM:
             elif any((c.casefold() in p_chars) for c in chan):
                 ap = 'P'
             # assign RL
-            if chan[-1] == 'z':
+            if chan[-1].casefold() == 'z':
                 rl = 'C'
             elif int(chan[-1]) % 2 == 0:
                 rl = 'R'
@@ -2340,6 +2401,8 @@ class NREM:
 
             Parameters
             ----------
+            export_dir: str
+                path to export directory
             spso_aggregates: bool (default: True)
                 export aligned aggregates of spindles and slow oscillations
             spin_dist: bool (default: True)
